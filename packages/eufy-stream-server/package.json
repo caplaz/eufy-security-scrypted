@@ -1,0 +1,39 @@
+{
+  "name": "eufy-stream-server",
+  "version": "1.0.0",
+  "description": "Simplified TCP streaming server for raw H.264 video streams from Eufy cameras",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "example": "npm run build && node dist/examples/basic-server.js"
+  },
+  "keywords": [
+    "eufy",
+    "streaming",
+    "h264",
+    "video",
+    "tcp",
+    "server"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "tslog": "^4.9.2"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist/**/*"
+  ]
+}

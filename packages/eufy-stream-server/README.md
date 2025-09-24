@@ -1,0 +1,163 @@
+# Eufy Stream Server
+
+A simplified TCP streaming server for raw H.264 video streams from Eufy security cameras.
+
+## Features
+
+- **Raw H.264 Streaming**: Direct streaming of H.264 video data without audio or MP4 fragmentation
+- **TCP Server**: Simple TCP server that accepts multiple concurrent connections
+- **NAL Unit Parsing**: Basic H.264 NAL unit extraction and key frame detection
+- **Connection Management**: Handles multiple client connections with automatic cleanup
+- **Statistics**: Basic streaming and connection statistics
+- **Zero Audio Complexity**: Completely removed audio processing from the legacy implementation
+
+## Installation
+
+```bash
+npm install eufy-stream-server
+```
+
+## Usage
+
+### Basic Example
+
+```typescript
+import { StreamServer } from "eufy-stream-server";
+
+// Create server instance
+const server = new StreamServer({
+  port: 8080,
+  host: "0.0.0.0",
+  maxConnections: 10,
+  debug: true,
+});
+
+// Start the server
+await server.start();
+console.log("Stream server started on port 8080");
+
+// Stream H.264 video data
+const h264Buffer = // ... your H.264 data
+  await server.streamVideo(h264Buffer, Date.now(), true); // timestamp, isKeyFrame
+
+// Get server statistics
+const stats = server.getStats();
+console.log("Active connections:", stats.connections.active);
+console.log("Frames processed:", stats.streaming.framesProcessed);
+
+// Stop the server
+await server.stop();
+```
+
+### Event Handling
+
+```typescript
+// Listen for client connections
+server.on("clientConnected", (connectionId, connectionInfo) => {
+  console.log(
+    `Client ${connectionId} connected from ${connectionInfo.remoteAddress}`
+  );
+});
+
+// Listen for client disconnections
+server.on("clientDisconnected", (connectionId) => {
+  console.log(`Client ${connectionId} disconnected`);
+});
+
+// Listen for video streaming events
+server.on("videoStreamed", (streamData) => {
+  console.log(
+    `Streamed ${streamData.data.length} bytes, keyFrame: ${streamData.isKeyFrame}`
+  );
+});
+
+// Listen for errors
+server.on("error", (error) => {
+  console.error("Server error:", error);
+});
+```
+
+### H.264 Parser Usage
+
+```typescript
+import { H264Parser } from "eufy-stream-server";
+
+const parser = new H264Parser(logger);
+
+// Extract NAL units
+const nalUnits = parser.extractNALUnits(h264Buffer);
+console.log(
+  "Found NAL units:",
+  nalUnits.map((nal) => nal.type)
+);
+
+// Check if data contains key frame
+const isKeyFrame = parser.isKeyFrame(h264Buffer);
+
+// Extract basic video metadata
+const metadata = parser.extractVideoMetadata(h264Buffer);
+if (metadata) {
+  console.log("Video profile:", metadata.profile);
+  console.log("Video level:", metadata.level);
+}
+```
+
+## API Reference
+
+### StreamServer
+
+#### Constructor Options
+
+- `port?: number` - Server port (default: 8080)
+- `host?: string` - Server host (default: '0.0.0.0')
+- `maxConnections?: number` - Maximum concurrent connections (default: 10)
+- `debug?: boolean` - Enable debug logging (default: false)
+
+#### Methods
+
+- `start(): Promise<void>` - Start the TCP server
+- `stop(): Promise<void>` - Stop the TCP server
+- `streamVideo(data: Buffer, timestamp?: number, isKeyFrame?: boolean): Promise<boolean>` - Stream H.264 data
+- `getStats(): ServerStats` - Get server statistics
+- `getActiveConnectionCount(): number` - Get number of active connections
+- `isRunning(): boolean` - Check if server is running
+
+#### Events
+
+- `started` - Server started successfully
+- `stopped` - Server stopped
+- `clientConnected(connectionId, connectionInfo)` - New client connected
+- `clientDisconnected(connectionId)` - Client disconnected
+- `videoStreamed(streamData)` - Video data streamed
+- `error(error)` - Server error occurred
+
+### H264Parser
+
+#### Methods
+
+- `extractNALUnits(data: Buffer): NALUnit[]` - Extract NAL units from H.264 data
+- `isKeyFrame(data: Buffer): boolean` - Check if data contains key frame
+- `extractVideoMetadata(data: Buffer): VideoMetadata | null` - Extract basic metadata
+- `validateH264Data(data: Buffer): boolean` - Validate H.264 data structure
+
+## Differences from Legacy Implementation
+
+This simplified version removes the following complexity from the legacy eufy-stream-server:
+
+- ❌ **Audio Processing**: No audio codec detection, AAC handling, or audio/video synchronization
+- ❌ **MP4 Fragmentation**: No MP4 container creation or fragmentation
+- ❌ **Complex Error Recovery**: No audio error recovery or extensive diagnostics
+- ❌ **MPEG-TS Support**: No MPEG-TS muxing capabilities
+- ❌ **Advanced Diagnostics**: No corruption detection or extensive monitoring
+
+Instead, it focuses on:
+
+- ✅ **Raw H.264 Only**: Direct streaming of raw H.264 video data
+- ✅ **Simple TCP Server**: Basic TCP connection management
+- ✅ **NAL Unit Parsing**: Essential H.264 structure parsing
+- ✅ **Key Frame Detection**: Basic I-frame detection
+- ✅ **Connection Statistics**: Simple streaming metrics
+
+## License
+
+MIT
