@@ -82,7 +82,7 @@ export interface BaseDeviceEventPayload<TEventName extends DeviceEventType> {
 
 // Base device event payload with serial number (for most device events)
 export interface BaseDeviceEventPayloadWithSerial<
-  TEventName extends DeviceEventType
+  TEventName extends DeviceEventType,
 > extends BaseDeviceEventPayload<TEventName> {
   serialNumber: string;
 }
@@ -501,7 +501,7 @@ export type DeviceEventPayloadByType<T extends DeviceEventType> = Extract<
 
 // Event listener type for device events
 export type DeviceEventListener<T extends DeviceEventType> = (
-  event: DeviceEventPayloadByType<T>
+  event: DeviceEventPayloadByType<T>,
 ) => void;
 
 // Generic device event listener

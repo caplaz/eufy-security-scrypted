@@ -23,7 +23,7 @@ export interface BaseStationEventPayload<TEventName extends StationEventType> {
 
 // Base station event payload with serial number (for most station events)
 export interface BaseStationEventPayloadWithSerial<
-  TEventName extends StationEventType
+  TEventName extends StationEventType,
 > extends BaseStationEventPayload<TEventName> {
   serialNumber: string;
 }
@@ -180,7 +180,7 @@ export type StationEventPayloadByType<T extends StationEventType> = Extract<
 
 // Event listener type for station events
 export type StationEventListener<T extends StationEventType> = (
-  event: StationEventPayloadByType<T>
+  event: StationEventPayloadByType<T>,
 ) => void;
 
 // Generic station event listener

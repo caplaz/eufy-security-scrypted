@@ -25,13 +25,13 @@ export function isValidEventSource(source: string): source is EventSource {
 }
 
 export function assertEventSource(
-  source: string
+  source: string,
 ): asserts source is EventSource {
   if (!isValidEventSource(source)) {
     throw new Error(
       `Invalid event source: ${source}. Valid sources are: ${Object.values(
-        EVENT_SOURCES
-      ).join(", ")}`
+        EVENT_SOURCES,
+      ).join(", ")}`,
     );
   }
 }

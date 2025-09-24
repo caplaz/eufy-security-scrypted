@@ -35,5 +35,5 @@ jobs:
       - name: Lint eufy-security-client
         run: cd packages/eufy-security-client && npm run lint
 
-      - name: Format check eufy-security-client
-        run: cd packages/eufy-security-client && npm run format:check
+      - name: Format eufy-security-client
+        run: cd packages/eufy-security-client && npm run format

@@ -84,7 +84,7 @@ export class WebSocketMessageProcessor {
     this.maxMessageSize = config.maxMessageSize ?? 500000; // 500KB default to handle video data
     this.rateLimiter = new MessageRateLimiter(
       config.maxMessagesPerSecond ?? 100,
-      config.rateLimitWindowMs ?? 1000
+      config.rateLimitWindowMs ?? 1000,
     );
   }
 
@@ -140,7 +140,7 @@ export class WebSocketMessageProcessor {
           allowLargeMessage = allowedLargeTypes.some(
             (type) =>
               messageType.includes(type) ||
-              messageStr.includes(`"type":"${type}"`)
+              messageStr.includes(`"type":"${type}"`),
           );
         }
       } catch (e) {
@@ -155,10 +155,10 @@ export class WebSocketMessageProcessor {
         } else {
           // Also check for EVENT and RESULT types using string matching
           const isEventMessage = messageStr.includes(
-            `"type":"${MESSAGE_TYPES.EVENT}"`
+            `"type":"${MESSAGE_TYPES.EVENT}"`,
           );
           const isResultMessage = messageStr.includes(
-            `"type":"${MESSAGE_TYPES.RESULT}"`
+            `"type":"${MESSAGE_TYPES.RESULT}"`,
           );
 
           if (isEventMessage) {
@@ -178,13 +178,13 @@ export class WebSocketMessageProcessor {
         this.invalidMessages++;
         this.logger?.warn(
           `Message too large and not streaming data: ${messageStr.length} bytes, ` +
-            `type: ${messageType}, preview: ${messageStr.substring(0, 100)}...`
+            `type: ${messageType}, preview: ${messageStr.substring(0, 100)}...`,
         );
         return { valid: false, error: "Message too large" };
       } else {
         // Log but allow the message
         this.logger?.debug(
-          `Large message allowed for streaming: ${messageStr.length} bytes, type: ${messageType}`
+          `Large message allowed for streaming: ${messageStr.length} bytes, type: ${messageType}`,
         );
       }
     }

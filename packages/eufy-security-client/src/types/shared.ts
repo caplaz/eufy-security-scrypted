@@ -38,8 +38,8 @@ export type PropertyMetadataBase<T extends PropertyMetadataType> = {
   default?: T extends "boolean"
     ? boolean
     : T extends "number"
-    ? number
-    : string;
+      ? number
+      : string;
 };
 
 export type PropertyMetadataAny =

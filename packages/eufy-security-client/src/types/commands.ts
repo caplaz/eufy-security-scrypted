@@ -24,27 +24,28 @@ export interface BaseCommand<TCommand extends string> {
  * @template TCommand - The specific command type string
  * @public
  */
-export interface BaseCommandWithSerial<TCommand extends string> extends BaseCommand<TCommand> {
+export interface BaseCommandWithSerial<TCommand extends string>
+  extends BaseCommand<TCommand> {
   /** Device or station serial number */
   serialNumber: string;
 }
 
 // Command/response mapping types and helpers
 // These are imported from device, station, driver, server responses
-import { DeviceCommandResponseMap } from '../device/responses';
-import { StationCommandResponseMap } from '../station/responses';
-import { DriverCommandResponseMap } from '../driver/responses';
-import { ServerCommandResponseMap } from '../server/responses';
+import { DeviceCommandResponseMap } from "../device/responses";
+import { StationCommandResponseMap } from "../station/responses";
+import { DriverCommandResponseMap } from "../driver/responses";
+import { ServerCommandResponseMap } from "../server/responses";
 import {
   DEVICE_COMMANDS,
   STATION_COMMANDS,
   DRIVER_COMMANDS,
   SERVER_COMMANDS,
-} from '../common/constants';
-import type { DeviceCommand } from '../device/commands';
-import type { StationCommand } from '../station/commands';
-import type { DriverCommand } from '../driver/commands';
-import type { ServerCommand } from '../server/commands';
+} from "../common/constants";
+import type { DeviceCommand } from "../device/commands";
+import type { StationCommand } from "../station/commands";
+import type { DriverCommand } from "../driver/commands";
+import type { ServerCommand } from "../server/commands";
 
 export type AllCommandResponseMap = DeviceCommandResponseMap &
   StationCommandResponseMap &
@@ -55,7 +56,8 @@ export type AllCommandResponseMap = DeviceCommandResponseMap &
  * Maps a command type to its corresponding response type.
  * Ensures type safety for command responses.
  */
-export type ResponseForCommand<T extends keyof AllCommandResponseMap> = AllCommandResponseMap[T];
+export type ResponseForCommand<T extends keyof AllCommandResponseMap> =
+  AllCommandResponseMap[T];
 
 /**
  * Represents the parameters for a specific command.
@@ -63,16 +65,19 @@ export type ResponseForCommand<T extends keyof AllCommandResponseMap> = AllComma
  *
  * @template T - The type of the command.
  */
-export type ParamsForCommand<T extends SupportedCommandType> = T extends keyof AllParameterMaps
-  ? AllParameterMaps[T]
-  : {};
+export type ParamsForCommand<T extends SupportedCommandType> =
+  T extends keyof AllParameterMaps ? AllParameterMaps[T] : {};
 
 export type SupportedCommandType = keyof AllCommandResponseMap;
 
 // Union of all supported command types
-export type EufySupportedCommand = DeviceCommand | StationCommand | DriverCommand | ServerCommand;
+export type EufySupportedCommand =
+  | DeviceCommand
+  | StationCommand
+  | DriverCommand
+  | ServerCommand;
 
-export type ExtractParams<T> = Omit<T, 'command' | 'messageId'>;
+export type ExtractParams<T> = Omit<T, "command" | "messageId">;
 /**
  * Extracts the parameters for a specific command type.
  * Omits the `command` and `messageId` fields from the command definition.
@@ -85,7 +90,7 @@ export type ExtractParams<T> = Omit<T, 'command' | 'messageId'>;
  * Used internally for type safety in command parameter handling.
  */
 export type AllParameterMaps = {
-  [K in EufySupportedCommand as K['command']]: ExtractParams<K>;
+  [K in EufySupportedCommand as K["command"]]: ExtractParams<K>;
 };
 
 /**
@@ -104,7 +109,9 @@ export type AllParameterMaps = {
  *
  * @public
  */
-export function isSupportedCommand(command: string): command is SupportedCommandType {
+export function isSupportedCommand(
+  command: string,
+): command is SupportedCommandType {
   const allSupportedCommands = [
     ...Object.values(DEVICE_COMMANDS),
     ...Object.values(STATION_COMMANDS),

@@ -42,23 +42,23 @@ export type AllEventPayloads =
 
 export type EventPayloadForType<
   T extends EventType,
-  S extends EventSource
+  S extends EventSource,
 > = T extends DeviceEventType
   ? S extends DeviceEventSource
     ? DeviceEventPayloadByType<T>
     : never
   : T extends DriverEventType
-  ? DriverEventPayloadByType<T>
-  : T extends StationEventType
-  ? S extends StationEventSource
-    ? StationEventPayloadByType<T>
-    : never
-  : T extends ServerEventType
-  ? ServerEventPayloadByType<T>
-  : Extract<AllEventPayloads, { event: T }>;
+    ? DriverEventPayloadByType<T>
+    : T extends StationEventType
+      ? S extends StationEventSource
+        ? StationEventPayloadByType<T>
+        : never
+      : T extends ServerEventType
+        ? ServerEventPayloadByType<T>
+        : Extract<AllEventPayloads, { event: T }>;
 
 export type EventCallbackForType<T extends EventType, S extends EventSource> = (
-  payload: EventPayloadForType<T, S>
+  payload: EventPayloadForType<T, S>,
 ) => void;
 
 export interface EventListener<T extends EventType, S extends EventSource> {

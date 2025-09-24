@@ -103,7 +103,7 @@ export type DriverEventPayloadByType<T extends DriverEventType> = Extract<
 
 // Event listener type for driver events
 export type DriverEventListener<T extends DriverEventType> = (
-  event: DriverEventPayloadByType<T>
+  event: DriverEventPayloadByType<T>,
 ) => void;
 
 // Generic driver event listener
