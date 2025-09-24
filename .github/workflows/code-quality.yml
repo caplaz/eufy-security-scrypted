@@ -23,9 +23,6 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
-      - name: Install workspace dependencies
-        run: npm run bootstrap
-
       - name: Setup Scrypted SDK for eufy-security-scrypted
         run: |
           mkdir -p packages/eufy-security-scrypted/node_modules/@scrypted

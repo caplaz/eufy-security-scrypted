@@ -8,7 +8,6 @@
     "lerna": "^8.0.0"
   },
   "scripts": {
-    "bootstrap": "lerna bootstrap",
     "build": "lerna run build",
     "clean": "lerna clean",
     "publish": "lerna publish",
