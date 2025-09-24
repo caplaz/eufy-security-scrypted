@@ -2,8 +2,6 @@
 
 A comprehensive Scrypted plugin for Eufy Security cameras with streaming support via eufy-security-ws server.
 
-<!-- Test comment for pre-commit hook -->
-
 ## 📈 Recent Progress
 
 ### September 2025 Updates

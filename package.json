@@ -8,6 +8,7 @@
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
     "eslint": "^8.57.1",
+    "husky": "^9.1.7",
     "lerna": "^8.0.0"
   },
   "scripts": {
@@ -16,6 +17,7 @@
     "publish": "lerna publish",
     "test": "lerna run test",
     "lint": "lerna run lint",
-    "lint:fix": "lerna run lint:fix"
+    "lint:fix": "lerna run lint:fix",
+    "prepare": "husky"
   }
 }
