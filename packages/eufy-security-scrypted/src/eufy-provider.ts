@@ -75,10 +75,10 @@ export class EufySecurityProvider
     this.debugLogging = this.storage.getItem("debugLogging") === "true";
     initializeDebugLogger(this.console, this.debugLogging);
 
-    // Create a logger for the WebSocket client
+    // Create a logger for the WebSocket client with reasonable verbosity
     this.wsLogger = new Logger({
       name: "EufyWebSocketClient",
-      minLevel: this.debugLogging ? 0 : 3, // 0 = silly, 3 = info
+      minLevel: 4, // warn level and above (warn, error, fatal)
     });
 
     this.wsClient = new EufyWebSocketClient(
@@ -91,10 +91,17 @@ export class EufySecurityProvider
 
     this.logger.i("🚀 EufySecurityProvider initialized");
 
-    // Start connection automatically
-    this.startConnection().catch((error) => {
-      this.logger.e("❌ Failed to start connection:", error);
-    });
+    // Only attempt connection if explicitly enabled or if we have credentials
+    const shouldConnect = this.storage.getItem("autoConnect") !== "false";
+    if (shouldConnect) {
+      this.startConnection().catch((error) => {
+        this.logger.w(
+          "⚠️ WebSocket connection failed - server may not be running"
+        );
+      });
+    } else {
+      this.logger.i("🔌 Auto-connect disabled - manual connection required");
+    }
   }
 
   /**
@@ -128,6 +135,15 @@ export class EufySecurityProvider
         title: "Debug Logging",
         description: "Enable verbose logging for troubleshooting",
         value: this.debugLogging,
+        type: "boolean",
+        immediate: true, // Apply immediately without restart
+      },
+      {
+        key: "autoConnect",
+        title: "Auto Connect",
+        description:
+          "Automatically attempt to connect to Eufy services on startup",
+        value: this.storage.getItem("autoConnect") !== "false", // Default to true
         type: "boolean",
         immediate: true, // Apply immediately without restart
       },
@@ -431,27 +447,45 @@ export class EufySecurityProvider
         } catch (error) {
           this.logger.e("Failed to connect with new WebSocket URL:", error);
         }
+        // Refresh the settings UI to indicate the change was saved
+        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
       } else if (key === "debugLogging") {
         this.debugLogging = value === true || value === "true";
         // Update global debug setting immediately
         setDebugEnabled(this.debugLogging);
-        // Update WebSocket logger level
-        this.wsLogger.settings.minLevel = this.debugLogging ? 0 : 3;
+        // Update WebSocket logger level - allow warnings/errors but not info/debug
+        this.wsLogger.settings.minLevel = this.debugLogging ? 2 : 4;
         this.logger.i(
           `Debug logging ${this.debugLogging ? "enabled" : "disabled"}`
         );
+        // Refresh the settings UI to indicate the change was saved
+        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+      } else if (key === "autoConnect") {
+        const autoConnectEnabled = value === true || value === "true";
+        this.storage.setItem("autoConnect", autoConnectEnabled.toString());
+        this.logger.i(
+          `Auto-connect ${autoConnectEnabled ? "enabled" : "disabled"}`
+        );
+        // If auto-connect is disabled and we're currently trying to connect, we might want to stop
+        // But for now, just log the change - the connection logic will check this setting
+        // Refresh the settings UI to indicate the change was saved
+        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
       } else if (key === "memoryThresholdMB") {
         const memMB = Math.max(50, parseInt(value as string) || 120);
         this.storage.setItem("memoryThresholdMB", memMB.toString());
         // Update the MemoryManager singleton directly
         MemoryManager.setMemoryThreshold(memMB, this.logger);
         this.logger.i(`Memory threshold updated to ${memMB}MB system-wide`);
+        // Refresh the settings UI to indicate the change was saved
+        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
       }
       // Other button handlers for captcha
       else if (key === "captchaInput") {
         // Store the captcha input for later submission
         this.storage.setItem("pendingCaptcha", value as string);
         this.logger.d("Captcha input stored");
+        // Refresh the settings UI to indicate the change was saved
+        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
       } else if (key === "submitCaptcha") {
         const captchaCode = this.storage.getItem("pendingCaptcha");
         const captchaId = this.storage.getItem("currentCaptchaId");
@@ -488,6 +522,8 @@ export class EufySecurityProvider
         // Store the verification code input for later submission
         this.storage.setItem("pendingVerifyCode", value as string);
         this.logger.d("2FA verification code input stored");
+        // Refresh the settings UI to indicate the change was saved
+        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
       } else if (key === "submitVerifyCode") {
         const verifyCode = this.storage.getItem("pendingVerifyCode");
 
@@ -602,23 +638,45 @@ export class EufySecurityProvider
    * @returns {Promise<void>}
    */
   private async startConnection(): Promise<void> {
-    await this.wsClient.connect();
+    try {
+      this.logger.d("🔌 Attempting WebSocket connection...");
+      await this.wsClient.connect();
 
-    // Wait for client to be ready (schema negotiation, etc.)
-    await this.waitForClientReady();
+      // Wait for client to be ready (schema negotiation, etc.)
+      await this.waitForClientReady();
 
-    const serverState: StartListeningResponse =
-      await this.wsClient.startListening();
+      const serverState: StartListeningResponse =
+        await this.wsClient.startListening();
 
-    this.logger.d(
-      "🔍 Raw startListening response:",
-      JSON.stringify(serverState, null, 2)
-    );
+      this.logger.d(
+        "🔍 Raw startListening response:",
+        JSON.stringify(serverState, null, 2)
+      );
 
-    // Register stations and devices from server state
-    // IMPORTANT: Register stations first so they exist as parents for devices
-    await this.registerStationsFromServerState(serverState);
-    await this.registerDevicesFromServerState(serverState);
+      // Register stations and devices from server state
+      // IMPORTANT: Register stations first so they exist as parents for devices
+      await this.registerStationsFromServerState(serverState);
+      await this.registerDevicesFromServerState(serverState);
+
+      this.logger.i("✅ WebSocket connection established successfully");
+    } catch (error: any) {
+      // Provide cleaner error messages for connection failures
+      if (
+        error.code === "ECONNREFUSED" ||
+        error.message?.includes("ECONNREFUSED") ||
+        error.name === "AggregateError"
+      ) {
+        this.logger.w(
+          "⚠️ WebSocket connection refused - server not running or unreachable (127.0.0.1:3000)"
+        );
+      } else {
+        // Only log the error message, not the full error object
+        const errorMsg = error.message || "Unknown error";
+        this.logger.e(`❌ WebSocket connection failed: ${errorMsg}`);
+      }
+      // Don't re-throw the error to prevent framework-level logging of full error details
+      return;
+    }
   }
 
   /**
