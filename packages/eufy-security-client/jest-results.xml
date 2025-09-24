@@ -1,0 +1,394 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="185" failures="0" errors="0" time="11.878">
+  <testsuite name="tests/unit/common-constants.test.ts" errors="0" failures="0" skipped="0" timestamp="2025-08-10T04:58:37" time="1.114" tests="13">
+    <testcase classname="Common Constants › EVENT_SOURCES" name="should have all required event sources" time="0.002">
+    </testcase>
+    <testcase classname="Common Constants › isValidEventSource" name="should return true for valid event sources" time="0.005">
+    </testcase>
+    <testcase classname="Common Constants › isValidEventSource" name="should return false for invalid event sources" time="0.001">
+    </testcase>
+    <testcase classname="Common Constants › isValidEventSource" name="should handle edge cases" time="0.001">
+    </testcase>
+    <testcase classname="Common Constants › assertEventSource" name="should not throw for valid event sources" time="0.001">
+    </testcase>
+    <testcase classname="Common Constants › assertEventSource" name="should throw for invalid event sources" time="0.007">
+    </testcase>
+    <testcase classname="Common Constants › assertEventSource" name="should include valid sources in error message" time="0">
+    </testcase>
+    <testcase classname="Common Constants › ALL_COMMANDS" name="should have all command sources" time="0">
+    </testcase>
+    <testcase classname="Common Constants › ALL_COMMANDS" name="should have proper structure" time="0">
+    </testcase>
+    <testcase classname="Common Constants › Type System Integration" name="should work with TypeScript type system" time="0">
+    </testcase>
+    <testcase classname="Common Constants › Type System Integration" name="should handle type assertions correctly" time="0.001">
+    </testcase>
+    <testcase classname="Common Constants › Constants Integrity" name="should have consistent values across EVENT_SOURCES" time="0">
+    </testcase>
+    <testcase classname="Common Constants › Constants Integrity" name="should maintain backwards compatibility" time="0">
+    </testcase>
+  </testsuite>
+  <testsuite name="tests/unit/utils.test.ts" errors="0" failures="0" skipped="0" timestamp="2025-08-10T04:58:37" time="1.117" tests="23">
+    <testcase classname="Utils Module › WebSocketMessageProcessor › initialization" name="should create processor with default configuration" time="0.003">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › initialization" name="should create processor with custom configuration" time="0">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › message processing" name="should process valid JSON messages" time="0.001">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › message processing" name="should reject empty messages" time="0">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › message processing" name="should reject invalid JSON" time="0.001">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › message processing" name="should reject messages without type field" time="0">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › message processing" name="should reject messages with non-string type" time="0">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › message processing" name="should reject messages with extremely long type" time="0">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › message processing" name="should reject non-object messages" time="0">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › message processing" name="should validate messageId if present" time="0">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › rate limiting" name="should handle rate limiting" time="0">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › large message handling" name="should allow large livestream video messages" time="0.004">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › large message handling" name="should allow large livestream audio messages" time="0.004">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › large message handling" name="should reject large non-streaming messages" time="0">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › large message handling" name="should handle malformed large messages" time="0">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › circular reference detection" name="should detect circular references during validation" time="0.001">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › statistics" name="should track processing statistics" time="0">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › statistics" name="should reset statistics" time="0">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › buffer message handling" name="should handle buffer messages" time="0">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › buffer message handling" name="should handle buffer conversion errors" time="0.001">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › smart message type detection" name="should allow large EVENT messages" time="0.004">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › smart message type detection" name="should allow large RESULT messages" time="0.004">
+    </testcase>
+    <testcase classname="Utils Module › WebSocketMessageProcessor › smart message type detection" name="should handle parsing errors for large messages gracefully" time="0">
+    </testcase>
+  </testsuite>
+  <testsuite name="tests/unit/api-manager-enhanced.test.ts" errors="0" failures="0" skipped="0" timestamp="2025-08-10T04:58:37" time="1.256" tests="21">
+    <testcase classname="ApiManager › constructor" name="should create ApiManager with WebSocketClient" time="0.004">
+    </testcase>
+    <testcase classname="ApiManager › constructor" name="should set up event handlers" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › connect()" name="should connect WebSocket client" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › connect()" name="should handle connection errors" time="0.008">
+    </testcase>
+    <testcase classname="ApiManager › disconnect()" name="should disconnect WebSocket client" time="0">
+    </testcase>
+    <testcase classname="ApiManager › isConnected()" name="should return WebSocket client connection status" time="0">
+    </testcase>
+    <testcase classname="ApiManager › version message handling" name="should handle version message and negotiate schema" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › version message handling" name="should use highest compatible schema version" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › driver commands" name="should execute connectDriver" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › driver commands" name="should execute startListening" time="0.007">
+    </testcase>
+    <testcase classname="ApiManager › command builders" name="should provide device command builder" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › command builders" name="should provide station command builder" time="0">
+    </testcase>
+    <testcase classname="ApiManager › command builders" name="should provide driver command builder" time="0">
+    </testcase>
+    <testcase classname="ApiManager › command builders" name="should provide server command builder" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › event listeners" name="should add event listeners" time="0">
+    </testcase>
+    <testcase classname="ApiManager › event listeners" name="should handle multiple listeners for same event" time="0">
+    </testcase>
+    <testcase classname="ApiManager › connection state handling" name="should handle WebSocket connected event" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › connection state handling" name="should handle WebSocket disconnected event" time="0">
+    </testcase>
+    <testcase classname="ApiManager › connection state handling" name="should handle WebSocket error event" time="0">
+    </testcase>
+    <testcase classname="ApiManager › schema negotiation" name="should select appropriate schema version" time="0">
+    </testcase>
+    <testcase classname="ApiManager › schema negotiation" name="should handle unsupported schema versions gracefully" time="0.001">
+    </testcase>
+  </testsuite>
+  <testsuite name="tests/unit/websocket-client.test.ts" errors="0" failures="0" skipped="1" timestamp="2025-08-10T04:58:38" time="0.146" tests="13">
+    <testcase classname="WebSocketClient › initialization" name="should create client with provided state manager" time="0">
+    </testcase>
+    <testcase classname="WebSocketClient › initialization" name="should create client with default state manager" time="0.001">
+    </testcase>
+    <testcase classname="WebSocketClient › connection management" name="should connect and update state" time="0.001">
+    </testcase>
+    <testcase classname="WebSocketClient › connection management" name="should handle connection errors" time="0.009">
+    </testcase>
+    <testcase classname="WebSocketClient › connection management" name="should disconnect cleanly" time="0.001">
+    </testcase>
+    <testcase classname="WebSocketClient › message handling" name="should send messages successfully" time="0">
+      <skipped/>
+    </testcase>
+    <testcase classname="WebSocketClient › message handling" name="should handle version messages" time="0.001">
+    </testcase>
+    <testcase classname="WebSocketClient › message handling" name="should handle event messages" time="0">
+    </testcase>
+    <testcase classname="WebSocketClient › message handling" name="should handle malformed messages gracefully" time="0.008">
+    </testcase>
+    <testcase classname="WebSocketClient › timeout handling (simplified)" name="should reject messages that timeout" time="0.003">
+    </testcase>
+    <testcase classname="WebSocketClient › event handlers" name="should support connection event handlers" time="0.001">
+    </testcase>
+    <testcase classname="WebSocketClient › state integration" name="should properly integrate with state manager" time="0">
+    </testcase>
+    <testcase classname="WebSocketClient › state integration" name="should track connection state changes" time="0">
+    </testcase>
+  </testsuite>
+  <testsuite name="tests/unit/schema21-compliance.test.ts" errors="0" failures="0" skipped="0" timestamp="2025-08-10T04:58:38" time="0.097" tests="12">
+    <testcase classname="Schema 21 Compliance Tests › Undocumented Command Removal Validation" name="should NOT include undocumented preset position commands" time="0.001">
+    </testcase>
+    <testcase classname="Schema 21 Compliance Tests › Undocumented Command Removal Validation" name="device commands should only contain documented ones" time="0">
+    </testcase>
+    <testcase classname="Schema 21 Compliance Tests › Undocumented Command Removal Validation" name="station commands should contain documented ones" time="0">
+    </testcase>
+    <testcase classname="Schema 21 Compliance Tests › Undocumented Command Removal Validation" name="driver commands should contain documented ones" time="0.001">
+    </testcase>
+    <testcase classname="Schema 21 Compliance Tests › Undocumented Command Removal Validation" name="server commands should contain documented ones" time="0">
+    </testcase>
+    <testcase classname="Schema 21 Compliance Tests › Command Structure Validation" name="should maintain consistent naming patterns" time="0.004">
+    </testcase>
+    <testcase classname="Schema 21 Compliance Tests › Command Structure Validation" name="should use snake_case for all commands" time="0.006">
+    </testcase>
+    <testcase classname="Schema 21 Compliance Tests › Command Structure Validation" name="should not expose any internal or undocumented functionality" time="0">
+    </testcase>
+    <testcase classname="Schema 21 Compliance Tests › Schema Version Compatibility" name="should support only documented schema 21 commands" time="0.001">
+    </testcase>
+    <testcase classname="Schema 21 Compliance Tests › Schema Version Compatibility" name="should NOT have deprecated or removed commands" time="0">
+    </testcase>
+    <testcase classname="Schema 21 Compliance Tests › Backward Compatibility Safety" name="should maintain stable public API surface" time="0">
+    </testcase>
+    <testcase classname="Schema 21 Compliance Tests › Backward Compatibility Safety" name="should provide comprehensive command coverage" time="0">
+    </testcase>
+  </testsuite>
+  <testsuite name="tests/unit/client-state.test.ts" errors="0" failures="0" skipped="0" timestamp="2025-08-10T04:58:38" time="0.024" tests="18">
+    <testcase classname="ClientStateManager › initialization" name="should initialize with disconnected state" time="0.001">
+    </testcase>
+    <testcase classname="ClientStateManager › initialization" name="should have null schema info initially" time="0">
+    </testcase>
+    <testcase classname="ClientStateManager › connection state management" name="should update connection state correctly" time="0">
+    </testcase>
+    <testcase classname="ClientStateManager › connection state management" name="should handle WebSocket connection state with cascading effects" time="0.003">
+    </testcase>
+    <testcase classname="ClientStateManager › connection state management" name="should handle driver connection state" time="0">
+    </testcase>
+    <testcase classname="ClientStateManager › connection state management" name="should handle schema setup completion" time="0">
+    </testcase>
+    <testcase classname="ClientStateManager › schema management" name="should update schema info" time="0">
+    </testcase>
+    <testcase classname="ClientStateManager › schema management" name="should clear schema info" time="0">
+    </testcase>
+    <testcase classname="ClientStateManager › error handling" name="should handle error state" time="0">
+    </testcase>
+    <testcase classname="ClientStateManager › error handling" name="should clear error state" time="0.001">
+    </testcase>
+    <testcase classname="ClientStateManager › reconnection attempts" name="should track reconnection attempts" time="0">
+    </testcase>
+    <testcase classname="ClientStateManager › event listener count" name="should track event listener count" time="0">
+    </testcase>
+    <testcase classname="ClientStateManager › state change callbacks" name="should register and call state change callbacks" time="0">
+    </testcase>
+    <testcase classname="ClientStateManager › state change callbacks" name="should handle multiple state changes" time="0">
+    </testcase>
+    <testcase classname="ClientStateManager › state change callbacks" name="should handle callback errors gracefully" time="0.001">
+    </testcase>
+    <testcase classname="ClientStateManager › state reset" name="should reset state to initial values while preserving listener count" time="0">
+    </testcase>
+    <testcase classname="ClientStateManager › ready state validation" name="should be ready only when all conditions are met" time="0">
+    </testcase>
+    <testcase classname="ClientStateManager › state immutability" name="should return immutable state copies" time="0">
+    </testcase>
+  </testsuite>
+  <testsuite name="tests/unit/index.test.ts" errors="0" failures="0" skipped="0" timestamp="2025-08-10T04:58:38" time="0.045" tests="17">
+    <testcase classname="EufyClient Module Exports › main exports" name="should export EufyWebSocketClient (aliased from ApiManager)" time="0">
+    </testcase>
+    <testcase classname="EufyClient Module Exports › main exports" name="should export WebSocketClient" time="0">
+    </testcase>
+    <testcase classname="EufyClient Module Exports › main exports" name="should export ClientStateManager" time="0">
+    </testcase>
+    <testcase classname="EufyClient Module Exports › main exports" name="should export ConnectionState enum" time="0">
+    </testcase>
+    <testcase classname="EufyClient Module Exports › type exports" name="should export core types" time="0">
+    </testcase>
+    <testcase classname="EufyClient Module Exports › command constants exports" name="should export server commands" time="0">
+    </testcase>
+    <testcase classname="EufyClient Module Exports › command constants exports" name="should export device commands" time="0">
+    </testcase>
+    <testcase classname="EufyClient Module Exports › command constants exports" name="should export driver commands" time="0">
+    </testcase>
+    <testcase classname="EufyClient Module Exports › command constants exports" name="should export station commands" time="0">
+    </testcase>
+    <testcase classname="EufyClient Module Exports › common constants exports" name="should export EVENT_SOURCES" time="0.001">
+    </testcase>
+    <testcase classname="EufyClient Module Exports › common constants exports" name="should export MESSAGE_TYPES" time="0">
+    </testcase>
+    <testcase classname="EufyClient Module Exports › API instantiation" name="should be able to create EufyWebSocketClient instance" time="0">
+    </testcase>
+    <testcase classname="EufyClient Module Exports › API instantiation" name="should be able to create WebSocketClient instance" time="0">
+    </testcase>
+    <testcase classname="EufyClient Module Exports › API instantiation" name="should be able to create ClientStateManager instance" time="0.001">
+    </testcase>
+    <testcase classname="EufyClient Module Exports › module structure validation" name="should not expose internal implementation details" time="0.003">
+    </testcase>
+    <testcase classname="EufyClient Module Exports › module structure validation" name="should provide clean public API surface" time="0.001">
+    </testcase>
+    <testcase classname="EufyClient Module Exports › TypeScript compatibility" name="should work with TypeScript imports" time="0">
+    </testcase>
+  </testsuite>
+  <testsuite name="tests/unit/types.test.ts" errors="0" failures="0" skipped="0" timestamp="2025-08-10T04:58:38" time="0.027" tests="13">
+    <testcase classname="Types Module › JSONValue type" name="should accept primitive types" time="0">
+    </testcase>
+    <testcase classname="Types Module › JSONValue type" name="should accept arrays and objects" time="0.001">
+    </testcase>
+    <testcase classname="Types Module › SchemaCompatibilityInfo interface" name="should enforce required schema version fields" time="0">
+    </testcase>
+    <testcase classname="Types Module › BaseEventPayload interface" name="should enforce event structure with source and event fields" time="0">
+    </testcase>
+    <testcase classname="Types Module › BaseEventPayload interface" name="should allow optional properties" time="0">
+    </testcase>
+    <testcase classname="Types Module › EventType" name="should accept valid device event types" time="0">
+    </testcase>
+    <testcase classname="Types Module › EventType" name="should accept valid driver event types" time="0">
+    </testcase>
+    <testcase classname="Types Module › Type composition and validation" name="should compose complex event payloads" time="0">
+    </testcase>
+    <testcase classname="Types Module › Type composition and validation" name="should work with nested JSON structures" time="0">
+    </testcase>
+    <testcase classname="Types Module › Type safety validation" name="should prevent invalid event source values" time="0.001">
+    </testcase>
+    <testcase classname="Types Module › ApiManager Type Safety Integration" name="should provide strongly-typed event callbacks" time="0.002">
+    </testcase>
+    <testcase classname="Types Module › ApiManager Type Safety Integration" name="should support event filtering with type safety" time="0">
+    </testcase>
+    <testcase classname="Types Module › ApiManager Type Safety Integration" name="should provide correct event type constants" time="0.001">
+    </testcase>
+  </testsuite>
+  <testsuite name="tests/unit/api-manager.test.ts" errors="0" failures="0" skipped="0" timestamp="2025-08-10T04:58:37" time="2.063" tests="27">
+    <testcase classname="ApiManager › initialization" name="should create API manager with WebSocket client" time="0.019">
+    </testcase>
+    <testcase classname="ApiManager › initialization" name="should create API manager with custom state manager" time="0.027">
+    </testcase>
+    <testcase classname="ApiManager › connection management" name="should connect successfully" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › connection management" name="should handle connection errors" time="0.01">
+    </testcase>
+    <testcase classname="ApiManager › connection management" name="should disconnect cleanly" time="0">
+    </testcase>
+    <testcase classname="ApiManager › connection management" name="should get connection state" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › connection management" name="should check if connected" time="0">
+    </testcase>
+    <testcase classname="ApiManager › schema negotiation" name="should handle version message and negotiate schema" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › schema negotiation" name="should handle incompatible schema versions" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › command execution" name="should send server commands" time="0">
+    </testcase>
+    <testcase classname="ApiManager › command execution" name="should send device commands with serial number" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › command execution" name="should handle command errors" time="0.826">
+    </testcase>
+    <testcase classname="ApiManager › command execution" name="should reject commands when not ready" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › driver management" name="should connect driver" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › driver management" name="should start listening" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › event management" name="should register event listeners" time="0">
+    </testcase>
+    <testcase classname="ApiManager › event management" name="should filter events by source" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › event management" name="should filter events by serial number" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › event management" name="should remove event listeners" time="0">
+    </testcase>
+    <testcase classname="ApiManager › event management" name="should return false when removing non-existent listener" time="0">
+    </testcase>
+    <testcase classname="ApiManager › event management" name="should remove event listeners by type" time="0">
+    </testcase>
+    <testcase classname="ApiManager › event management" name="should remove listeners for multiple event types" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › event management" name="should get event listener information" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › state management" name="should provide state change subscriptions" time="0">
+    </testcase>
+    <testcase classname="ApiManager › state management" name="should get current state" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › error handling" name="should register error handlers" time="0.001">
+    </testcase>
+    <testcase classname="ApiManager › error handling" name="should handle schema negotiation errors" time="0">
+    </testcase>
+  </testsuite>
+  <testsuite name="tests/unit/eufy-security-client.test.ts" errors="0" failures="0" skipped="0" timestamp="2025-08-10T04:58:37" time="11.461" tests="28">
+    <testcase classname="EufySecurityClient › constructor" name="should create client with provided config" time="0.021">
+    </testcase>
+    <testcase classname="EufySecurityClient › constructor" name="should create client with custom logger" time="0.001">
+    </testcase>
+    <testcase classname="EufySecurityClient › constructor" name="should set up event handlers during construction" time="0.001">
+    </testcase>
+    <testcase classname="EufySecurityClient › connect()" name="should connect successfully" time="0.019">
+    </testcase>
+    <testcase classname="EufySecurityClient › connect()" name="should handle connection errors" time="0.002">
+    </testcase>
+    <testcase classname="EufySecurityClient › connect()" name="should wait for ready state with timeout" time="0.204">
+    </testcase>
+    <testcase classname="EufySecurityClient › connect()" name="should timeout if ready state is not achieved" time="10.007">
+    </testcase>
+    <testcase classname="EufySecurityClient › disconnect()" name="should disconnect successfully" time="0.004">
+    </testcase>
+    <testcase classname="EufySecurityClient › isConnected()" name="should return false when not connected" time="0.001">
+    </testcase>
+    <testcase classname="EufySecurityClient › isConnected()" name="should return true when connected" time="0.002">
+    </testcase>
+    <testcase classname="EufySecurityClient › getDevices()" name="should return list of devices" time="0.002">
+    </testcase>
+    <testcase classname="EufySecurityClient › getDevices()" name="should throw error when not connected" time="0.001">
+    </testcase>
+    <testcase classname="EufySecurityClient › getDevices()" name="should handle device with minimal properties" time="0.001">
+    </testcase>
+    <testcase classname="EufySecurityClient › getDevices()" name="should handle device property fetch errors" time="0.001">
+    </testcase>
+    <testcase classname="EufySecurityClient › startStream()" name="should start stream for existing device" time="0.001">
+    </testcase>
+    <testcase classname="EufySecurityClient › startStream()" name="should throw error for non-existent device" time="0.003">
+    </testcase>
+    <testcase classname="EufySecurityClient › startStream()" name="should throw error when not connected" time="0.002">
+    </testcase>
+    <testcase classname="EufySecurityClient › startStream()" name="should handle stream start errors" time="0.002">
+    </testcase>
+    <testcase classname="EufySecurityClient › stopStream()" name="should stop stream for streaming device" time="0.001">
+    </testcase>
+    <testcase classname="EufySecurityClient › stopStream()" name="should not stop stream if device is not streaming" time="0.002">
+    </testcase>
+    <testcase classname="EufySecurityClient › stopStream()" name="should throw error for non-existent device" time="0.002">
+    </testcase>
+    <testcase classname="EufySecurityClient › stopStream()" name="should handle stream stop errors" time="0.002">
+    </testcase>
+    <testcase classname="EufySecurityClient › event handling" name="should handle device added events" time="0.002">
+    </testcase>
+    <testcase classname="EufySecurityClient › event handling" name="should handle device removed events" time="0.002">
+    </testcase>
+    <testcase classname="EufySecurityClient › event handling" name="should forward livestream events" time="0.004">
+    </testcase>
+    <testcase classname="EufySecurityClient › event handling" name="should handle video data events" time="0.002">
+    </testcase>
+    <testcase classname="EufySecurityClient › event handling" name="should handle audio data events" time="0.001">
+    </testcase>
+    <testcase classname="EufySecurityClient › device type mapping" name="should map known device types correctly" time="0.001">
+    </testcase>
+  </testsuite>
+</testsuites>

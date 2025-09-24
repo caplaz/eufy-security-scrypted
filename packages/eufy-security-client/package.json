@@ -1,0 +1,88 @@
+{
+  "name": "@scrypted/eufy-security-client",
+  "version": "1.0.0",
+  "description": "WebSocket client library for communicating with eufy-security-ws server with type-safe event handling and device management for Eufy security cameras",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "build:watch": "tsc --build --watch",
+    "build:incremental": "tsc --build --incremental",
+    "test": "jest --reporters=default --reporters=jest-junit --passWithNoTests",
+    "test:watch": "jest --watch --reporters=default --reporters=jest-junit",
+    "test:coverage": "jest --coverage --reporters=default --reporters=jest-junit",
+    "test:unit": "jest --testPathPattern=unit --passWithNoTests",
+    "test:integration": "jest --testPathPattern=integration --passWithNoTests",
+    "clean": "rm -rf dist coverage .tsbuildinfo tsconfig.tsbuildinfo",
+    "typecheck": "tsc --noEmit --skipLibCheck",
+    "dev": "tsc --build --watch",
+    "lint": "eslint src/**/*.ts --max-warnings 0 --cache",
+    "lint:fix": "eslint src/**/*.ts --fix --cache",
+    "format": "prettier --write src/**/*.ts --cache",
+    "format:check": "prettier --check src/**/*.ts --cache",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run test && npm run build"
+  },
+  "keywords": [
+    "eufy",
+    "security",
+    "websocket",
+    "client",
+    "scrypted",
+    "home-automation",
+    "camera",
+    "doorbell",
+    "typescript",
+    "surveillance",
+    "iot",
+    "smart-home",
+    "video-streaming"
+  ],
+  "author": {
+    "name": "Scrypted Team",
+    "email": "support@scrypted.app",
+    "url": "https://scrypted.app"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/acerbetti/eufy-security-scrypted.git",
+    "directory": "packages/eufy-security-client"
+  },
+  "bugs": {
+    "url": "https://github.com/acerbetti/eufy-security-scrypted/issues"
+  },
+  "homepage": "https://github.com/acerbetti/eufy-security-scrypted/tree/main/packages/eufy-security-client#readme",
+  "dependencies": {
+    "tslog": "^4.9.3",
+    "ws": "^8.18.2"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.10.1",
+    "@types/ws": "^8.18.1",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "jest-junit": "^16.0.0",
+    "prettier": "^3.2.5",
+    "ts-jest": "^29.1.5",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=4.5.0"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

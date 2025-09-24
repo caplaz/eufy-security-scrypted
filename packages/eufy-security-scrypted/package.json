@@ -1,5 +1,5 @@
 {
-  "name": "@scrypted/eufy-security-scrypted",
+  "name": "eufy-security-scrypted",
   "scripts": {
     "scrypted-setup-project": "scrypted-setup-project",
     "prescrypted-setup-project": "scrypted-package-json",

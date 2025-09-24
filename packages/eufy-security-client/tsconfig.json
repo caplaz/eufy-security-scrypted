@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    // Output Configuration
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+
+    // Decorators (needed for some dependencies)
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+
+    // Performance Optimizations
+    "downlevelIteration": true,
+    "importHelpers": true,
+
+    // Build Performance
+    "incremental": true,
+    "composite": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "tests", "**/*.test.ts", "**/*.spec.ts", "coverage"]
+}
