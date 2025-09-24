@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install eufy-security-client dependencies
+        run: cd packages/eufy-security-client && npm ci --ignore-scripts
+
+      - name: Install eufy-security-scrypted dependencies
+        run: cd packages/eufy-security-scrypted && npm ci --ignore-scripts
+
+      - name: Setup Scrypted SDK for eufy-security-scrypted
+        run: |
+          mkdir -p packages/eufy-security-scrypted/node_modules/@scrypted
+          cp -r node_modules/@scrypted/sdk packages/eufy-security-scrypted/node_modules/@scrypted/
+          cp -r node_modules/@scrypted/sdk/node_modules packages/eufy-security-scrypted/node_modules/@scrypted/sdk/
+
+      - name: Run tests
+        run: npm run test
+
+      - name: Build packages
+        run: npm run build
+
+      - name: Publish packages
+        run: npx lerna publish from-package --yes
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

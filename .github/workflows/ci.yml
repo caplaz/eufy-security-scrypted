@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install eufy-security-client dependencies
+        run: cd packages/eufy-security-client && npm ci --ignore-scripts
+
+      - name: Install eufy-security-scrypted dependencies
+        run: cd packages/eufy-security-scrypted && npm ci --ignore-scripts
+
+      - name: Setup Scrypted SDK for eufy-security-scrypted
+        run: |
+          mkdir -p packages/eufy-security-scrypted/node_modules/@scrypted
+          cp -r node_modules/@scrypted/sdk packages/eufy-security-scrypted/node_modules/@scrypted/
+          cp -r node_modules/@scrypted/sdk/node_modules packages/eufy-security-scrypted/node_modules/@scrypted/sdk/
+
+      - name: Run tests
+        run: npm run test
+
+      - name: Build packages
+        run: npm run build
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.node-version }}
+          path: |
+            packages/eufy-security-client/jest-results.xml
+            packages/eufy-security-client/junit.xml
+          retention-days: 30

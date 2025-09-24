@@ -1,5 +1,5 @@
 {
-  "name": "eufy-security-scrypted",
+  "name": "@scrypted/eufy-security-scrypted",
   "scripts": {
     "scrypted-setup-project": "scrypted-setup-project",
     "prescrypted-setup-project": "scrypted-package-json",
@@ -14,11 +14,13 @@
     "scrypted-package-json": "scrypted-package-json"
   },
   "scrypted": {
-    "rollup": true,
-    "name": "TypeScript Light",
-    "type": "Light",
+    "rollup": false,
+    "name": "Eufy Security Plugin",
+    "type": "DeviceProvider",
     "interfaces": [
-      "OnOff"
+      "DeviceProvider",
+      "Settings",
+      "Refresh"
     ]
   },
   "dependencies": {

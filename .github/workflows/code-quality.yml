@@ -1,0 +1,45 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install eufy-security-client dependencies
+        run: cd packages/eufy-security-client && npm ci --ignore-scripts
+
+      - name: Install eufy-security-scrypted dependencies
+        run: cd packages/eufy-security-scrypted && npm ci --ignore-scripts
+
+      - name: Setup Scrypted SDK for eufy-security-scrypted
+        run: |
+          mkdir -p packages/eufy-security-scrypted/node_modules/@scrypted
+          cp -r node_modules/@scrypted/sdk packages/eufy-security-scrypted/node_modules/@scrypted/
+          cp -r node_modules/@scrypted/sdk/node_modules packages/eufy-security-scrypted/node_modules/@scrypted/sdk/
+
+      - name: Type check eufy-security-client
+        run: cd packages/eufy-security-client && npm run typecheck
+
+      - name: Lint eufy-security-client
+        run: cd packages/eufy-security-client && npm run lint
+
+      - name: Format check eufy-security-client
+        run: cd packages/eufy-security-client && npm run format:check
