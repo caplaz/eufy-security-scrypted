@@ -31,9 +31,6 @@ Type-safe WebSocket client library for communicating with Eufy Security systems.
 ```bash
 # Install all dependencies
 npm install
-
-# Install package-specific dependencies
-npm run bootstrap
 ```
 
 ### Building
@@ -83,8 +80,10 @@ This repository uses GitHub Actions for automated testing and releases:
 
 ### Workflows
 
-- **CI**: Runs tests and builds on every push/PR (Node.js 18, 20, 22)
-- **Code Quality**: Linting, type checking, and format validation
+### Workflows
+
+- **CI**: Runs tests and builds on every push/PR across Node.js versions (18, 20, 22)
+- **Code Quality**: Linting, type checking, and formatting validation (runs after tests pass)
 - **Release**: Automatic publishing to npm on version tags
 
 ### Publishing
@@ -104,7 +103,6 @@ The release workflow will automatically publish all packages to npm.
 - `npm run build` - Build all packages
 - `npm run test` - Run all tests
 - `npm run clean` - Clean all packages
-- `npm run bootstrap` - Install all dependencies
 - `npm run publish` - Publish packages (requires NPM_TOKEN)
 
 ## 🏗️ Architecture

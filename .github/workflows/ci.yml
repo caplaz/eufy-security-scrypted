@@ -48,3 +48,35 @@ jobs:
             packages/eufy-security-client/jest-results.xml
             packages/eufy-security-client/junit.xml
           retention-days: 30
+
+  quality:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Setup Scrypted SDK for eufy-security-scrypted
+        run: |
+          mkdir -p packages/eufy-security-scrypted/node_modules/@scrypted
+          cp -r node_modules/@scrypted/sdk packages/eufy-security-scrypted/node_modules/@scrypted/
+          cp -r node_modules/@scrypted/sdk/node_modules packages/eufy-security-scrypted/node_modules/@scrypted/sdk/
+
+      - name: Type check eufy-security-client
+        run: cd packages/eufy-security-client && npm run typecheck
+
+      - name: Lint eufy-security-client
+        run: cd packages/eufy-security-client && npm run lint
+
+      - name: Format eufy-security-client
+        run: cd packages/eufy-security-client && npm run format
