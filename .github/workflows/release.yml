@@ -25,11 +25,8 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
-      - name: Install eufy-security-client dependencies
-        run: cd packages/eufy-security-client && npm ci --ignore-scripts
-
-      - name: Install eufy-security-scrypted dependencies
-        run: cd packages/eufy-security-scrypted && npm ci --ignore-scripts
+      - name: Install workspace dependencies
+        run: npm run bootstrap
 
       - name: Setup Scrypted SDK for eufy-security-scrypted
         run: |
