@@ -81,7 +81,7 @@ export class DeviceUtils {
           serialNumber: deviceSerial,
           firmware: properties.softwareVersion || "Unknown",
         },
-        providerNativeId: undefined, // Will be set by caller
+        // providerNativeId will be set by the caller
       };
     } catch (error) {
       console.error(
@@ -94,7 +94,7 @@ export class DeviceUtils {
         name: `Eufy Device ${deviceSerial}`,
         type: ScryptedDeviceType.Camera,
         interfaces: [ScryptedInterface.VideoCamera, ScryptedInterface.Settings],
-        providerNativeId: undefined,
+        // providerNativeId will be set by the caller
       };
     }
   }
@@ -132,7 +132,7 @@ export class DeviceUtils {
           serialNumber: stationSerial,
           firmware: properties.softwareVersion || "Unknown",
         },
-        providerNativeId: undefined,
+        // providerNativeId will be set by the caller
       };
     } catch (error) {
       console.error(
@@ -148,7 +148,7 @@ export class DeviceUtils {
           ScryptedInterface.DeviceProvider,
           ScryptedInterface.Settings,
         ],
-        providerNativeId: undefined,
+        // providerNativeId will be set by the caller
       };
     }
   }

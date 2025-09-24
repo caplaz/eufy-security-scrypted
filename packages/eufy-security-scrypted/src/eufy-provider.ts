@@ -701,7 +701,13 @@ export class EufySecurityProvider
 
     // Create manifests for each station serial number
     const manifests = stationSerials.map(async (stationSerial: string) => {
-      return DeviceUtils.createStationManifest(this.wsClient, stationSerial);
+      const manifest = await DeviceUtils.createStationManifest(
+        this.wsClient,
+        stationSerial
+      );
+      // Set the correct provider native ID
+      manifest.providerNativeId = this.nativeId;
+      return manifest;
     });
 
     await deviceManager.onDevicesChanged({
@@ -734,18 +740,25 @@ export class EufySecurityProvider
       return;
     }
 
-    deviceSerials.forEach((deviceSerial) =>
-      DeviceUtils.createDeviceManifest(this.wsClient, deviceSerial).then(
-        (manifest) =>
-          deviceManager.onDevicesChanged({
-            providerNativeId: manifest.providerNativeId,
-            devices: [manifest],
-          })
-      )
-    );
+    // Create manifests for each device serial number
+    const deviceManifests = deviceSerials.map(async (deviceSerial: string) => {
+      const manifest = await DeviceUtils.createDeviceManifest(
+        this.wsClient,
+        deviceSerial
+      );
+      // Set the correct provider native ID
+      manifest.providerNativeId = this.nativeId;
+      return manifest;
+    });
+
+    // Register all devices at once
+    await deviceManager.onDevicesChanged({
+      providerNativeId: this.nativeId,
+      devices: await Promise.all(deviceManifests),
+    });
 
     this.logger.i(
-      `✅ Registered ${deviceSerials.length} devices from server state`
+      `✅ Registered ${deviceManifests.length} devices from server state`
     );
   }
 
