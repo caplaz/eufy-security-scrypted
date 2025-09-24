@@ -1,32 +1,22 @@
-// https://developer.scrypted.app/#getting-started
-// package.json contains the metadata (name, interfaces) about this device
-// under the "scrypted" key.
-import { OnOff, ScryptedDeviceBase } from '@scrypted/sdk';
+/**
+ * Main entry point for the Eufy Security Scrypted plugin
+ *
+ * This file exports the main provider class that Scrypted will instantiate
+ * when the plugin is loaded. The plugin provides comprehensive integration
+ * with Eufy security devices through the eufy-security-ws WebSocket server.
+ *
+ * Features:
+ * - Device discovery and management
+ * - Video streaming with H.264 support using eufy-stream-server
+ * - Motion detection and sensor monitoring
+ * - Device control (lights, pan/tilt, etc.)
+ * - Memory management and performance optimization
+ * - HomeKit Secure Video compatibility
+ *
+ * @public
+ * @since 1.0.0
+ */
 
-console.log('Hello World. This will create a virtual OnOff device.');
-// OnOff is a simple binary switch. See "interfaces"  in package.json
-// to add support for more capabilities, like Brightness or Lock.
+import { EufySecurityProvider } from "./eufy-provider";
 
-class TypescriptLight extends ScryptedDeviceBase implements OnOff {
-    constructor(nativeId?: string) {
-        super(nativeId);
-        this.on = this.on || false;
-    }
-    async turnOff() {
-        this.console.log('turnOff was called!');
-        this.on = false;
-    }
-    async turnOn() {
-        // set a breakpoint here.
-        this.console.log('turnOn was called!');
-
-        this.console.log("Let's pretend to perform a web request on an API that would turn on a light.");
-        const response = await fetch('http://jsonip.com');
-        const json = await response.json();
-        this.console.log(`my ip: ${json.ip}`);
-
-        this.on = true;
-    }
-}
-
-export default TypescriptLight;
+export default EufySecurityProvider;
