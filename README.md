@@ -1,6 +1,8 @@
 # Eufy Security Scrypted
 
-A mo- Event-driven architecture with TypeScript support
+A comprehensive Scrypted plugin for Eufy Security cameras with streaming support via eufy-security-ws server.
+
+<!-- Test comment for pre-commit hook -->
 
 ## 📈 Recent Progress
 
