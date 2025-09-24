@@ -14,6 +14,8 @@
     "build": "lerna run build",
     "clean": "lerna clean",
     "publish": "lerna publish",
-    "test": "lerna run test"
+    "test": "lerna run test",
+    "lint": "lerna run lint",
+    "lint:fix": "lerna run lint:fix"
   }
 }

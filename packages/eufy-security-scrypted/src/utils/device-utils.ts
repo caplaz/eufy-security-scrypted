@@ -13,7 +13,6 @@ import {
   ScryptedInterface,
   SecuritySystemMode,
   Setting,
-  SettingValue,
 } from "@scrypted/sdk";
 import {
   AlarmMode,
@@ -61,9 +60,6 @@ export class DeviceUtils {
       const deviceResponse = await wsClient.commands
         .device(deviceSerial)
         .getProperties();
-      const deviceMetadata = await wsClient.commands
-        .device(deviceSerial)
-        .getPropertiesMetadata();
 
       const properties = deviceResponse.properties;
 
@@ -308,7 +304,7 @@ export class DeviceUtils {
    */
   static genericDeviceInformation(
     device: DeviceInformation,
-    metadata: Record<keyof CommonEufyProperties, PropertyMetadataAny>
+    _metadata: Record<keyof CommonEufyProperties, PropertyMetadataAny>
   ): Setting[] {
     return [
       {

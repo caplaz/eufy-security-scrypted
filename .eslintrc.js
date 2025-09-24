@@ -11,6 +11,7 @@ module.exports = {
     "no-console": "off",
     // Allow unused variables that start with underscore
     "no-unused-vars": "off", // Let TypeScript handle this
+    "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
     // Allow require statements
     "no-undef": "off", // TypeScript handles this
   },

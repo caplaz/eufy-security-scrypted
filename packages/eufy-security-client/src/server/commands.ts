@@ -1,6 +1,5 @@
 import { BaseCommand } from "../types/commands";
 import { SERVER_COMMANDS, ServerCommandType } from "./constants";
-import { ServerProperty } from "./properties";
 
 /**
  * Base interface for server commands
