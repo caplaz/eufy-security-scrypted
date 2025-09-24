@@ -4,3 +4,9 @@ node_modules/
 dist/
 .venv
 .eslintcache
+
+# Test artifacts
+junit.xml
+**/junit.xml
+coverage/
+**/coverage/
