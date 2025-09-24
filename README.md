@@ -1,6 +1,17 @@
 # Eufy Security Scrypted
 
-A monorepo containing Scrypted plugins and libraries for Eufy Security integration.
+A mo- Event-driven architecture with TypeScript support
+
+## 📈 Recent Progress
+
+### September 2025 Updates
+
+- ✅ **Added eufy-stream-server package**: New simplified TCP streaming server for raw H.264 video streams
+- ✅ **Comprehensive testing**: All packages now have extensive test coverage (206 total tests)
+- ✅ **Clean repository**: Removed test artifacts and updated .gitignore for better development experience
+- ✅ **Lerna monorepo integration**: All packages properly integrated with shared build and test workflows
+
+## 🚀 Developmentining Scrypted plugins and libraries for Eufy Security integration.
 
 ## 📦 Packages
 
@@ -19,7 +30,27 @@ Type-safe WebSocket client library for communicating with Eufy Security systems.
 - Comprehensive test suite (184 tests)
 - Schema negotiation and version compatibility
 
-## 🚀 Development
+### [@scrypted/eufy-stream-server](packages/eufy-stream-server/)
+
+Simplified TCP streaming server for raw H.264 video streams from Eufy cameras. Features:
+
+- Raw H.264 video streaming without audio complexity
+- TCP server supporting multiple concurrent client connections
+- H.264 NAL unit parsing and key frame detection
+- Connection management and streaming statistics
+- Comprehensive test suite (22 tests)
+- Event-driven architecture with TypeScript support
+
+## � Recent Progress
+
+### September 2025 Updates
+
+- ✅ **Added eufy-stream-server package**: New simplified TCP streaming server for raw H.264 video streams
+- ✅ **Comprehensive testing**: All packages now have extensive test coverage (206 total tests)
+- ✅ **Clean repository**: Removed test artifacts and updated .gitignore for better development experience
+- ✅ **Lerna monorepo integration**: All packages properly integrated with shared build and test workflows
+
+## �🚀 Development
 
 ### Prerequisites
 
@@ -42,6 +73,7 @@ npm run build
 # Build individual packages
 cd packages/eufy-security-client && npm run build
 cd packages/eufy-security-scrypted && npm run build
+cd packages/eufy-stream-server && npm run build
 ```
 
 ### Testing
@@ -52,6 +84,7 @@ npm run test
 
 # Run tests for specific package
 cd packages/eufy-security-client && npm run test
+cd packages/eufy-stream-server && npm run test
 ```
 
 ### Development Workflow
@@ -111,7 +144,8 @@ The release workflow will automatically publish all packages to npm.
 eufy-security-scrypted/
 ├── packages/
 │   ├── eufy-security-client/     # WebSocket client library
-│   └── eufy-security-scrypted/   # Scrypted plugin
+│   ├── eufy-security-scrypted/   # Scrypted plugin
+│   └── eufy-stream-server/       # TCP streaming server
 ├── .github/workflows/            # CI/CD pipelines
 ├── lerna.json                    # Monorepo configuration
 └── tsconfig.json                 # Shared TypeScript config
