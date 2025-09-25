@@ -13,6 +13,10 @@ import { Logger, ILogObj } from "tslog";
 import { ConnectionManager } from "./connection-manager";
 import { H264Parser } from "./h264-parser";
 import { ServerStats, StreamData, VideoMetadata } from "./types";
+import {
+  EufyWebSocketClient,
+  DEVICE_EVENTS,
+} from "@scrypted/eufy-security-client";
 
 /**
  * Configuration options for the TCP stream server
@@ -26,6 +30,10 @@ export interface StreamServerOptions {
   maxConnections?: number;
   /** Enable debug logging (default: false) */
   debug?: boolean;
+  /** WebSocket client for receiving video data events (required for Eufy cameras) */
+  wsClient: EufyWebSocketClient;
+  /** Device serial number to filter events (required for Eufy cameras) */
+  serialNumber: string;
 }
 
 /**
@@ -37,14 +45,16 @@ export interface StreamServerOptions {
  *
  * @example
  * ```typescript
- * const server = new StreamServer({ port: 8080, debug: true });
- *
- * server.start().then(() => {
- *   console.log('Server started');
+ * const server = new StreamServer({
+ *   port: 8080,
+ *   debug: true,
+ *   wsClient: eufyWebSocketClient,
+ *   serialNumber: 'device123'
  * });
  *
- * // Stream video data
- * server.streamVideo(h264Data, timestamp, isKeyFrame);
+ * server.start().then(() => {
+ *   console.log('Server started and listening for video data');
+ * });
  * ```
  */
 export class StreamServer extends EventEmitter {
@@ -55,6 +65,7 @@ export class StreamServer extends EventEmitter {
   private h264Parser: H264Parser;
   private isActive = false;
   private startTime?: Date;
+  private eventRemover?: () => boolean;
 
   // Statistics
   private stats = {
@@ -63,7 +74,7 @@ export class StreamServer extends EventEmitter {
     lastFrameTime: null as Date | null,
   };
 
-  constructor(options: StreamServerOptions = {}) {
+  constructor(options: StreamServerOptions) {
     super();
 
     this.options = {
@@ -71,6 +82,8 @@ export class StreamServer extends EventEmitter {
       host: options.host ?? "0.0.0.0",
       maxConnections: options.maxConnections ?? 10,
       debug: options.debug ?? false,
+      wsClient: options.wsClient,
+      serialNumber: options.serialNumber,
     };
 
     this.logger = new Logger({
@@ -82,6 +95,7 @@ export class StreamServer extends EventEmitter {
     this.h264Parser = new H264Parser(this.logger);
 
     this.setupEventHandlers();
+    this.setupWebSocketListener();
   }
 
   /**
@@ -102,6 +116,46 @@ export class StreamServer extends EventEmitter {
       this.logger.info(`Client disconnected: ${connectionId}`);
       this.emit("clientDisconnected", connectionId);
     });
+  }
+
+  /**
+   * Setup WebSocket event listener for video data
+   */
+  private setupWebSocketListener(): void {
+    this.logger.info(
+      `Setting up WebSocket listener for device: ${this.options.serialNumber}`
+    );
+
+    // Listen for livestream video data events
+    this.eventRemover = this.options.wsClient.addEventListener(
+      DEVICE_EVENTS.LIVESTREAM_VIDEO_DATA,
+      (event) => {
+        // Filter events by device serial number
+        if (event.serialNumber !== this.options.serialNumber) {
+          return;
+        }
+
+        this.logger.debug(
+          `Received video data event for ${event.serialNumber}: ${event.buffer.data.length} bytes`
+        );
+
+        // Convert JSONBuffer to Buffer if needed
+        const videoBuffer = Buffer.isBuffer(event.buffer.data)
+          ? event.buffer.data
+          : Buffer.from(event.buffer.data);
+
+        // Stream the video data
+        this.streamVideo(videoBuffer, Date.now(), undefined);
+      },
+      {
+        source: "device",
+        serialNumber: this.options.serialNumber,
+      }
+    );
+
+    this.logger.info(
+      `WebSocket listener setup complete for device: ${this.options.serialNumber}`
+    );
   }
 
   /**
@@ -143,6 +197,13 @@ export class StreamServer extends EventEmitter {
   async stop(): Promise<void> {
     if (!this.isActive) {
       return;
+    }
+
+    // Clean up WebSocket event listener
+    if (this.eventRemover) {
+      this.eventRemover();
+      this.eventRemover = undefined;
+      this.logger.debug("WebSocket event listener removed");
     }
 
     return new Promise((resolve) => {

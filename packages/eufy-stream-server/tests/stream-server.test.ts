@@ -6,17 +6,33 @@ import * as net from "net";
 import { StreamServer } from "../src/stream-server";
 import { createTestLogger, createTestH264Data, wait } from "./test-utils";
 
+// Mock the eufy-security-client
+jest.mock("@scrypted/eufy-security-client", () => ({
+  DEVICE_EVENTS: {
+    LIVESTREAM_VIDEO_DATA: "livestream video data",
+  },
+}));
+
 describe("StreamServer", () => {
   let server: StreamServer;
   let testPort: number;
+  let mockWsClient: any;
 
   beforeEach(() => {
     // Use random port for testing to avoid conflicts
     testPort = 9000 + Math.floor(Math.random() * 1000);
+
+    // Create mock WebSocket client
+    mockWsClient = {
+      addEventListener: jest.fn().mockReturnValue(() => {}),
+    };
+
     server = new StreamServer({
       port: testPort,
       host: "127.0.0.1",
       debug: false,
+      wsClient: mockWsClient,
+      serialNumber: "TEST_DEVICE_123",
     });
   });
 
@@ -195,6 +211,167 @@ describe("StreamServer", () => {
       expect(stats.streaming.framesProcessed).toBe(0);
       expect(stats.streaming.bytesTransferred).toBe(0);
       expect(stats.streaming.lastFrameTime).toBeNull();
+    });
+  });
+
+  describe("WebSocket integration", () => {
+    it("should setup WebSocket listener when wsClient and serialNumber provided", () => {
+      const mockWsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+      };
+
+      const serverWithWs = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+      });
+
+      expect(mockWsClient.addEventListener).toHaveBeenCalledWith(
+        "livestream video data",
+        expect.any(Function),
+        {
+          source: "device",
+          serialNumber: "TEST123",
+        }
+      );
+    });
+
+    it("should handle video data events from WebSocket", async () => {
+      const mockWsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+      };
+
+      const serverWithWs = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+      });
+
+      await serverWithWs.start();
+
+      // Create test client
+      const client = new net.Socket();
+      const receivedData: Buffer[] = [];
+
+      client.on("data", (data) => {
+        receivedData.push(data);
+      });
+
+      await new Promise<void>((resolve) => {
+        client.connect(testPort, "127.0.0.1", () => {
+          resolve();
+        });
+      });
+
+      // Wait for connection
+      await wait(50);
+
+      // Get the event handler that was registered
+      const eventHandler = mockWsClient.addEventListener.mock.calls[0][1];
+
+      // Simulate receiving video data event
+      const testH264Data = createTestH264Data();
+      eventHandler({
+        serialNumber: "TEST123",
+        buffer: { data: testH264Data },
+        metadata: {
+          videoCodec: "h264",
+          videoFPS: 30,
+          videoWidth: 1920,
+          videoHeight: 1080,
+        },
+      });
+
+      // Wait for data to be processed and received
+      await wait(50);
+
+      expect(receivedData).toHaveLength(1);
+      expect(receivedData[0]).toEqual(testH264Data);
+
+      client.destroy();
+      await serverWithWs.stop();
+    });
+
+    it("should filter events by serial number", async () => {
+      const mockWsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+      };
+
+      const serverWithWs = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+      });
+
+      await serverWithWs.start();
+
+      // Create test client
+      const client = new net.Socket();
+      const receivedData: Buffer[] = [];
+
+      client.on("data", (data) => {
+        receivedData.push(data);
+      });
+
+      await new Promise<void>((resolve) => {
+        client.connect(testPort, "127.0.0.1", () => {
+          resolve();
+        });
+      });
+
+      // Wait for connection
+      await wait(50);
+
+      // Get the event handler that was registered
+      const eventHandler = mockWsClient.addEventListener.mock.calls[0][1];
+
+      // Simulate receiving video data event for different serial number
+      const testH264Data = createTestH264Data();
+      eventHandler({
+        serialNumber: "OTHER456", // Different serial number
+        buffer: { data: testH264Data },
+        metadata: {
+          videoCodec: "h264",
+          videoFPS: 30,
+          videoWidth: 1920,
+          videoHeight: 1080,
+        },
+      });
+
+      // Wait a bit
+      await wait(50);
+
+      // Should not have received any data since serial numbers don't match
+      expect(receivedData).toHaveLength(0);
+
+      client.destroy();
+      await serverWithWs.stop();
+    });
+
+    it("should cleanup WebSocket event listener on stop", async () => {
+      const mockEventRemover = jest.fn();
+      const mockWsClient = {
+        addEventListener: jest.fn().mockReturnValue(mockEventRemover),
+      };
+
+      const serverWithWs = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+      });
+
+      await serverWithWs.start();
+      await serverWithWs.stop();
+
+      expect(mockEventRemover).toHaveBeenCalledTimes(1);
     });
   });
 });

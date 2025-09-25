@@ -30,15 +30,16 @@ const server = new StreamServer({
   host: "0.0.0.0",
   maxConnections: 10,
   debug: true,
+  wsClient: eufyWebSocketClient, // Required - WebSocket client for Eufy camera
+  serialNumber: "device123", // Required - Eufy camera serial number
 });
 
 // Start the server
 await server.start();
-console.log("Stream server started on port 8080");
+console.log("Stream server started and listening for video data");
 
-// Stream H.264 video data
-const h264Buffer = // ... your H.264 data
-  await server.streamVideo(h264Buffer, Date.now(), true); // timestamp, isKeyFrame
+// The server will automatically stream video data when WebSocket events are received
+// No manual streamVideo() calls needed for Eufy cameras
 
 // Get server statistics
 const stats = server.getStats();
@@ -112,6 +113,8 @@ if (metadata) {
 - `host?: string` - Server host (default: '0.0.0.0')
 - `maxConnections?: number` - Maximum concurrent connections (default: 10)
 - `debug?: boolean` - Enable debug logging (default: false)
+- `wsClient: EufyWebSocketClient` - WebSocket client for receiving video data events (required for Eufy cameras)
+- `serialNumber: string` - Device serial number to filter events (required for Eufy cameras)
 
 #### Methods
 

@@ -505,17 +505,6 @@ export class EufyDevice
   // =================== UTILITY METHODS ===================
 
   /**
-   * Handles incoming video data from the WebSocket and streams it to connected clients.
-   */
-  private handleVideoData(event: any): void {
-    // Assuming event has data, timestamp, isKeyFrame
-    const { data, timestamp, isKeyFrame } = event;
-    if (this.streamServerStarted) {
-      this.streamServer.streamVideo(data, timestamp, isKeyFrame);
-    }
-  }
-
-  /**
    * Creates a new stream server.
    */
   private createStreamServer(): void {
@@ -523,17 +512,11 @@ export class EufyDevice
       port: 0, // Let the system assign a free port
       host: "127.0.0.1", // Only allow connections from localhost
       debug: true, // Enable debug logging to see server activity
+      wsClient: this.wsClient,
+      serialNumber: this.serialNumber,
     });
 
-    // Attach video data event listener for the new server
-    this.addEventListener(
-      DEVICE_EVENTS.LIVESTREAM_VIDEO_DATA,
-      this.handleVideoData.bind(this)
-    );
-
-    this.logger.d(
-      "Stream server created with video data event listener attached"
-    );
+    this.logger.d("Stream server created with WebSocket client integration");
   }
 
   dispose(): void {
