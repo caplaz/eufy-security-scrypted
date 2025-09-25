@@ -33,11 +33,11 @@ jobs:
           cp -r node_modules/@scrypted/sdk packages/eufy-security-scrypted/node_modules/@scrypted/
           cp -r node_modules/@scrypted/sdk/node_modules packages/eufy-security-scrypted/node_modules/@scrypted/sdk/
 
-      - name: Run tests
-        run: npm run test
-
       - name: Build packages
         run: npm run build
+
+      - name: Run tests
+        run: npm run test
 
       - name: Upload test results
         uses: actions/upload-artifact@v4

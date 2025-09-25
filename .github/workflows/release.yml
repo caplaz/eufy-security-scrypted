@@ -31,11 +31,11 @@ jobs:
           cp -r node_modules/@scrypted/sdk packages/eufy-security-scrypted/node_modules/@scrypted/
           cp -r node_modules/@scrypted/sdk/node_modules packages/eufy-security-scrypted/node_modules/@scrypted/sdk/
 
-      - name: Run tests
-        run: npm run test
-
       - name: Build packages
         run: npm run build
+
+      - name: Run tests
+        run: npm run test
 
       - name: Publish packages
         run: npx lerna publish from-package --yes
