@@ -6,6 +6,9 @@
         {
             "label": "scrypted: deploy+debug",
             "type": "shell",
+            "options": {
+                "cwd": "${workspaceFolder}/packages/eufy-security-scrypted"
+            },
             "presentation": {
                 "echo": true,
                 "reveal": "silent",
