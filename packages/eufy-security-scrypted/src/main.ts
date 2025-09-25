@@ -7,7 +7,8 @@
  *
  * Features:
  * - Device discovery and management
- * - Video streaming with H.264 support using eufy-stream-server
+ * - Video streaming with H.264 support
+ * - Audio streaming with AAC support
  * - Motion detection and sensor monitoring
  * - Device control (lights, pan/tilt, etc.)
  * - Memory management and performance optimization
@@ -17,6 +18,6 @@
  * @since 1.0.0
  */
 
-import { EufySecurityProvider } from "./eufy-provider";
+import { EufySecurityProvider } from './eufy-provider';
 
 export default EufySecurityProvider;

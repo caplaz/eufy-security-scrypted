@@ -1,9 +1,9 @@
 /**
- * Device utilities for Eufy device management and Scrypted integration
+ * device-utils.ts
  *
- * Provides core logic for translating Eufy device data into Scrypted-compatible
- * device manifests, settings, and metadata. Simplified version focusing on
- * essential device types and streaming capabilities.
+ * Utility functions and helpers for Eufy device management, Scrypted device manifest creation, device type detection, and property mapping.
+ * This file provides core logic for translating Eufy device data into Scrypted-compatible device manifests, settings, and metadata.
+ * It also includes helpers for device validation, support checks, and minimal device object creation.
  */
 
 import {
@@ -13,7 +13,8 @@ import {
   ScryptedInterface,
   SecuritySystemMode,
   Setting,
-} from "@scrypted/sdk";
+  SettingValue,
+} from '@scrypted/sdk';
 import {
   AlarmMode,
   CommonEufyProperties,
@@ -21,7 +22,12 @@ import {
   EufyWebSocketClient,
   GuardMode,
   PropertyMetadataAny,
-} from "@scrypted/eufy-security-client";
+} from '@scrypted/eufy-security-client';
+import {
+  MODEL_NAMES,
+  getDeviceCapabilities,
+  getScryptedDeviceType,
+} from '../services/device-detection';
 
 // Maps Eufy alarm/guard modes to Scrypted security system modes
 export const alarmModeMap: Record<AlarmMode, SecuritySystemMode> = {
@@ -42,292 +48,272 @@ export const securitySystemMap: Record<SecuritySystemMode, GuardMode> = {
 };
 
 /**
- * DeviceUtils - Utility class for Eufy device and station manifest creation
+ * DeviceUtils
+ *
+ * Static utility class for Eufy device and station manifest creation, settings mapping, device validation,
+ * and support detection. Used throughout the plugin to standardize device handling and Scrypted integration.
  */
 export class DeviceUtils {
   /**
-   * Create a device manifest for Scrypted device registration
-   * @param wsClient - WebSocket client for API access
-   * @param deviceSerial - Device serial number
-   * @returns Promise resolving to device manifest
+   * Generates an array of device settings based on the provided device information and property metadata.
+   *
+   * This method extracts and formats the following settings:
+   * - Model: The hardware model identifier of the device.
+   * - Serial Number: The unique serial number assigned to the device.
+   * - Software Version: The current firmware or software version running on the device.
+   *
+   * @param device - The device information object containing model, serial number, and firmware details.
+   * @param metadata - A mapping of common Eufy property keys to their corresponding metadata definitions.
+   * @returns An array of `Setting` objects representing the device's model, serial number, and software version.
    */
-  static async createDeviceManifest(
-    wsClient: EufyWebSocketClient,
-    deviceSerial: string
-  ): Promise<Device> {
-    try {
-      // Get device properties from API
-      const deviceResponse = await wsClient.commands
-        .device(deviceSerial)
-        .getProperties();
-
-      const properties = deviceResponse.properties;
-
-      // Determine device type and interfaces
-      const scryptedType = DeviceUtils.getScryptedDeviceType(properties.type);
-      const interfaces = DeviceUtils.getDeviceInterfaces(
-        properties.type,
-        properties
-      );
-
-      return {
-        nativeId: `device_${deviceSerial}`,
-        name: properties.name || `Eufy Device ${deviceSerial}`,
-        type: scryptedType,
-        interfaces,
-        info: {
-          manufacturer: "Eufy",
-          model: properties.model || "Unknown",
-          serialNumber: deviceSerial,
-          firmware: properties.softwareVersion || "Unknown",
-        },
-        // providerNativeId will be set by the caller
-      };
-    } catch (error) {
-      console.error(
-        `Failed to create device manifest for ${deviceSerial}:`,
-        error
-      );
-      // Return a basic manifest as fallback
-      return {
-        nativeId: `device_${deviceSerial}`,
-        name: `Eufy Device ${deviceSerial}`,
-        type: ScryptedDeviceType.Camera,
-        interfaces: [ScryptedInterface.VideoCamera, ScryptedInterface.Settings],
-        // providerNativeId will be set by the caller
-      };
-    }
-  }
-
-  /**
-   * Create a station manifest for Scrypted device registration
-   * @param wsClient - WebSocket client for API access
-   * @param stationSerial - Station serial number
-   * @returns Promise resolving to station manifest
-   */
-  static async createStationManifest(
-    wsClient: EufyWebSocketClient,
-    stationSerial: string
-  ): Promise<Device> {
-    try {
-      // Get station properties from API
-      const stationResponse = await wsClient.commands
-        .station(stationSerial)
-        .getProperties();
-      const properties = stationResponse.properties;
-
-      return {
-        nativeId: `station_${stationSerial}`,
-        name: properties.name || `Eufy Station ${stationSerial}`,
-        type: ScryptedDeviceType.SecuritySystem,
-        interfaces: [
-          ScryptedInterface.DeviceProvider,
-          ScryptedInterface.Settings,
-          ScryptedInterface.SecuritySystem,
-          ScryptedInterface.Refresh,
-        ],
-        info: {
-          manufacturer: "Eufy",
-          model: properties.model || "HomeBase",
-          serialNumber: stationSerial,
-          firmware: properties.softwareVersion || "Unknown",
-        },
-        // providerNativeId will be set by the caller
-      };
-    } catch (error) {
-      console.error(
-        `Failed to create station manifest for ${stationSerial}:`,
-        error
-      );
-      // Return a basic manifest as fallback
-      return {
-        nativeId: `station_${stationSerial}`,
-        name: `Eufy Station ${stationSerial}`,
-        type: ScryptedDeviceType.SecuritySystem,
-        interfaces: [
-          ScryptedInterface.DeviceProvider,
-          ScryptedInterface.Settings,
-        ],
-        // providerNativeId will be set by the caller
-      };
-    }
-  }
-
-  /**
-   * Get Scrypted device type based on Eufy device type
-   * @param eufyDeviceType - Eufy device type number
-   * @returns Scrypted device type
-   */
-  private static getScryptedDeviceType(
-    eufyDeviceType: number
-  ): ScryptedDeviceType {
-    // Simplified device type mapping - focusing on main categories
-    if (DeviceUtils.isCameraDevice(eufyDeviceType)) {
-      return ScryptedDeviceType.Camera;
-    } else if (DeviceUtils.isDoorbellDevice(eufyDeviceType)) {
-      return ScryptedDeviceType.Doorbell;
-    } else if (DeviceUtils.isSensorDevice(eufyDeviceType)) {
-      return ScryptedDeviceType.Sensor;
-    } else {
-      return ScryptedDeviceType.Unknown;
-    }
-  }
-
-  /**
-   * Get device interfaces based on device type and properties
-   * @param eufyDeviceType - Eufy device type number
-   * @param properties - Device properties
-   * @returns Array of Scrypted interfaces
-   */
-  private static getDeviceInterfaces(
-    eufyDeviceType: number,
-    properties: DeviceProperties
-  ): ScryptedInterface[] {
-    const interfaces: ScryptedInterface[] = [];
-
-    // All devices have settings
-    interfaces.push(ScryptedInterface.Settings);
-
-    // Camera/Doorbell devices
-    if (
-      DeviceUtils.isCameraDevice(eufyDeviceType) ||
-      DeviceUtils.isDoorbellDevice(eufyDeviceType)
-    ) {
-      interfaces.push(ScryptedInterface.VideoCamera);
-      interfaces.push(ScryptedInterface.MotionSensor);
-      interfaces.push(ScryptedInterface.Refresh);
-
-      // Battery devices
-      if (properties.battery !== undefined) {
-        interfaces.push(ScryptedInterface.Battery);
-      }
-
-      // Pan/Tilt capable devices
-      if (DeviceUtils.isPanTiltDevice(eufyDeviceType)) {
-        interfaces.push(ScryptedInterface.PanTiltZoom);
-      }
-
-      // Light controls
-      if (
-        properties.light !== undefined ||
-        DeviceUtils.isFloodlightDevice(eufyDeviceType)
-      ) {
-        interfaces.push(ScryptedInterface.OnOff);
-        if (properties.lightSettingsBrightnessManual !== undefined) {
-          interfaces.push(ScryptedInterface.Brightness);
-        }
-      }
-    }
-
-    // Sensor devices
-    if (DeviceUtils.isSensorDevice(eufyDeviceType)) {
-      interfaces.push(ScryptedInterface.Sensors);
-    }
-
-    return interfaces;
-  }
-
-  /**
-   * Check if device is a camera type
-   */
-  private static isCameraDevice(deviceType: number): boolean {
-    // Simplified check for camera devices - covers most common camera types
-    const cameraTypes = [
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
+  static genericDeviceInformation(
+    device: DeviceInformation,
+    metadata: Record<keyof CommonEufyProperties, PropertyMetadataAny>
+  ): Setting[] {
+    return [
+      DeviceUtils.settingFromMetadata(
+        metadata['model'],
+        device.model,
+        'The full product name and model of the device.'
+      ),
+      DeviceUtils.settingFromMetadata(
+        metadata['serialNumber'],
+        device.serialNumber,
+        'The unique serial number assigned to the device.'
+      ),
+      DeviceUtils.settingFromMetadata(
+        metadata['softwareVersion'],
+        device.firmware,
+        'The current software version running on the device.'
+      ),
     ];
-    return cameraTypes.includes(deviceType);
+  }
+
+  static allWriteableDeviceProperties(
+    properties: DeviceProperties,
+    metadata: Record<string, PropertyMetadataAny>
+  ): Setting[] {
+    return Object.values(metadata)
+      .filter(meta => meta.writeable)
+      .filter(meta => !/test/i.test(meta.name))
+      .filter(meta => meta.name !== 'statusLed')
+      .map(meta =>
+        DeviceUtils.settingFromMetadata(
+          meta,
+          properties[meta.name as keyof DeviceProperties],
+          undefined,
+          // Default group for all settings
+          DeviceUtils.groupForPropertyName(meta.name)
+        )
+      );
+  }
+
+  static groupForPropertyName(name: string): string {
+    const n = name.toLowerCase();
+    if (n.includes('motion') && !n.includes('light')) return 'Motion';
+
+    if (n.includes('light')) return 'Light';
+
+    if (n.includes('battery') || n.includes('charge') || n.includes('power')) return 'Power';
+
+    if (n.includes('clip') || n.includes('record')) return 'Recording';
+
+    if (n.includes('video') || n.includes('stream') || n.includes('vision')) return 'Video';
+
+    if (n.includes('microphone') || n.includes('speaker') || n.includes('notification'))
+      return 'Communication';
+    return 'Configuration';
+  }
+
+  static valueAdjustedWithMetadata(value: SettingValue, metadata: PropertyMetadataAny): any {
+    if (metadata.type === 'number' && metadata.states) {
+      // For number types with states, find the index of the value in the states map
+      const stateValues = Object.values(metadata.states);
+      return stateValues.indexOf(value as string);
+    }
+    return value;
   }
 
   /**
-   * Check if device is a doorbell type
-   */
-  private static isDoorbellDevice(deviceType: number): boolean {
-    // Common doorbell device types
-    const doorbellTypes = [16, 17, 18, 19, 20];
-    return doorbellTypes.includes(deviceType);
-  }
-
-  /**
-   * Check if device is a sensor type
-   */
-  private static isSensorDevice(deviceType: number): boolean {
-    // Common sensor device types
-    const sensorTypes = [50, 51, 52, 53, 54, 55, 56, 57, 58, 59];
-    return sensorTypes.includes(deviceType);
-  }
-
-  /**
-   * Check if device supports pan/tilt functionality
-   */
-  private static isPanTiltDevice(deviceType: number): boolean {
-    // Indoor PT cameras and outdoor PT cameras
-    const panTiltTypes = [31, 32, 33, 34, 35];
-    return panTiltTypes.includes(deviceType);
-  }
-
-  /**
-   * Check if device is a floodlight camera
-   */
-  private static isFloodlightDevice(deviceType: number): boolean {
-    // Floodlight camera types
-    const floodlightTypes = [90, 91, 92, 93, 94];
-    return floodlightTypes.includes(deviceType);
-  }
-
-  /**
-   * Create a setting from metadata
-   * @param metadata - Property metadata
-   * @param value - Current value
-   * @param description - Setting description
-   * @returns Setting object
+   * Converts Eufy property metadata into a Scrypted Setting object for UI/configuration.
+   * Handles type conversion and value/choice mapping for Scrypted settings.
    */
   static settingFromMetadata(
     metadata: PropertyMetadataAny,
-    value: any,
-    description?: string
+    value?: SettingValue,
+    description?: string,
+    group?: string
   ): Setting {
-    return {
+    let setting: Setting = {
       key: metadata.name,
-      title: metadata.name,
-      description: description || metadata.label,
-      value: value,
-      type: metadata.type === "number" ? "number" : "string",
+      title: metadata.label,
+      type: metadata.type,
+      value: value !== undefined ? value : metadata.default,
+      placeholder: metadata.default ? String(metadata.default) : undefined,
       readonly: !metadata.writeable,
+      description,
+      group,
+    };
+
+    // If the property is a number with states, convert to a string choice list for Scrypted
+    if (metadata.type === 'number' && metadata.states) {
+      if (metadata.writeable) {
+        // Convert the states map to an array of values, sorted by key
+        const choices = Object.entries(metadata.states)
+          .sort(([a], [b]) => {
+            const aNum = Number(a);
+            const bNum = Number(b);
+            if (!isNaN(aNum) && !isNaN(bNum)) {
+              return aNum - bNum;
+            }
+            return a.localeCompare(b);
+          })
+          .map(([, value]) => String(value));
+
+        setting = {
+          ...setting,
+          type: 'string',
+          choices,
+          value: metadata.states[value as number],
+        };
+      } else {
+        setting = {
+          ...setting,
+          type: 'string',
+          value: metadata.states[value as number],
+        };
+      }
+    } else if (
+      metadata.type === 'number' &&
+      metadata.min !== undefined &&
+      metadata.max !== undefined
+    ) {
+      setting = {
+        ...setting,
+        range: [metadata.min, metadata.max],
+        placeholder: undefined,
+        description: `Value must be between ${metadata.min}${
+          metadata.unit || ''
+        } and ${metadata.max}${metadata.unit || ''}`,
+      };
+    } else if (metadata.type === 'boolean' && metadata.name === 'light') {
+      setting = {
+        ...setting,
+        immediate: true, // Apply immediately without restart
+      };
+    }
+
+    return setting;
+  }
+
+  /**
+   * Creates a Scrypted device manifest for a Eufy station (base station/hub).
+   * Fetches properties and metadata from the Eufy WebSocket API and maps them to Scrypted fields.
+   * Includes security system state and device info for Scrypted registration.
+   */
+  static async createStationManifest(
+    wsClient: EufyWebSocketClient,
+    serialNumber: string
+  ): Promise<Device> {
+    const api = wsClient.commands.station(serialNumber);
+    const properties = (await api.getProperties()).properties;
+    const metadata = (await api.getPropertiesMetadata()).properties;
+
+    // Human-readable model name resolution
+    const humanModel = properties.model
+      ? MODEL_NAMES[properties.model] || properties.model
+      : metadata.type?.type === 'number' && metadata.type.states
+        ? metadata.type.states[properties.type]
+        : 'Unknown Model';
+
+    // Return Scrypted device manifest for the station
+    return {
+      nativeId: `station_${serialNumber}`,
+      type: ScryptedDeviceType.DeviceProvider,
+      interfaces: ['DeviceProvider', 'Settings', 'SecuritySystem', 'Refresh', 'Reboot'],
+      name: properties.name || `Eufy ${properties.model}`,
+      info: {
+        model: humanModel,
+        manufacturer: 'Eufy',
+        version: properties.hardwareVersion,
+        firmware: properties.softwareVersion,
+        serialNumber,
+        // ip: properties.lanIpAddress,
+        mac: properties.macAddress,
+        metadata,
+      },
     };
   }
 
   /**
-   * Get generic device information settings
-   * @param device - Device information
-   * @param metadata - Property metadata
-   * @returns Array of settings
+   * Creates a Scrypted device manifest for a Eufy camera or device.
+   * Determines device type, supported interfaces, and info fields for Scrypted registration.
    */
-  static genericDeviceInformation(
-    device: DeviceInformation,
-    _metadata: Record<keyof CommonEufyProperties, PropertyMetadataAny>
-  ): Setting[] {
-    return [
-      {
-        key: "model",
-        title: "Model",
-        description: "Device model",
-        value: device.model,
-        readonly: true,
-      },
-      {
-        key: "serialNumber",
-        title: "Serial Number",
-        description: "Device serial number",
-        value: device.serialNumber,
-        readonly: true,
-      },
-      {
-        key: "softwareVersion",
-        title: "Software Version",
-        description: "Device firmware version",
-        value: device.firmware,
-        readonly: true,
-      },
+  static async createDeviceManifest(
+    wsClient: EufyWebSocketClient,
+    serialNumber: string
+  ): Promise<Device> {
+    const api = wsClient.commands.device(serialNumber);
+    const properties = (await api.getProperties()).properties;
+    const metadata = (await api.getPropertiesMetadata()).properties;
+    // Validate required properties
+    const capabilities = getDeviceCapabilities(properties.type);
+    const deviceType = getScryptedDeviceType(properties.type);
+
+    // Base interfaces that all camera devices should have
+    const interfaces = [
+      ScryptedInterface.VideoCamera,
+      // ScryptedInterface.VideoClips,
+      ScryptedInterface.MotionSensor,
+      ScryptedInterface.Settings,
+      ScryptedInterface.Refresh,
     ];
+
+    // Add Battery interface only for battery-powered devices
+    if (capabilities.battery) {
+      if (properties.battery !== undefined) interfaces.push(ScryptedInterface.Battery);
+      if (properties.chargingStatus !== undefined) interfaces.push(ScryptedInterface.Charger);
+    }
+
+    if (capabilities.floodlight) {
+      if (properties.light !== undefined) interfaces.push(ScryptedInterface.OnOff);
+      if (properties.lightSettingsBrightnessManual !== undefined)
+        interfaces.push(ScryptedInterface.Brightness);
+    }
+
+    // Add Pan/Tilt/Zoom interface for PTZ capable devices
+    if (capabilities.panTilt) {
+      interfaces.push(ScryptedInterface.PanTiltZoom);
+    }
+
+    if (properties.wifiRssi !== undefined) {
+      interfaces.push(ScryptedInterface.Sensors);
+    }
+
+    // Human-readable model name resolution
+    const humanModel = properties.model
+      ? MODEL_NAMES[properties.model] || properties.model
+      : metadata.type?.type === 'number' && metadata.type.states
+        ? metadata.type.states[properties.type]
+        : 'Unknown Model';
+
+    // Return Scrypted device manifest for the camera/device
+    return {
+      nativeId: `device_${serialNumber}`,
+      name: properties.name || `Eufy ${properties.model}`,
+      type: deviceType,
+      interfaces,
+      info: {
+        manufacturer: 'Eufy',
+        model: humanModel,
+        serialNumber: properties.serialNumber,
+        firmware: properties.softwareVersion,
+        metadata,
+      },
+      // link to the base station for this device
+      providerNativeId: properties.stationSerialNumber
+        ? `station_${properties.stationSerialNumber}`
+        : undefined,
+    };
   }
 }
