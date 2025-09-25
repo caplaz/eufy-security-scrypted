@@ -50,7 +50,7 @@ import {
   VideoClipOptions,
   VideoClipThumbnailOptions,
   VideoClips,
-} from '@scrypted/sdk';
+} from "@scrypted/sdk";
 
 import {
   ChargingStatus,
@@ -66,12 +66,11 @@ import {
   PanTiltDirection,
   StorageType,
   VideoQuality,
-} from '@scrypted/eufy-security-client';
+} from "@scrypted/eufy-security-client";
 
-import { DebugLogger, createDebugLogger } from './utils/debug-logger';
-import { DeviceUtils } from './utils/device-utils';
-import { MemoryManager } from './utils/memory-manager';
-import { EufyStreamSession, EufyStreamSessionSettings } from './utils/stream-session';
+import { DebugLogger, createDebugLogger } from "./utils/debug-logger";
+import { DeviceUtils } from "./utils/device-utils";
+import { StreamServer } from "eufy-stream-server";
 
 /**
  * EufyDevice - TCP server implementation for VideoCamera
@@ -98,17 +97,17 @@ export class EufyDevice
   private latestProperties?: DeviceProperties;
   private propertiesLoaded: Promise<void>;
 
-  private streamSession!: EufyStreamSession;
+  private streamServer!: StreamServer;
+  private streamServerStarted = false;
   // Event listener removers for cleanup
   private videoDataEventRemover?: () => boolean;
-  private audioDataEventRemover?: () => boolean;
 
   /**
    * Get the serial number for this station.
    * @returns {string} Serial number from device info, or 'unknown' if not set.
    */
   get serialNumber(): string {
-    return this.info?.serialNumber || 'unknown';
+    return this.info?.serialNumber || "unknown";
   }
 
   /**
@@ -125,7 +124,7 @@ export class EufyDevice
     this.logger = createDebugLogger(this.name);
     this.logger.i(`Created EufyDevice for ${nativeId}`);
 
-    this.createStreamSession();
+    this.createStreamServer();
 
     // Properties changed event listener
     this.addEventListener(
@@ -133,13 +132,16 @@ export class EufyDevice
       this.handlePropertyChangedEvent.bind(this)
     );
 
-    this.addEventListener(DEVICE_EVENTS.MOTION_DETECTED, this.handleMotionDetectedEvent.bind(this));
+    this.addEventListener(
+      DEVICE_EVENTS.MOTION_DETECTED,
+      this.handleMotionDetectedEvent.bind(this)
+    );
 
     // Listen for stream started/stopped events
     this.wsClient.addEventListener(
       DEVICE_EVENTS.LIVESTREAM_STARTED,
       () => {
-        this.logger.i('Stream started');
+        this.logger.i("Stream started");
       },
       {
         serialNumber: this.info?.serialNumber,
@@ -148,7 +150,7 @@ export class EufyDevice
     this.wsClient.addEventListener(
       DEVICE_EVENTS.LIVESTREAM_STOPPED,
       () => {
-        this.logger.d('📻 WebSocket livestream stopped event received');
+        this.logger.d("📻 WebSocket livestream stopped event received");
       },
       {
         serialNumber: this.info?.serialNumber,
@@ -192,9 +194,9 @@ export class EufyDevice
     // wifi
     this.sensors = {
       wifiRssi: {
-        name: 'wifiRssi',
+        name: "wifiRssi",
         value: properties.wifiRssi,
-        unit: 'dBm',
+        unit: "dBm",
       },
     };
   }
@@ -210,35 +212,38 @@ export class EufyDevice
     });
   }
 
-  private handlePropertyChangedEvent({ name, value }: DevicePropertyChangedEventPayload) {
+  private handlePropertyChangedEvent({
+    name,
+    value,
+  }: DevicePropertyChangedEventPayload) {
     this.latestProperties = this.latestProperties && {
       ...this.latestProperties,
       [name]: value,
     };
 
     switch (name) {
-      case 'light':
+      case "light":
         this.on = value as boolean;
         this.onDeviceEvent(ScryptedInterface.OnOff, this.on);
         break;
-      case 'battery':
+      case "battery":
         this.batteryLevel = value as number;
         this.onDeviceEvent(ScryptedInterface.Battery, this.batteryLevel);
         break;
-      case 'chargingStatus':
+      case "chargingStatus":
         this.chargeState =
           (value as ChargingStatus) === ChargingStatus.CHARGING
             ? ChargeState.Charging
             : ChargeState.NotCharging;
         this.onDeviceEvent(ScryptedInterface.Charger, this.chargeState);
         break;
-      case 'wifiRssi':
+      case "wifiRssi":
         this.sensors = {
           ...this.sensors,
           wifiRssi: {
             name,
             value: value as number,
-            unit: 'dBm',
+            unit: "dBm",
           },
         };
         this.onDeviceEvent(ScryptedInterface.Sensors, this.sensors);
@@ -263,18 +268,21 @@ export class EufyDevice
 
     return [
       {
-        key: 'scryptedName',
-        title: 'Device Name',
-        description: 'Name shown in Scrypted (can be customized)',
+        key: "scryptedName",
+        title: "Device Name",
+        description: "Name shown in Scrypted (can be customized)",
         value: this.name,
-        type: 'string',
+        type: "string",
         readonly: false,
       },
 
       // generic info about this device
       ...DeviceUtils.genericDeviceInformation(info!, metadata),
 
-      ...DeviceUtils.allWriteableDeviceProperties(this.latestProperties!, metadata),
+      ...DeviceUtils.allWriteableDeviceProperties(
+        this.latestProperties!,
+        metadata
+      ),
     ];
   }
 
@@ -298,18 +306,18 @@ export class EufyDevice
             [propertyName]: propertyValue,
           };
         })
-        .catch(error => {
+        .catch((error) => {
           this.logger.w(`Failed to set property ${propertyName}: ${error}`);
         });
     }
 
     // Handle custom settings
     switch (key) {
-      case 'scryptedName':
+      case "scryptedName":
         this.name = value as string;
         return; // Add explicit return
-      case 'debugLogging':
-        this.storage.setItem('debugLogging', (!!value).toString());
+      case "debugLogging":
+        this.storage.setItem("debugLogging", (!!value).toString());
         return; // Add explicit return
 
       default:
@@ -342,35 +350,39 @@ export class EufyDevice
 
     if (command.pan !== undefined) {
       return command.pan > 0
-        ? this.api.panAndTilt({ direction: PanTiltDirection.RIGHT }).then(() => {
-            this.logger.i(`Panned camera right`);
-          })
+        ? this.api
+            .panAndTilt({ direction: PanTiltDirection.RIGHT })
+            .then(() => {
+              this.logger.i(`Panned camera right`);
+            })
         : this.api.panAndTilt({ direction: PanTiltDirection.LEFT }).then(() => {
             this.logger.i(`Panned camera left`);
           });
     }
 
-    throw new Error('Method not implemented.');
+    throw new Error("Method not implemented.");
   }
 
   // =================== LIGHT INTERFACE ===================
 
   turnOn(): Promise<void> {
-    return this.api.setProperty('light', true).then(() => {
+    return this.api.setProperty("light", true).then(() => {
       this.on = true;
     });
   }
 
   turnOff(): Promise<void> {
-    return this.api.setProperty('light', false).then(() => {
+    return this.api.setProperty("light", false).then(() => {
       this.on = false;
     });
   }
 
   setBrightness(brightness: number): Promise<void> {
-    return this.api.setProperty('lightSettingsBrightnessManual', brightness).then(() => {
-      this.brightness = brightness;
-    });
+    return this.api
+      .setProperty("lightSettingsBrightnessManual", brightness)
+      .then(() => {
+        this.brightness = brightness;
+      });
   }
 
   // =================== VIDEO CAMERA INTERFACE ===================
@@ -379,17 +391,7 @@ export class EufyDevice
     width: number;
     height: number;
   } {
-    // Try to get dimensions from actual video metadata first
-    const videoMetadata = this.streamSession.getVideoMetadata();
-    if (videoMetadata && videoMetadata.videoWidth && videoMetadata.videoHeight) {
-      return {
-        width: videoMetadata.videoWidth,
-        height: videoMetadata.videoHeight,
-      };
-    }
-
-    // Fallback to quality-based dimensions if VideoMetadata is not available yet
-    // These will be replaced once actual stream metadata is received
+    // Fallback to quality-based dimensions since we don't have metadata from stream server
     const quality = this.latestProperties?.videoStreamingQuality;
     switch (quality) {
       case VideoQuality.LOW:
@@ -414,11 +416,11 @@ export class EufyDevice
     // Return stream options that should work with Scrypted
     return [
       {
-        id: 'p2p',
-        name: 'P2P Stream',
-        container: 'mp4', // MP4 container for better compatibility
+        id: "p2p",
+        name: "P2P Stream",
+        container: "mp4", // MP4 container for better compatibility
         video: {
-          codec: 'h264',
+          codec: "h264",
           width,
           height,
         },
@@ -426,8 +428,22 @@ export class EufyDevice
     ];
   }
 
-  async getVideoStream(options?: RequestMediaStreamOptions): Promise<MediaObject> {
-    return this.streamSession.getVideoStream(options);
+  async getVideoStream(
+    options?: RequestMediaStreamOptions
+  ): Promise<MediaObject> {
+    this.logger.i("getVideoStream called, starting stream server if needed");
+    if (!this.streamServerStarted) {
+      this.logger.i("Starting stream server...");
+      await this.streamServer.start();
+      this.streamServerStarted = true;
+      this.logger.i("Stream server started");
+    }
+    const port = this.streamServer.getPort();
+    if (!port) {
+      throw new Error("Failed to get stream server port");
+    }
+    this.logger.i(`Stream server is listening on port ${port}`);
+    return this.createMediaObject(`tcp://localhost:${port}`, "video/mp4");
   }
 
   // =================== REFRESH INTERFACE ===================
@@ -436,7 +452,10 @@ export class EufyDevice
     return 600; // 10 minutes
   }
 
-  async refresh(refreshInterface?: string, userInitiated?: boolean): Promise<void> {
+  async refresh(
+    refreshInterface?: string,
+    userInitiated?: boolean
+  ): Promise<void> {
     // since I don't have a way to get a single property, we just refresh everything
     if (!refreshInterface) {
       try {
@@ -461,7 +480,7 @@ export class EufyDevice
       },
     });
 
-    return events.map(event => {
+    return events.map((event) => {
       return {
         startTime: event.startTime,
       } as VideoClip;
@@ -469,97 +488,70 @@ export class EufyDevice
   }
 
   getVideoClip(videoId: string): Promise<MediaObject> {
-    throw new Error('Method not implemented.');
+    throw new Error("Method not implemented.");
   }
 
   getVideoClipThumbnail(
     thumbnailId: string,
     options?: VideoClipThumbnailOptions
   ): Promise<MediaObject> {
-    throw new Error('Method not implemented.');
+    throw new Error("Method not implemented.");
   }
 
   removeVideoClips(...videoClipIds: string[]): Promise<void> {
-    throw new Error('Method not implemented.');
+    throw new Error("Method not implemented.");
   }
 
   // =================== UTILITY METHODS ===================
 
   /**
-   * Gets the current stream settings with hardcoded default values.
-   * @returns EufyStreamSessionSettings with default values
+   * Handles incoming video data from the WebSocket and streams it to connected clients.
    */
-  private getCurrentStreamSettings(): EufyStreamSessionSettings {
-    return {
-      maxPendingChunks: 15,
-      streamTimeout: 30,
-    };
+  private handleVideoData(event: any): void {
+    // Assuming event has data, timestamp, isKeyFrame
+    const { data, timestamp, isKeyFrame } = event;
+    if (this.streamServerStarted) {
+      this.streamServer.streamVideo(data, timestamp, isKeyFrame);
+    }
   }
 
   /**
-   * Creates a new stream session with current settings.
-   * This ensures the session always has the latest configuration.
+   * Creates a new stream server.
    */
-  private createStreamSession(): void {
-    // Clean up existing session first
-    if (this.streamSession) {
-      this.streamSession
-        .stopStream()
-        .catch(error => this.logger.w(`Failed to stop previous stream session: ${error}`));
-    }
-
-    // Remove existing video and audio data event listeners if they exist
-    if (this.videoDataEventRemover) {
-      this.videoDataEventRemover();
-      this.videoDataEventRemover = undefined;
-    }
-
-    if (this.audioDataEventRemover) {
-      this.audioDataEventRemover();
-      this.audioDataEventRemover = undefined;
-    }
-
-    this.streamSession = new EufyStreamSession({
-      serialNumber: this.serialNumber,
-      wsClient: this.wsClient,
-      logger: this.logger,
-      settings: this.getCurrentStreamSettings(),
-      memoryThresholdMB: MemoryManager.getMemoryThreshold(),
+  private createStreamServer(): void {
+    this.streamServer = new StreamServer({
+      port: 0, // Let the system assign a free port
+      host: "127.0.0.1", // Only allow connections from localhost
+      debug: true, // Enable debug logging to see server activity
     });
 
-    // Attach video data event listener for the new session
-    this.videoDataEventRemover = this.addEventListener(
+    // Attach video data event listener for the new server
+    this.addEventListener(
       DEVICE_EVENTS.LIVESTREAM_VIDEO_DATA,
-      this.streamSession.handleVideoData.bind(this.streamSession)
-    );
-
-    // Attach audio data event listener for the new session
-    this.audioDataEventRemover = this.addEventListener(
-      DEVICE_EVENTS.LIVESTREAM_AUDIO_DATA,
-      this.streamSession.handleAudioData.bind(this.streamSession)
+      this.handleVideoData.bind(this)
     );
 
     this.logger.d(
-      `Stream session created with system memory threshold ${MemoryManager.getMemoryThreshold()}MB and video/audio data event listeners attached`
+      "Stream server created with video data event listener attached"
     );
   }
 
   dispose(): void {
-    this.streamSession
-      .stopStream()
-      .catch((e: unknown) => this.logger.w(`Error stopping stream during disposal: ${e}`));
+    if (this.streamServerStarted) {
+      this.streamServer
+        .stop()
+        .catch((e: unknown) =>
+          this.logger.w(`Error stopping stream server: ${e}`)
+        );
+    }
 
     // Clean up all event listeners for this device
-    // This removes video data, audio data, and other device event listeners
+    // This removes video data, and other device event listeners
     const removedCount = this.wsClient.removeEventListenersBySerialNumber(
       this.serialNumber,
       EVENT_SOURCES.DEVICE
     );
 
     this.logger.d(`Removed ${removedCount} event listeners during disposal`);
-
-    // Clear the remover function references
-    this.videoDataEventRemover = undefined;
-    this.audioDataEventRemover = undefined;
   }
 }

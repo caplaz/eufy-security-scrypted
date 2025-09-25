@@ -281,6 +281,19 @@ export class StreamServer extends EventEmitter {
   }
 
   /**
+   * Get the actual port the server is listening on
+   */
+  getPort(): number | undefined {
+    if (this.server) {
+      const address = this.server.address();
+      if (address && typeof address === "object") {
+        return address.port;
+      }
+    }
+    return undefined;
+  }
+
+  /**
    * Get number of active connections
    */
   getActiveConnectionCount(): number {
