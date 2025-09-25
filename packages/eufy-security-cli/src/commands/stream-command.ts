@@ -87,7 +87,7 @@ export class StreamCommand extends BaseCommand {
             `Available devices:\n${availableSerials
               .map((s: string) => `   • ${s}`)
               .join("\n")}\n\n` +
-            `💡 Use 'eufy-camera list-devices --ws-host ${this.context.wsHost}' to see all available devices`
+            `💡 Use 'eufy-security-cli list-devices --ws-host ${this.context.wsHost}' to see all available devices`
         );
       }
 

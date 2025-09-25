@@ -74,7 +74,7 @@ describe("CLI Executable Integration", () => {
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("USAGE:");
-      expect(result.stdout).toContain("eufy-camera");
+      expect(result.stdout).toContain("eufy-security-cli");
     });
   });
 

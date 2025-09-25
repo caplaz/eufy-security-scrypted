@@ -81,7 +81,7 @@ export class DeviceInfoCommand extends BaseCommand {
             `Available devices:\n${availableSerials
               .map((s: string) => `   • ${s}`)
               .join("\n")}\n\n` +
-            `💡 Use 'eufy-camera list-devices --ws-host ${this.context.wsHost}' to see all available devices`
+            `💡 Use 'eufy-security-cli list-devices --ws-host ${this.context.wsHost}' to see all available devices`
         );
       }
 
@@ -182,12 +182,12 @@ export class DeviceInfoCommand extends BaseCommand {
     console.log("\n💡 Usage Examples:");
     console.log(`   # Start streaming:`);
     console.log(
-      `   eufy-camera stream --ws-host ${this.context.wsHost} --camera-serial ${device.serialNumber}`
+      `   eufy-security-cli stream --ws-host ${this.context.wsHost} --camera-serial ${device.serialNumber}`
     );
     console.log("");
     console.log(`   # Monitor connection:`);
     console.log(
-      `   eufy-camera monitor --ws-host ${this.context.wsHost} --camera-serial ${device.serialNumber}`
+      `   eufy-security-cli monitor --ws-host ${this.context.wsHost} --camera-serial ${device.serialNumber}`
     );
 
     console.log("\n" + "=".repeat(60) + "\n");

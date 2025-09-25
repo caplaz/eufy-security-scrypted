@@ -6,10 +6,10 @@
  * methods that match the expected CLI interface.
  */
 
-import { ApiManager } from './api-manager';
-import { DEVICE_COMMANDS, DEVICE_EVENTS } from './device/constants';
-import { Logger, ILogObj } from 'tslog';
-import { EventEmitter } from 'events';
+import { ApiManager } from "./api-manager";
+import { DEVICE_COMMANDS, DEVICE_EVENTS } from "./device/constants";
+import { Logger, ILogObj } from "tslog";
+import { EventEmitter } from "events";
 
 /**
  * Device information interface containing essential device metadata
@@ -88,7 +88,7 @@ export class EufySecurityClient extends EventEmitter {
 
     // Create a tslog logger
     this.logger = new Logger<ILogObj>({
-      name: 'EufySecurityClient',
+      name: "EufySecurityClient",
       minLevel: 3, // Info level
     });
 
@@ -111,11 +111,11 @@ export class EufySecurityClient extends EventEmitter {
 
     while (!this.apiManager.isConnected()) {
       if (Date.now() - startTime > timeoutMs) {
-        throw new Error('Timeout waiting for client to be ready');
+        throw new Error("Timeout waiting for client to be ready");
       }
 
       // Wait 100ms before checking again
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
 
@@ -152,7 +152,7 @@ export class EufySecurityClient extends EventEmitter {
 
       this.isConnectedFlag = true;
     } catch (error) {
-      this.logger.error('Failed to connect:', error);
+      this.logger.error("Failed to connect:", error);
       throw error;
     }
   }
@@ -205,7 +205,7 @@ export class EufySecurityClient extends EventEmitter {
    */
   async getDevices(): Promise<DeviceInfo[]> {
     if (!this.isConnected()) {
-      throw new Error('Client not connected. Call connect() first.');
+      throw new Error("Client not connected. Call connect() first.");
     }
 
     return Array.from(this.devices.values());
@@ -229,7 +229,7 @@ export class EufySecurityClient extends EventEmitter {
    */
   async startStream(deviceSerial: string): Promise<void> {
     if (!this.isConnected()) {
-      throw new Error('Client not connected. Call connect() first.');
+      throw new Error("Client not connected. Call connect() first.");
     }
 
     const device = this.devices.get(deviceSerial);
@@ -242,7 +242,10 @@ export class EufySecurityClient extends EventEmitter {
       await deviceCommand.startLivestream();
       this.logger.info(`Started stream for device: ${deviceSerial}`);
     } catch (error) {
-      this.logger.error(`Failed to start stream for device ${deviceSerial}:`, error);
+      this.logger.error(
+        `Failed to start stream for device ${deviceSerial}:`,
+        error
+      );
       throw error;
     }
   }
@@ -261,7 +264,7 @@ export class EufySecurityClient extends EventEmitter {
    */
   async stopStream(deviceSerial: string): Promise<void> {
     if (!this.isConnected()) {
-      throw new Error('Client not connected. Call connect() first.');
+      throw new Error("Client not connected. Call connect() first.");
     }
 
     const device = this.devices.get(deviceSerial);
@@ -283,7 +286,10 @@ export class EufySecurityClient extends EventEmitter {
       await deviceCommand.stopLivestream();
       this.logger.info(`Stopped stream for device: ${deviceSerial}`);
     } catch (error) {
-      this.logger.error(`Failed to stop stream for device ${deviceSerial}:`, error);
+      this.logger.error(
+        `Failed to stop stream for device ${deviceSerial}:`,
+        error
+      );
       throw error;
     }
   }
@@ -310,65 +316,76 @@ export class EufySecurityClient extends EventEmitter {
    */
   private setupEventHandlers(): void {
     // Listen for device events to populate device list
-    this.apiManager.addEventListener('device added', event => {
+    this.apiManager.addEventListener("device added", (event) => {
       this.addDevice(event);
     });
 
-    this.apiManager.addEventListener('device removed', event => {
+    this.apiManager.addEventListener("device removed", (event) => {
       // The event structure may vary, so we'll handle it safely
-      const serialNumber = (event as any).serialNumber || (event as any).device?.serialNumber;
+      const serialNumber =
+        (event as any).serialNumber || (event as any).device?.serialNumber;
       if (serialNumber) {
         this.removeDevice(serialNumber);
       }
     });
 
     // Forward stream events
-    this.apiManager.addEventListener('livestream started', event => {
-      this.logger.info('🎬 Livestream started event received:', event);
+    this.apiManager.addEventListener("livestream started", (event) => {
+      this.logger.info("🎬 Livestream started event received:", event);
       // Emit as streamStarted for compatibility
-      super.emit('streamStarted', event);
+      super.emit("streamStarted", event);
     });
 
-    this.apiManager.addEventListener('livestream stopped', event => {
-      this.logger.info('⏹️ Livestream stopped event received:', event);
+    this.apiManager.addEventListener("livestream stopped", (event) => {
+      this.logger.info("⏹️ Livestream stopped event received:", event);
       // Emit as streamStopped for compatibility
-      super.emit('streamStopped', event);
+      super.emit("streamStopped", event);
     });
 
-    this.apiManager.addEventListener(DEVICE_EVENTS.LIVESTREAM_VIDEO_DATA, event => {
-      const bufferSize = event.buffer?.data?.length || 0;
-      this.logger.debug(
-        `📹 Video data received: ${bufferSize} bytes from device ${event.serialNumber}`
-      );
+    this.apiManager.addEventListener(
+      DEVICE_EVENTS.LIVESTREAM_VIDEO_DATA,
+      (event) => {
+        const bufferSize = event.buffer?.data?.length || 0;
+        this.logger.debug(
+          `📹 Video data received: ${bufferSize} bytes from device ${event.serialNumber}`
+        );
 
-      // Convert JSONBuffer to Buffer for compatibility
-      const buffer = event.buffer ? Buffer.from(event.buffer.data) : Buffer.alloc(0);
+        // Convert JSONBuffer to Buffer for compatibility
+        const buffer = event.buffer
+          ? Buffer.from(event.buffer.data)
+          : Buffer.alloc(0);
 
-      // Emit as streamData for compatibility, including video metadata
-      super.emit('streamData', {
-        type: 'video',
-        buffer: buffer,
-        deviceSerial: event.serialNumber,
-        metadata: event.metadata, // Pass through video metadata with dimensions
-      });
-    });
+        // Emit as streamData for compatibility, including video metadata
+        super.emit("streamData", {
+          type: "video",
+          buffer: buffer,
+          deviceSerial: event.serialNumber,
+          metadata: event.metadata, // Pass through video metadata with dimensions
+        });
+      }
+    );
 
-    this.apiManager.addEventListener(DEVICE_EVENTS.LIVESTREAM_AUDIO_DATA, event => {
-      const bufferSize = event.buffer?.data?.length || 0;
-      this.logger.debug(
-        `🎵 Audio data received: ${bufferSize} bytes from device ${event.serialNumber}`
-      );
+    this.apiManager.addEventListener(
+      DEVICE_EVENTS.LIVESTREAM_AUDIO_DATA,
+      (event) => {
+        const bufferSize = event.buffer?.data?.length || 0;
+        this.logger.debug(
+          `🎵 Audio data received: ${bufferSize} bytes from device ${event.serialNumber}`
+        );
 
-      // Convert JSONBuffer to Buffer for compatibility
-      const buffer = event.buffer ? Buffer.from(event.buffer.data) : Buffer.alloc(0);
+        // Convert JSONBuffer to Buffer for compatibility
+        const buffer = event.buffer
+          ? Buffer.from(event.buffer.data)
+          : Buffer.alloc(0);
 
-      // Emit as streamData for compatibility
-      super.emit('streamData', {
-        type: 'audio',
-        buffer: buffer,
-        deviceSerial: event.serialNumber,
-      });
-    });
+        // Emit as streamData for compatibility
+        super.emit("streamData", {
+          type: "audio",
+          buffer: buffer,
+          deviceSerial: event.serialNumber,
+        });
+      }
+    );
   }
 
   /**
@@ -383,13 +400,21 @@ export class EufySecurityClient extends EventEmitter {
   private async loadDevices(): Promise<void> {
     try {
       // Get the start_listening response which should contain device list
-      const startListeningResult = await this.apiManager.commands.server().startListening();
+      const startListeningResult = await this.apiManager.commands
+        .server()
+        .startListening();
 
-      this.logger.info('Start listening result:', JSON.stringify(startListeningResult, null, 2));
+      this.logger.info(
+        "Start listening result:",
+        JSON.stringify(startListeningResult, null, 2)
+      );
 
       if (startListeningResult?.state?.devices) {
         const deviceSerials = startListeningResult.state.devices;
-        this.logger.info(`Found ${deviceSerials.length} device(s):`, deviceSerials);
+        this.logger.info(
+          `Found ${deviceSerials.length} device(s):`,
+          deviceSerials
+        );
 
         // For each device serial, get the device properties
         for (const serialNumber of deviceSerials) {
@@ -415,31 +440,51 @@ export class EufySecurityClient extends EventEmitter {
 
             // Create device info from properties
             const deviceInfo: DeviceInfo = {
-              name: (props as any)?.name || (props as any)?.deviceName || `Device ${serialNumber}`,
+              name:
+                (props as any)?.name ||
+                (props as any)?.deviceName ||
+                `Device ${serialNumber}`,
               serialNumber: serialNumber,
-              type: this.getDeviceTypeName((props as any)?.type || (props as any)?.deviceType || 0),
-              stationSerial: (props as any)?.stationSerial || (props as any)?.station_sn || '',
-              model: (props as any)?.model || (props as any)?.deviceModel || 'Unknown',
+              type: this.getDeviceTypeName(
+                (props as any)?.type || (props as any)?.deviceType || 0
+              ),
+              stationSerial:
+                (props as any)?.stationSerial ||
+                (props as any)?.station_sn ||
+                "",
+              model:
+                (props as any)?.model ||
+                (props as any)?.deviceModel ||
+                "Unknown",
               hardwareVersion:
-                (props as any)?.hardwareVersion || (props as any)?.main_hw_version || 'Unknown',
+                (props as any)?.hardwareVersion ||
+                (props as any)?.main_hw_version ||
+                "Unknown",
               softwareVersion:
-                (props as any)?.softwareVersion || (props as any)?.main_sw_version || 'Unknown',
+                (props as any)?.softwareVersion ||
+                (props as any)?.main_sw_version ||
+                "Unknown",
             };
 
             this.devices.set(serialNumber, deviceInfo);
-            this.logger.info(`Added device: ${deviceInfo.name} (${deviceInfo.serialNumber})`);
+            this.logger.info(
+              `Added device: ${deviceInfo.name} (${deviceInfo.serialNumber})`
+            );
           } catch (deviceError) {
-            this.logger.warn(`Failed to get properties for device ${serialNumber}:`, deviceError);
+            this.logger.warn(
+              `Failed to get properties for device ${serialNumber}:`,
+              deviceError
+            );
 
             // Add device with minimal info
             const device: DeviceInfo = {
               name: `Device ${serialNumber}`,
               serialNumber: serialNumber,
-              type: 'Unknown',
-              stationSerial: '',
-              model: 'Unknown',
-              hardwareVersion: 'Unknown',
-              softwareVersion: 'Unknown',
+              type: "Unknown",
+              stationSerial: "",
+              model: "Unknown",
+              hardwareVersion: "Unknown",
+              softwareVersion: "Unknown",
             };
 
             this.devices.set(serialNumber, device);
@@ -449,12 +494,14 @@ export class EufySecurityClient extends EventEmitter {
           }
         }
       } else {
-        this.logger.warn('No devices found in start_listening response');
+        this.logger.warn("No devices found in start_listening response");
       }
 
-      this.logger.info(`Device loading completed. Total devices: ${this.devices.size}`);
+      this.logger.info(
+        `Device loading completed. Total devices: ${this.devices.size}`
+      );
     } catch (error) {
-      this.logger.error('Failed to load devices:', error);
+      this.logger.error("Failed to load devices:", error);
       throw error;
     }
   }
@@ -467,7 +514,7 @@ export class EufySecurityClient extends EventEmitter {
    */
   private addDevice(deviceData: any): void {
     const device: DeviceInfo = {
-      name: deviceData.name || 'Unknown Device',
+      name: deviceData.name || "Unknown Device",
       serialNumber: deviceData.serialNumber,
       type: this.getDeviceTypeName(deviceData.type),
       stationSerial: deviceData.stationSerial,
@@ -506,13 +553,15 @@ export class EufySecurityClient extends EventEmitter {
     // This is a simplified mapping - in a full implementation,
     // this would use the DeviceType enum from constants
     const typeMap: Record<number, string> = {
-      1: 'Camera',
-      5: 'Doorbell',
-      7: 'Battery Doorbell',
+      1: "Camera",
+      5: "Doorbell",
+      7: "Battery Doorbell",
+      38: "Camera", // T8423 series cameras
+      62: "Video Doorbell", // T8124 series video doorbells
       // Add more mappings as needed
     };
 
-    return typeMap[type] || 'Unknown';
+    return typeMap[type] || "Unknown";
   }
 
   // emit() method is inherited from EventEmitter

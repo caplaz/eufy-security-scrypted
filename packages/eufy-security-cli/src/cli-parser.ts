@@ -156,7 +156,7 @@ export class CLIParser {
 Stream Eufy Security camera feeds directly to media players like ffplay and VLC.
 
 USAGE:
-  eufy-camera [COMMAND] [OPTIONS]
+  eufy-security-cli [COMMAND] [OPTIONS]
 
 COMMANDS:
   stream                            Start streaming from a camera
@@ -176,19 +176,19 @@ STREAM COMMAND OPTIONS:
 
 EXAMPLES:
   # List all available devices
-  eufy-camera list-devices --ws-host 192.168.7.100:3000
+  eufy-security-cli list-devices --ws-host 192.168.7.100:3000
 
   # Get device information
-  eufy-camera device-info --ws-host 192.168.7.100:3000 --camera-serial ABC1234567890
+  eufy-security-cli device-info --ws-host 192.168.7.100:3000 --camera-serial ABC1234567890
 
   # Start streaming with development server
-  eufy-camera stream --ws-host 192.168.7.100:3000 --camera-serial ABC1234567890
+  eufy-security-cli stream --ws-host 192.168.7.100:3000 --camera-serial ABC1234567890
 
   # Stream with custom port and verbose logging
-  eufy-camera stream -w 192.168.7.100:3000 -c ABC1234567890 -p 8080 -v
+  eufy-security-cli stream -w 192.168.7.100:3000 -c ABC1234567890 -p 8080 -v
 
   # Monitor camera connection
-  eufy-camera monitor --ws-host 192.168.7.100:3000 --camera-serial ABC1234567890
+  eufy-security-cli monitor --ws-host 192.168.7.100:3000 --camera-serial ABC1234567890
 
 CONNECTING WITH MEDIA PLAYERS:
   # The CLI will display the actual port when streaming starts, e.g.:
@@ -221,7 +221,7 @@ TROUBLESHOOTING:
   lsof -i :41855
 
   # Run with verbose logging for debugging
-  eufy-camera stream -w 192.168.7.100:3000 -c ABC1234567890 -v
+  eufy-security-cli stream -w 192.168.7.100:3000 -c ABC1234567890 -v
 
 DOCUMENTATION:
   For detailed documentation, examples, and troubleshooting:
@@ -278,9 +278,9 @@ NOTES:
       if (!args.cameraSerial) {
         throw new Error(
           `❌ Camera serial is required for the ${args.command} command.\n\n` +
-            `Usage: eufy-camera ${args.command} --ws-host <host> --camera-serial <serial>\n\n` +
+            `Usage: eufy-security-cli ${args.command} --ws-host <host> --camera-serial <serial>\n\n` +
             `💡 To find available device serials, run:\n` +
-            `   eufy-camera list-devices --ws-host ${args.wsHost || "<host>"}`
+            `   eufy-security-cli list-devices --ws-host ${args.wsHost || "<host>"}`
         );
       }
       this.validateCameraSerial(args.cameraSerial);
@@ -418,7 +418,7 @@ NOTES:
           `   E123456789\n\n` +
           `💡 To find your camera serial:\n` +
           `   • Check the device label or QR code\n` +
-          `   • Use: eufy-camera list-devices --ws-host <host>`
+          `   • Use: eufy-security-cli list-devices --ws-host <host>`
       );
     }
   }

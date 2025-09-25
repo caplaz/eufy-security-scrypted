@@ -1,7 +1,7 @@
-import { Logger as TsLogger, ILogObj } from 'tslog';
-import { CLIParser } from './cli-parser';
-import { createCommandRegistry, getAvailableCommands } from './commands';
-import { ParsedArgs, Logger, CommandContext } from './interfaces';
+import { Logger as TsLogger, ILogObj } from "tslog";
+import { CLIParser } from "./cli-parser";
+import { createCommandRegistry, getAvailableCommands } from "./commands";
+import { ParsedArgs, Logger, CommandContext } from "./interfaces";
 
 /**
  * Main CLI application class that handles command routing and execution
@@ -28,17 +28,21 @@ export class CLIApplication {
   constructor() {
     // Create default logger (will be updated based on verbose flag)
     this.tsLogger = new TsLogger<ILogObj>({
-      name: 'EufyCameraCLI',
+      name: "EufyCameraCLI",
       minLevel: 3, // Info level by default
       prettyLogTemplate:
-        '{{yyyy}}.{{mm}}.{{dd}} {{hh}}:{{MM}}:{{ss}}:{{ms}} {{logLevelName}} [{{name}}] ',
+        "{{yyyy}}.{{mm}}.{{dd}} {{hh}}:{{MM}}:{{ss}}:{{ms}} {{logLevelName}} [{{name}}] ",
     });
 
     this.logger = {
-      info: (message: string, ...args: any[]) => this.tsLogger.info(message, ...args),
-      warn: (message: string, ...args: any[]) => this.tsLogger.warn(message, ...args),
-      error: (message: string, ...args: any[]) => this.tsLogger.error(message, ...args),
-      debug: (message: string, ...args: any[]) => this.tsLogger.debug(message, ...args),
+      info: (message: string, ...args: any[]) =>
+        this.tsLogger.info(message, ...args),
+      warn: (message: string, ...args: any[]) =>
+        this.tsLogger.warn(message, ...args),
+      error: (message: string, ...args: any[]) =>
+        this.tsLogger.error(message, ...args),
+      debug: (message: string, ...args: any[]) =>
+        this.tsLogger.debug(message, ...args),
     };
   }
 
@@ -91,13 +95,13 @@ export class CLIApplication {
       const commandRegistry = createCommandRegistry(context);
 
       // Get the command to execute
-      const commandName = parsedArgs.command || 'stream';
+      const commandName = parsedArgs.command || "stream";
       const command = commandRegistry.get(commandName);
 
       if (!command) {
         throw new Error(
           `Unknown command: ${commandName}. Available commands: ${getAvailableCommands().join(
-            ', '
+            ", "
           )}`
         );
       }
@@ -108,14 +112,14 @@ export class CLIApplication {
       await command.execute(parsedArgs);
     } catch (error) {
       if (error instanceof Error) {
-        this.logger.error('❌ CLI Error:', error.message);
+        this.logger.error("❌ CLI Error:", error.message);
 
         // Show stack trace in verbose mode
-        if (args.includes('--verbose') || args.includes('-v')) {
+        if (args.includes("--verbose") || args.includes("-v")) {
           console.error(error.stack);
         }
       } else {
-        this.logger.error('❌ Unknown error:', error);
+        this.logger.error("❌ Unknown error:", error);
       }
 
       process.exit(1);
@@ -131,7 +135,7 @@ export class CLIApplication {
    * @static
    */
   static displayVersion(): void {
-    const packageJson = require('../package.json');
+    const packageJson = require("../package.json");
     console.log(`Eufy Camera CLI v${packageJson.version}`);
   }
 
@@ -144,11 +148,13 @@ export class CLIApplication {
    * @static
    */
   static displayCommands(): void {
-    console.log('\nAvailable commands:');
-    console.log('  stream        Start streaming from a camera device');
-    console.log('  list-devices  List all available camera devices');
-    console.log('  device-info   Show detailed information about a device');
-    console.log('  monitor       Monitor camera connection status and events');
-    console.log("\nUse 'eufy-camera <command> --help' for command-specific help.");
+    console.log("\nAvailable commands:");
+    console.log("  stream        Start streaming from a camera device");
+    console.log("  list-devices  List all available camera devices");
+    console.log("  device-info   Show detailed information about a device");
+    console.log("  monitor       Monitor camera connection status and events");
+    console.log(
+      "\nUse 'eufy-security-cli <command> --help' for command-specific help."
+    );
   }
 }

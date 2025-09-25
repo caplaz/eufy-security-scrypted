@@ -152,12 +152,12 @@ export class ListDevicesCommand extends BaseCommand {
       const exampleDevice = cameraDevices[0];
       console.log(`   # Stream from ${exampleDevice.name}:`);
       console.log(
-        `   eufy-camera stream --ws-host ${this.context.wsHost} --camera-serial ${exampleDevice.serialNumber}`
+        `   eufy-security-cli stream --ws-host ${this.context.wsHost} --camera-serial ${exampleDevice.serialNumber}`
       );
       console.log("");
       console.log(`   # Get device info for ${exampleDevice.name}:`);
       console.log(
-        `   eufy-camera device-info --ws-host ${this.context.wsHost} --camera-serial ${exampleDevice.serialNumber}`
+        `   eufy-security-cli device-info --ws-host ${this.context.wsHost} --camera-serial ${exampleDevice.serialNumber}`
       );
     }
 

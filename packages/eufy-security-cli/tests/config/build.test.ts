@@ -114,8 +114,8 @@ describe("Build Configuration Integration", () => {
       const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
 
       expect(packageJson.bin).toBeDefined();
-      expect(packageJson.bin["eufy-camera"]).toBe("dist/main.js");
-      expect(packageJson.bin["eufy-camera-streamer"]).toBe("dist/main.js");
+      expect(packageJson.bin["eufy-security-cli"]).toBe("dist/main.js");
+      expect(packageJson.bin["eufy-security-streamer"]).toBe("dist/main.js");
     });
 
     it("should have executable main.js with proper shebang", () => {
@@ -183,7 +183,7 @@ describe("Build Configuration Integration", () => {
       const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
 
       // Check essential fields
-      expect(packageJson.name).toBe("@scrypted/eufy-camera-cli");
+      expect(packageJson.name).toBe("@scrypted/eufy-security-cli");
       expect(packageJson.main).toBe("dist/index.js");
       expect(packageJson.types).toBe("dist/index.d.ts");
 

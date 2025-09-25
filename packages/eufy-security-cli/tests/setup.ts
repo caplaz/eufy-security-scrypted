@@ -1,5 +1,5 @@
 /**
- * Jest test setup for eufy-camera-cli package
+ * Jest test setup for eufy-security-cli package
  */
 
 // Set test timeout

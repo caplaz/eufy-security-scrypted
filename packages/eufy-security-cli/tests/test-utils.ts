@@ -1,5 +1,5 @@
 /**
- * Test utilities for eufy-camera-cli package
+ * Test utilities for eufy-security-cli package
  */
 
 export const testUtils = {

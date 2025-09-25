@@ -304,12 +304,12 @@ describe("DeviceInfoCommand", () => {
 
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          "eufy-camera stream --ws-host 192.168.1.100:3000 --camera-serial CAM001"
+          "eufy-security-cli stream --ws-host 192.168.1.100:3000 --camera-serial CAM001"
         )
       );
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          "eufy-camera monitor --ws-host 192.168.1.100:3000 --camera-serial CAM001"
+          "eufy-security-cli monitor --ws-host 192.168.1.100:3000 --camera-serial CAM001"
         )
       );
 

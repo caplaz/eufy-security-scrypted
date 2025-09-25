@@ -1,12 +1,12 @@
 {
-  "name": "@scrypted/eufy-camera-cli",
+  "name": "@scrypted/eufy-security-cli",
   "version": "1.0.0",
   "description": "Command-line interface for Eufy Security camera control and streaming",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "eufy-camera": "dist/main.js",
-    "eufy-camera-streamer": "dist/main.js"
+    "eufy-security-cli": "dist/main.js",
+    "eufy-security-streamer": "dist/main.js"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -53,11 +53,11 @@
     "url": "https://scrypted.app"
   },
   "license": "MIT",
-  "homepage": "https://github.com/acerbetti/eufy-security-scrypted/tree/main/packages/eufy-camera-cli#readme",
+  "homepage": "https://github.com/acerbetti/eufy-security-scrypted/tree/main/packages/eufy-security-cli#readme",
   "repository": {
     "type": "git",
     "url": "https://github.com/acerbetti/eufy-security-scrypted.git",
-    "directory": "packages/eufy-camera-cli"
+    "directory": "packages/eufy-security-cli"
   },
   "bugs": {
     "url": "https://github.com/acerbetti/eufy-security-scrypted/issues"
