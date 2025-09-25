@@ -29,7 +29,6 @@ describe("CLI Basic Integration", () => {
         port: 8080,
         verbose: true,
         help: false,
-        outputFormat: "raw-h264",
       });
     });
 
@@ -50,7 +49,6 @@ describe("CLI Basic Integration", () => {
         port: 0,
         verbose: true,
         help: false,
-        outputFormat: "raw-h264",
       });
     });
 

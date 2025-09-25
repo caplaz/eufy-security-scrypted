@@ -77,7 +77,6 @@ describe("StreamCommand", () => {
       port: 8080,
       verbose: false,
       help: false,
-      outputFormat: "raw-h264",
     };
 
     it("should validate required arguments", async () => {

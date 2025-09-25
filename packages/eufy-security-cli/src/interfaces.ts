@@ -29,8 +29,6 @@ export interface ParsedArgs {
   help: boolean;
   /** Command to execute (stream, list-devices, device-info, monitor) */
   command?: string;
-  /** Output stream format for streaming commands */
-  outputFormat?: "raw-h264";
 }
 
 /**

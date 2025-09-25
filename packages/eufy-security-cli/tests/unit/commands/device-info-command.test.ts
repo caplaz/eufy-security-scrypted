@@ -55,16 +55,12 @@ describe("DeviceInfoCommand", () => {
 
   describe("execute", () => {
     const validArgs: ParsedArgs = {
-      command: "device-info",
-      wsHost: "192.168.1.100:3000",
+      wsHost: "ws://localhost:3000",
       cameraSerial: "CAM001",
       port: 0,
       verbose: false,
       help: false,
-      outputFormat: "raw-h264",
-    };
-
-    it("should validate required arguments", async () => {
+    };    it("should validate required arguments", async () => {
       const invalidArgs = { ...validArgs, cameraSerial: "" };
 
       await expect(command.execute(invalidArgs)).rejects.toThrow(

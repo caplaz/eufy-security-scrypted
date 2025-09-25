@@ -119,7 +119,6 @@ eufy-security-cli stream --ws-host <host> --camera-serial <serial> [options]
 - `--ws-host, -w <host>` - WebSocket server host (required)
 - `--camera-serial, -c <serial>` - Camera serial number (required)
 - `--port, -p <port>` - TCP server port (default: random available port)
-- `--output-format, -f <format>` - Output format: `raw-h264` or `mp4` (default: raw-h264)
 - `--verbose, -v` - Enable verbose logging
 - `--help, -h` - Show help
 
@@ -131,9 +130,6 @@ eufy-security-cli stream --ws-host 192.168.1.100:3000 --camera-serial T8210N2012
 
 # Stream with specific port
 eufy-security-cli stream -w 192.168.1.100:3000 -c T8210N20123456789 -p 8080
-
-# Stream with MP4 format (includes audio if available)
-eufy-security-cli stream -w 192.168.1.100:3000 -c T8210N20123456789 -f mp4
 
 # Stream with verbose logging
 eufy-security-cli stream -w 192.168.1.100:3000 -c T8210N20123456789 -v
@@ -156,27 +152,7 @@ eufy-security-cli monitor --ws-host <host> --camera-serial <serial>
 
 ## Output Formats
 
-### Raw H.264 (`raw-h264`)
-
-- **Best for:** Live streaming, low latency, maximum compatibility
-- **Contains:** Video only (H.264 stream)
-- **Pros:** Minimal processing overhead, works with all media players
-- **Cons:** No audio
-
-```bash
-eufy-security-cli stream -w 192.168.1.100:3000 -c T8210N20123456789 -f raw-h264
-```
-
-### MP4 Container (`mp4`)
-
-- **Best for:** Recording, playback with audio
-- **Contains:** Video (H.264) + Audio (AAC) if available
-- **Pros:** Includes audio when supported by camera
-- **Cons:** Slightly higher processing overhead
-
-```bash
-eufy-security-cli stream -w 192.168.1.100:3000 -c T8210N20123456789 -f mp4
-```
+The CLI supports streaming raw H.264 video data over TCP. This is optimized for low-latency live streaming applications.
 
 ## Media Player Integration
 
@@ -192,13 +168,6 @@ ffplay tcp://localhost:<port>
 
 ```bash
 ffplay -fflags nobuffer -flags low_delay tcp://localhost:<port>
-```
-
-**For MP4 format with audio:**
-
-```bash
-ffplay -f mp4 tcp://localhost:<port>
-ffplay -probesize 32 -analyzeduration 1000000 tcp://localhost:<port>
 ```
 
 ### VLC Media Player
@@ -235,7 +204,7 @@ while True:
     data = sock.recv(4096)
     if not data:
         break
-    # Process H.264/MP4 data
+    # Process H.264 data
     process_video_data(data)
 ```
 
@@ -419,34 +388,9 @@ ffplay tcp://localhost:8083  # Camera 3
 
    # With buffering disabled
    ffplay -fflags nobuffer -flags low_delay tcp://localhost:<port>
-
-   # For MP4 format
-   ffplay -f mp4 tcp://localhost:<port>
    ```
 
 3. Check firewall settings (ensure localhost connections are allowed)
-
-**Problem:** Video plays but no audio (MP4 format)
-
-**Solutions:**
-
-1. Check if camera supports audio:
-
-   ```bash
-   eufy-security-cli stream -w HOST -c SERIAL -f mp4 -v
-   # Look for "Audio packet" messages in logs
-   ```
-
-2. Try audio-specific ffplay options:
-
-   ```bash
-   ffplay -probesize 32 -analyzeduration 1000000 tcp://localhost:<port>
-   ```
-
-3. Some cameras don't support audio - use raw-h264 format for video-only:
-   ```bash
-   eufy-security-cli stream -w HOST -c SERIAL -f raw-h264
-   ```
 
 ### Performance Issues
 
@@ -454,14 +398,8 @@ ffplay tcp://localhost:8083  # Camera 3
 
 **Solutions:**
 
-1. Use raw-h264 format instead of MP4:
-
-   ```bash
-   eufy-security-cli stream -w HOST -c SERIAL -f raw-h264
-   ```
-
-2. Limit concurrent connections by using specific ports
-3. Monitor with verbose logging to identify bottlenecks:
+1. Limit concurrent connections by using specific ports
+2. Monitor with verbose logging to identify bottlenecks:
    ```bash
    eufy-security-cli stream -w HOST -c SERIAL -v
    ```
@@ -521,11 +459,11 @@ ffplay tcp://localhost:45123
 ### Advanced Streaming
 
 ```bash
-# Stream with specific port and MP4 format
-eufy-security-cli stream -w 192.168.1.100:3000 -c T8210N20123456789 -p 8080 -f mp4
+# Stream with specific port
+eufy-security-cli stream -w 192.168.1.100:3000 -c T8210N20123456789 -p 8080
 
 # Connect with optimized ffplay settings
-ffplay -f mp4 -probesize 32 -analyzeduration 1000000 tcp://localhost:8080
+ffplay -fflags nobuffer -flags low_delay tcp://localhost:8080
 ```
 
 ### Recording to File

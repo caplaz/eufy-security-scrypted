@@ -41,7 +41,6 @@ export class CLIParser {
       port: this.DEFAULT_PORT,
       verbose: false,
       help: false,
-      outputFormat: "raw-h264", // Default to raw H.264 for better live streaming compatibility
     };
 
     // Check if first argument is a command
@@ -114,22 +113,6 @@ export class CLIParser {
           result.help = true;
           break;
 
-        case "--output-format":
-        case "-f":
-          if (!nextArg || nextArg.startsWith("-")) {
-            throw new Error("Output format is required after --output-format");
-          }
-          if (nextArg !== "raw-h264") {
-            throw new Error(
-              `Invalid output format: ${nextArg}\n\n` +
-                `Valid formats:\n` +
-                `  raw-h264  - Raw H.264 stream (recommended for live streaming)`
-            );
-          }
-          result.outputFormat = nextArg as "raw-h264";
-          i++; // Skip next argument as it's the value
-          break;
-
         default:
           throw new Error(`Unknown argument: ${arg}`);
       }
@@ -172,7 +155,6 @@ GLOBAL OPTIONS:
 STREAM COMMAND OPTIONS:
   --camera-serial, -c <serial>      Camera device serial number
   --port, -p <port>                 TCP server port (default: random available port)
-  --output-format, -f <format>      Output stream format: raw-h264 (default: raw-h264)
 
 EXAMPLES:
   # List all available devices
@@ -225,14 +207,12 @@ TROUBLESHOOTING:
 
 DOCUMENTATION:
   For detailed documentation, examples, and troubleshooting:
-  - CLI_README.md - Complete CLI documentation
-  - CLI_USAGE_EXAMPLES.md - Comprehensive usage examples
-  - CLI_TROUBLESHOOTING.md - Troubleshooting guide
+  - README.md - Complete CLI documentation with usage examples and troubleshooting
 
 NOTES:
   - WebSocket host should point to a running eufy-security-ws server
   - Camera serial numbers are typically 10-20 alphanumeric characters
-  - raw-h264 format: Video-only, optimized for live streaming and compatibility
+  - Output format: Raw H.264 video stream optimized for live streaming
   - Compatible with standard media players and streaming tools
 `;
 

@@ -69,7 +69,6 @@ describe("MonitorCommand", () => {
       port: 0,
       verbose: false,
       help: false,
-      outputFormat: "raw-h264",
     };
 
     it("should validate required arguments", async () => {

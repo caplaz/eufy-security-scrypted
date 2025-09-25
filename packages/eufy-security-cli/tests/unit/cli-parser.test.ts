@@ -27,7 +27,6 @@ describe("CLIParser", () => {
         port: 8080,
         verbose: true,
         help: false,
-        outputFormat: "raw-h264",
       });
     });
 
@@ -52,7 +51,6 @@ describe("CLIParser", () => {
         port: 8080,
         verbose: true,
         help: false,
-        outputFormat: "raw-h264",
       });
     });
 

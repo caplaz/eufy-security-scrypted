@@ -58,7 +58,6 @@ describe("ListDevicesCommand", () => {
       port: 0,
       verbose: false,
       help: false,
-      outputFormat: "raw-h264",
     };
 
     it("should connect to WebSocket server", async () => {
