@@ -14,7 +14,7 @@ import {
   SecuritySystemMode,
   Setting,
   SettingValue,
-} from '@scrypted/sdk';
+} from "@scrypted/sdk";
 import {
   AlarmMode,
   CommonEufyProperties,
@@ -22,12 +22,12 @@ import {
   EufyWebSocketClient,
   GuardMode,
   PropertyMetadataAny,
-} from '@scrypted/eufy-security-client';
+} from "@scrypted/eufy-security-client";
 import {
   MODEL_NAMES,
   getDeviceCapabilities,
-  getScryptedDeviceType,
-} from '../services/device-detection';
+} from "@scrypted/eufy-security-client";
+import { getScryptedDeviceType } from "./scrypted-device-detection";
 
 // Maps Eufy alarm/guard modes to Scrypted security system modes
 export const alarmModeMap: Record<AlarmMode, SecuritySystemMode> = {
@@ -72,19 +72,19 @@ export class DeviceUtils {
   ): Setting[] {
     return [
       DeviceUtils.settingFromMetadata(
-        metadata['model'],
+        metadata["model"],
         device.model,
-        'The full product name and model of the device.'
+        "The full product name and model of the device."
       ),
       DeviceUtils.settingFromMetadata(
-        metadata['serialNumber'],
+        metadata["serialNumber"],
         device.serialNumber,
-        'The unique serial number assigned to the device.'
+        "The unique serial number assigned to the device."
       ),
       DeviceUtils.settingFromMetadata(
-        metadata['softwareVersion'],
+        metadata["softwareVersion"],
         device.firmware,
-        'The current software version running on the device.'
+        "The current software version running on the device."
       ),
     ];
   }
@@ -94,10 +94,10 @@ export class DeviceUtils {
     metadata: Record<string, PropertyMetadataAny>
   ): Setting[] {
     return Object.values(metadata)
-      .filter(meta => meta.writeable)
-      .filter(meta => !/test/i.test(meta.name))
-      .filter(meta => meta.name !== 'statusLed')
-      .map(meta =>
+      .filter((meta) => meta.writeable)
+      .filter((meta) => !/test/i.test(meta.name))
+      .filter((meta) => meta.name !== "statusLed")
+      .map((meta) =>
         DeviceUtils.settingFromMetadata(
           meta,
           properties[meta.name as keyof DeviceProperties],
@@ -110,23 +110,32 @@ export class DeviceUtils {
 
   static groupForPropertyName(name: string): string {
     const n = name.toLowerCase();
-    if (n.includes('motion') && !n.includes('light')) return 'Motion';
+    if (n.includes("motion") && !n.includes("light")) return "Motion";
 
-    if (n.includes('light')) return 'Light';
+    if (n.includes("light")) return "Light";
 
-    if (n.includes('battery') || n.includes('charge') || n.includes('power')) return 'Power';
+    if (n.includes("battery") || n.includes("charge") || n.includes("power"))
+      return "Power";
 
-    if (n.includes('clip') || n.includes('record')) return 'Recording';
+    if (n.includes("clip") || n.includes("record")) return "Recording";
 
-    if (n.includes('video') || n.includes('stream') || n.includes('vision')) return 'Video';
+    if (n.includes("video") || n.includes("stream") || n.includes("vision"))
+      return "Video";
 
-    if (n.includes('microphone') || n.includes('speaker') || n.includes('notification'))
-      return 'Communication';
-    return 'Configuration';
+    if (
+      n.includes("microphone") ||
+      n.includes("speaker") ||
+      n.includes("notification")
+    )
+      return "Communication";
+    return "Configuration";
   }
 
-  static valueAdjustedWithMetadata(value: SettingValue, metadata: PropertyMetadataAny): any {
-    if (metadata.type === 'number' && metadata.states) {
+  static valueAdjustedWithMetadata(
+    value: SettingValue,
+    metadata: PropertyMetadataAny
+  ): any {
+    if (metadata.type === "number" && metadata.states) {
       // For number types with states, find the index of the value in the states map
       const stateValues = Object.values(metadata.states);
       return stateValues.indexOf(value as string);
@@ -156,7 +165,7 @@ export class DeviceUtils {
     };
 
     // If the property is a number with states, convert to a string choice list for Scrypted
-    if (metadata.type === 'number' && metadata.states) {
+    if (metadata.type === "number" && metadata.states) {
       if (metadata.writeable) {
         // Convert the states map to an array of values, sorted by key
         const choices = Object.entries(metadata.states)
@@ -172,19 +181,19 @@ export class DeviceUtils {
 
         setting = {
           ...setting,
-          type: 'string',
+          type: "string",
           choices,
           value: metadata.states[value as number],
         };
       } else {
         setting = {
           ...setting,
-          type: 'string',
+          type: "string",
           value: metadata.states[value as number],
         };
       }
     } else if (
-      metadata.type === 'number' &&
+      metadata.type === "number" &&
       metadata.min !== undefined &&
       metadata.max !== undefined
     ) {
@@ -193,10 +202,10 @@ export class DeviceUtils {
         range: [metadata.min, metadata.max],
         placeholder: undefined,
         description: `Value must be between ${metadata.min}${
-          metadata.unit || ''
-        } and ${metadata.max}${metadata.unit || ''}`,
+          metadata.unit || ""
+        } and ${metadata.max}${metadata.unit || ""}`,
       };
-    } else if (metadata.type === 'boolean' && metadata.name === 'light') {
+    } else if (metadata.type === "boolean" && metadata.name === "light") {
       setting = {
         ...setting,
         immediate: true, // Apply immediately without restart
@@ -222,19 +231,25 @@ export class DeviceUtils {
     // Human-readable model name resolution
     const humanModel = properties.model
       ? MODEL_NAMES[properties.model] || properties.model
-      : metadata.type?.type === 'number' && metadata.type.states
+      : metadata.type?.type === "number" && metadata.type.states
         ? metadata.type.states[properties.type]
-        : 'Unknown Model';
+        : "Unknown Model";
 
     // Return Scrypted device manifest for the station
     return {
       nativeId: `station_${serialNumber}`,
       type: ScryptedDeviceType.DeviceProvider,
-      interfaces: ['DeviceProvider', 'Settings', 'SecuritySystem', 'Refresh', 'Reboot'],
+      interfaces: [
+        "DeviceProvider",
+        "Settings",
+        "SecuritySystem",
+        "Refresh",
+        "Reboot",
+      ],
       name: properties.name || `Eufy ${properties.model}`,
       info: {
         model: humanModel,
-        manufacturer: 'Eufy',
+        manufacturer: "Eufy",
         version: properties.hardwareVersion,
         firmware: properties.softwareVersion,
         serialNumber,
@@ -271,12 +286,15 @@ export class DeviceUtils {
 
     // Add Battery interface only for battery-powered devices
     if (capabilities.battery) {
-      if (properties.battery !== undefined) interfaces.push(ScryptedInterface.Battery);
-      if (properties.chargingStatus !== undefined) interfaces.push(ScryptedInterface.Charger);
+      if (properties.battery !== undefined)
+        interfaces.push(ScryptedInterface.Battery);
+      if (properties.chargingStatus !== undefined)
+        interfaces.push(ScryptedInterface.Charger);
     }
 
     if (capabilities.floodlight) {
-      if (properties.light !== undefined) interfaces.push(ScryptedInterface.OnOff);
+      if (properties.light !== undefined)
+        interfaces.push(ScryptedInterface.OnOff);
       if (properties.lightSettingsBrightnessManual !== undefined)
         interfaces.push(ScryptedInterface.Brightness);
     }
@@ -293,9 +311,9 @@ export class DeviceUtils {
     // Human-readable model name resolution
     const humanModel = properties.model
       ? MODEL_NAMES[properties.model] || properties.model
-      : metadata.type?.type === 'number' && metadata.type.states
+      : metadata.type?.type === "number" && metadata.type.states
         ? metadata.type.states[properties.type]
-        : 'Unknown Model';
+        : "Unknown Model";
 
     // Return Scrypted device manifest for the camera/device
     return {
@@ -304,7 +322,7 @@ export class DeviceUtils {
       type: deviceType,
       interfaces,
       info: {
-        manufacturer: 'Eufy',
+        manufacturer: "Eufy",
         model: humanModel,
         serialNumber: properties.serialNumber,
         firmware: properties.softwareVersion,

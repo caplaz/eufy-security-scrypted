@@ -8,6 +8,7 @@
 
 import { ApiManager } from "./api-manager";
 import { DEVICE_COMMANDS, DEVICE_EVENTS } from "./device/constants";
+import { getDeviceTypeName } from "./utils/device-detection";
 import { Logger, ILogObj } from "tslog";
 import { EventEmitter } from "events";
 
@@ -549,19 +550,7 @@ export class EufySecurityClient extends EventEmitter {
    * @returns Human-readable device type name
    */
   private getDeviceTypeName(type: number): string {
-    // Map device type numbers to names
-    // This is a simplified mapping - in a full implementation,
-    // this would use the DeviceType enum from constants
-    const typeMap: Record<number, string> = {
-      1: "Camera",
-      5: "Doorbell",
-      7: "Battery Doorbell",
-      38: "Camera", // T8423 series cameras
-      62: "Video Doorbell", // T8124 series video doorbells
-      // Add more mappings as needed
-    };
-
-    return typeMap[type] || "Unknown";
+    return getDeviceTypeName(type);
   }
 
   // emit() method is inherited from EventEmitter

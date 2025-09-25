@@ -1,14 +1,13 @@
 /**
- * Device Detection and Type Registry for Scrypted-Compatible Eufy Devices
+ * Device Detection and Type Registry for Eufy Security Devices
  *
  * This module provides comprehensive device type detection, classification, and capability
- * mapping for Eufy security devices within the Scrypted ecosystem. It serves as the
- * central registry for all supported device types and their corresponding capabilities.
+ * mapping for Eufy security devices. It serves as the central registry for all supported
+ * device types and their corresponding capabilities.
  *
  * Key Features:
  * - Device type classification (cameras, doorbells, sensors, locks, etc.)
  * - Capability detection (battery, pan/tilt, floodlight, etc.)
- * - Scrypted device type mapping for proper interface assignment
  * - Human-readable model name resolution
  * - Support validation for device compatibility
  *
@@ -16,7 +15,7 @@
  * - Static device type sets for efficient lookup operations
  * - Helper functions for device capability detection
  * - Model name registry for user-friendly device identification
- * - Compatibility layer between Eufy device types and Scrypted interfaces
+ * - Compatibility layer between Eufy device types and client interfaces
  *
  * Performance Optimizations:
  * - Uses Set data structures for O(1) device type lookups
@@ -27,12 +26,11 @@
  * @since 1.0.0
  */
 
-import { ScryptedDeviceType } from '@scrypted/sdk';
-import { DeviceType } from '@scrypted/eufy-security-client';
+import { DeviceType } from "../device/constants";
 
 /**
- * Camera device types supported by Scrypted - Matching original eufy-security-client Device.isCamera()
- * These devices provide video streaming capabilities and map to ScryptedDeviceType.Camera
+ * Camera device types supported by the client - Matching original eufy-security-client Device.isCamera()
+ * These devices provide video streaming capabilities
  */
 export const CAMERA_DEVICE_TYPES = new Set<number>([
   DeviceType.CAMERA, // Basic camera
@@ -76,8 +74,8 @@ export const CAMERA_DEVICE_TYPES = new Set<number>([
 ]);
 
 /**
- * Doorbell device types supported by Scrypted - Matching original eufy-security-client Device.isDoorbell()
- * These devices provide video streaming AND doorbell functionality and map to ScryptedDeviceType.Doorbell
+ * Doorbell device types supported by the client - Matching original eufy-security-client Device.isDoorbell()
+ * These devices provide video streaming AND doorbell functionality
  */
 export const DOORBELL_DEVICE_TYPES = new Set<number>([
   DeviceType.DOORBELL, // Basic wired doorbell
@@ -91,9 +89,8 @@ export const DOORBELL_DEVICE_TYPES = new Set<number>([
 ]);
 
 /**
- * Floodlight camera device types supported by Scrypted - Matching original eufy-security-client Device.isFloodLight()
+ * Floodlight camera device types supported by the client - Matching original eufy-security-client Device.isFloodLight()
  * These combine camera functionality with light functionality
- * They map to ScryptedDeviceType.Camera but may also support Light interfaces
  */
 export const FLOODLIGHT_DEVICE_TYPES = new Set<number>([
   DeviceType.FLOODLIGHT, // Basic floodlight
@@ -111,8 +108,7 @@ export const FLOODLIGHT_DEVICE_TYPES = new Set<number>([
 ]);
 
 /**
- * Motion sensor device types supported by Scrypted - Matching original eufy-security-client Device.isSensor()
- * These map to ScryptedDeviceType.Sensor
+ * Motion sensor device types supported by the client - Matching original eufy-security-client Device.isSensor()
  */
 export const SENSOR_DEVICE_TYPES = new Set<number>([
   DeviceType.SENSOR, // Basic entry sensor
@@ -120,8 +116,7 @@ export const SENSOR_DEVICE_TYPES = new Set<number>([
 ]);
 
 /**
- * Smart lock device types supported by Scrypted - Matching original eufy-security-client Device.isLock()
- * These map to ScryptedDeviceType.Lock
+ * Smart lock device types supported by the client - Matching original eufy-security-client Device.isLock()
  */
 export const LOCK_DEVICE_TYPES = new Set<number>([
   DeviceType.LOCK_BLE, // Bluetooth lock
@@ -139,7 +134,7 @@ export const LOCK_DEVICE_TYPES = new Set<number>([
 
 /**
  * Base station device types - Matching original eufy-security-client Device.isStation()
- * These are hub devices that manage other devices but don't have Scrypted interfaces themselves
+ * These are hub devices that manage other devices
  */
 export const BASE_STATION_DEVICE_TYPES = new Set<number>([
   DeviceType.STATION, // Basic station
@@ -219,7 +214,7 @@ export const PAN_TILT_DEVICE_TYPES = new Set<number>([
 ]);
 
 /**
- * All device types that Scrypted can support
+ * All device types that the client can support
  * Combination of cameras, doorbells, floodlights, sensors, and locks
  */
 export const SUPPORTED_DEVICE_TYPES = new Set<number>([
@@ -274,7 +269,10 @@ export const DUAL_DOORBELL_TYPES = new Set<number>([
   DeviceType.BATTERY_DOORBELL_PLUS, // Battery doorbell plus (dual)
 ]);
 
-export const LOCK_BLE_TYPES = new Set<number>([DeviceType.LOCK_BLE, DeviceType.LOCK_BLE_NO_FINGER]);
+export const LOCK_BLE_TYPES = new Set<number>([
+  DeviceType.LOCK_BLE,
+  DeviceType.LOCK_BLE_NO_FINGER,
+]);
 
 export const LOCK_WIFI_TYPES = new Set<number>([
   DeviceType.LOCK_WIFI,
@@ -336,25 +334,17 @@ export const KEYPAD_TYPES = new Set<number>([DeviceType.KEYPAD]);
  *
  * These functions provide efficient device type classification and capability detection
  * for Eufy security devices. They match the original eufy-security-client Device static
- * methods while optimizing for Scrypted-specific use cases.
+ * methods while optimizing for client-specific use cases.
  */
 
 /**
  * Determines if a device type represents a camera-capable device.
  *
  * This includes traditional cameras, video doorbells, and floodlight cameras
- * that can provide video streaming functionality to Scrypted.
+ * that can provide video streaming functionality.
  *
  * @param deviceType - The Eufy device type identifier
  * @returns True if the device can provide video streaming capabilities
- *
- * @example
- * ```typescript
- * if (isCamera(DeviceType.CAMERA2C)) {
- *   // Device supports video streaming
- *   interfaces.push(ScryptedInterface.VideoCamera);
- * }
- * ```
  */
 export function isCamera(deviceType: number): boolean {
   return (
@@ -507,7 +497,7 @@ export function isLockKeypad(deviceType: number): boolean {
 /**
  * Determines if a device type represents a base station or hub device.
  *
- * Base stations coordinate other devices but don't have direct Scrypted interfaces.
+ * Base stations coordinate other devices but don't have direct client interfaces.
  *
  * @param deviceType - The Eufy device type identifier
  * @returns True if the device is a base station
@@ -674,39 +664,15 @@ export function canPanTilt(deviceType: number): boolean {
 }
 
 /**
- * Determines if a device type is supported by this Scrypted plugin.
+ * Determines if a device type is supported by this client.
  *
  * This is the primary compatibility check for device registration.
  *
  * @param deviceType - The Eufy device type identifier
- * @returns True if the device is supported by Scrypted integration
+ * @returns True if the device is supported by the client
  */
 export function isDeviceSupported(deviceType: number): boolean {
   return SUPPORTED_DEVICE_TYPES.has(deviceType);
-}
-
-/**
- * Maps a Eufy device type to the appropriate Scrypted device type.
- *
- * This function determines which Scrypted device type should be used
- * for a given Eufy device, enabling proper interface assignment and
- * device categorization within the Scrypted ecosystem.
- *
- * @param deviceType - The Eufy device type identifier
- * @returns The corresponding Scrypted device type
- *
- * @example
- * ```typescript
- * const scryptedType = getScryptedDeviceType(DeviceType.BATTERY_DOORBELL);
- * // Returns ScryptedDeviceType.Doorbell
- * ```
- */
-export function getScryptedDeviceType(deviceType: number): ScryptedDeviceType {
-  if (isDoorbell(deviceType)) return ScryptedDeviceType.Doorbell;
-  else if (isCamera(deviceType) || isFloodlight(deviceType)) return ScryptedDeviceType.Camera;
-  else if (isSensor(deviceType)) return ScryptedDeviceType.Sensor;
-  else if (isLock(deviceType)) return ScryptedDeviceType.Lock;
-  else return ScryptedDeviceType.Unknown;
 }
 
 /**
@@ -714,24 +680,13 @@ export function getScryptedDeviceType(deviceType: number): ScryptedDeviceType {
  *
  * This function provides a complete overview of what features and interfaces
  * a device supports, enabling efficient interface assignment and feature
- * detection throughout the plugin.
+ * detection throughout the client.
  *
  * Performance Optimization: Uses efficient Set.has() lookups for O(1) complexity
  * across all capability checks.
  *
  * @param deviceType - The Eufy device type identifier
  * @returns Object containing boolean flags for each device capability
- *
- * @example
- * ```typescript
- * const capabilities = getDeviceCapabilities(DeviceType.CAMERA2C_PRO);
- * if (capabilities.battery) {
- *   interfaces.push(ScryptedInterface.Battery);
- * }
- * if (capabilities.camera) {
- *   interfaces.push(ScryptedInterface.VideoCamera);
- * }
- * ```
  */
 export function getDeviceCapabilities(deviceType: number): {
   camera: boolean;
@@ -744,7 +699,10 @@ export function getDeviceCapabilities(deviceType: number): {
   supported: boolean;
 } {
   return {
-    camera: isCamera(deviceType) || isDoorbell(deviceType) || isFloodlight(deviceType),
+    camera:
+      isCamera(deviceType) ||
+      isDoorbell(deviceType) ||
+      isFloodlight(deviceType),
     doorbell: isDoorbell(deviceType),
     floodlight: isFloodlight(deviceType),
     sensor: isSensor(deviceType),
@@ -758,88 +716,104 @@ export function getDeviceCapabilities(deviceType: number): {
 // Human-readable product names for Eufy device models
 export const MODEL_NAMES: Record<string, string> = {
   // Base Stations
-  T8001: 'HomeBase',
-  T8002: 'HomeBase E',
-  T8010: 'HomeBase S280 (Homebase 2)',
-  T8030: 'HomeBase S380 (HomeBase 3)',
-  T8021: 'Smart Lock Wi-Fi Bridge',
-  T8023: 'MiniBase Chime',
+  T8001: "HomeBase",
+  T8002: "HomeBase E",
+  T8010: "HomeBase S280 (Homebase 2)",
+  T8030: "HomeBase S380 (HomeBase 3)",
+  T8021: "Smart Lock Wi-Fi Bridge",
+  T8023: "MiniBase Chime",
 
   // EufyCam Series
-  T8111: 'eufyCam',
-  T8112: 'eufyCam E',
-  T8114: 'eufyCam 2',
-  T8113: 'eufyCam S210 (eufyCam 2C)',
-  T8140: 'eufyCam S221 (eufyCam 2 Pro)',
-  T8141: 'eufyCam S220 (eufyCam 2C Pro)',
-  T8160: 'eufyCam S330 (eufyCam 3)',
-  T8161: 'eufyCam S300 (eufyCam 3C)',
-  T8162: 'eufyCam S3 Pro',
-  T8600: 'eufyCam E330 (Professional)',
+  T8111: "eufyCam",
+  T8112: "eufyCam E",
+  T8114: "eufyCam 2",
+  T8113: "eufyCam S210 (eufyCam 2C)",
+  T8140: "eufyCam S221 (eufyCam 2 Pro)",
+  T8141: "eufyCam S220 (eufyCam 2C Pro)",
+  T8160: "eufyCam S330 (eufyCam 3)",
+  T8161: "eufyCam S300 (eufyCam 3C)",
+  T8162: "eufyCam S3 Pro",
+  T8600: "eufyCam E330 (Professional)",
 
   // SoloCam Series
-  T8130: 'SoloCam E20',
-  T8131: 'SoloCam C120 (SoloCam E40)',
-  T8122: 'SoloCam L20',
-  T8123: 'SoloCam L40',
-  T8B0: 'SoloCam C210',
-  T8124: 'SoloCam S230 (SoloCam S40)',
-  T8134: 'SoloCam S220',
-  T8170: 'SoloCam S340',
-  T8171: 'SoloCam E30',
+  T8130: "SoloCam E20",
+  T8131: "SoloCam C120 (SoloCam E40)",
+  T8122: "SoloCam L20",
+  T8123: "SoloCam L40",
+  T8B0: "SoloCam C210",
+  T8124: "SoloCam S230 (SoloCam S40)",
+  T8134: "SoloCam S220",
+  T8170: "SoloCam S340",
+  T8171: "SoloCam E30",
 
   // Floodlight Cameras
-  T8420: 'Floodlight Camera',
-  T8420X: 'Floodlight Camera',
-  T8422: 'Floodlight Cam',
-  T8423: 'Floodlight Cam S330 (Floodlight Cam 2 Pro)',
-  T8424: 'Floodlight Cam E221 (Floodlight Cam 2)',
-  T8425: 'Floodlight Cam E340',
+  T8420: "Floodlight Camera",
+  T8420X: "Floodlight Camera",
+  T8422: "Floodlight Cam",
+  T8423: "Floodlight Cam S330 (Floodlight Cam 2 Pro)",
+  T8424: "Floodlight Cam E221 (Floodlight Cam 2)",
+  T8425: "Floodlight Cam E340",
 
   // Wall Light Cameras
-  T84A1: 'Wired Wall Light Cam S100',
-  T84A0: 'Solar Wall Light Cam S120',
+  T84A1: "Wired Wall Light Cam S100",
+  T84A0: "Solar Wall Light Cam S120",
 
   // Video Doorbells - Wired
-  T8200: 'Video Doorbell 2K (Wired)',
-  T8200X: 'Wired Doorbell 2k',
-  T8201: 'Wired Doorbell 1080p',
-  T8203: 'Video Doorbell (Wired) S330 (Video Doorbell Dual)',
+  T8200: "Video Doorbell 2K (Wired)",
+  T8200X: "Wired Doorbell 2k",
+  T8201: "Wired Doorbell 1080p",
+  T8203: "Video Doorbell (Wired) S330 (Video Doorbell Dual)",
 
   // Video Doorbells - Battery
-  T8210: 'Video Doorbell S220 (Battery Doorbell 2K)',
-  T8213: 'Video Doorbell S330 (Battery Doorbell 2K Dual)',
-  T8214: 'Video Doorbell E340 (Battery Powered)',
-  T8222: 'Video Doorbell C210 (Battery Doorbell 1080p)',
-  T8224: 'Video Doorbell C30 (Battery Powered)',
-  T8223: 'Video Doorbell C31 (Battery Powered)',
+  T8210: "Video Doorbell S220 (Battery Doorbell 2K)",
+  T8213: "Video Doorbell S330 (Battery Doorbell 2K Dual)",
+  T8214: "Video Doorbell E340 (Battery Powered)",
+  T8222: "Video Doorbell C210 (Battery Doorbell 1080p)",
+  T8224: "Video Doorbell C30 (Battery Powered)",
+  T8223: "Video Doorbell C31 (Battery Powered)",
 
   // Indoor Cameras
-  T8410: 'Indoor Cam E220 (Indoor Cam Pan&Tilt 2K)',
+  T8410: "Indoor Cam E220 (Indoor Cam Pan&Tilt 2K)",
 
   // Sensors
-  T8900: 'Entry Sensor',
-  T8910: 'Motion Sensor',
+  T8900: "Entry Sensor",
+  T8910: "Motion Sensor",
 };
 
 /**
  * Retrieves a human-readable product name for a given device model identifier.
  *
  * This function maps Eufy's internal model codes (like T8114, T8210) to
- * user-friendly product names that are displayed in the Scrypted interface.
+ * user-friendly product names that are displayed in the client interface.
  *
  * @param model - The Eufy device model identifier (e.g., "T8114", "T8210")
  * @returns Human-readable product name, or the original model if not found
- *
- * @example
- * ```typescript
- * const productName = getProductName("T8114");
- * // Returns "eufyCam 2"
- *
- * const unknownProduct = getProductName("UNKNOWN_MODEL");
- * // Returns "UNKNOWN_MODEL"
- * ```
  */
 export function getProductName(model: string): string {
   return MODEL_NAMES[model] || model;
+}
+
+/**
+ * Gets a human-readable device type name based on device type number.
+ *
+ * This function provides a simple mapping from device type numbers to
+ * user-friendly type names for display purposes.
+ *
+ * @param deviceType - The Eufy device type identifier
+ * @returns Human-readable device type name
+ */
+export function getDeviceTypeName(deviceType: number): string {
+  if (isDoorbell(deviceType)) {
+    return "Doorbell";
+  } else if (isCamera(deviceType) || isFloodlight(deviceType)) {
+    return "Camera";
+  } else if (isSensor(deviceType)) {
+    return "Sensor";
+  } else if (isLock(deviceType)) {
+    return "Lock";
+  } else if (isBaseStation(deviceType)) {
+    return "Base Station";
+  } else {
+    return "Unknown";
+  }
 }

@@ -38,6 +38,7 @@ export * from "./types/shared";
 
 // ================= UTILITIES =================
 export { WebSocketMessageProcessor } from "./utils/websocket-message-processor";
+export * from "./utils/device-detection";
 
 // ================= WEBSOCKET TYPES =================
 export { MESSAGE_TYPES } from "./websocket-types";

@@ -475,8 +475,8 @@ describe("EufySecurityClient", () => {
       // Test doorbell type (5)
       expect(clientInstance.getDeviceTypeName(5)).toBe("Doorbell");
 
-      // Test battery doorbell type (7)
-      expect(clientInstance.getDeviceTypeName(7)).toBe("Battery Doorbell");
+      // Test battery doorbell type (7) - now returns "Doorbell" for all doorbells
+      expect(clientInstance.getDeviceTypeName(7)).toBe("Doorbell");
 
       // Test unknown type (999)
       expect(clientInstance.getDeviceTypeName(999)).toBe("Unknown");

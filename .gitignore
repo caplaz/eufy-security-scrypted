@@ -5,6 +5,11 @@ dist/
 .venv
 .eslintcache
 
+# TypeScript build artifacts
+tsconfig.tsbuildinfo
+**/tsconfig.tsbuildinfo
+*.tsbuildinfo
+
 # Test artifacts
 junit.xml
 **/junit.xml
