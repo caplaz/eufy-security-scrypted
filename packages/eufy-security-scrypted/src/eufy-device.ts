@@ -418,7 +418,7 @@ export class EufyDevice
       {
         id: "p2p",
         name: "P2P Stream",
-        container: "mp4", // MP4 container for better compatibility
+        container: "h264", // Raw H.264 stream (not MP4 container)
         video: {
           codec: "h264",
           width,
@@ -443,7 +443,7 @@ export class EufyDevice
       throw new Error("Failed to get stream server port");
     }
     this.logger.i(`Stream server is listening on port ${port}`);
-    return this.createMediaObject(`tcp://localhost:${port}`, "video/mp4");
+    return this.createMediaObject(`tcp://localhost:${port}`, "video/h264");
   }
 
   // =================== REFRESH INTERFACE ===================

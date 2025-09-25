@@ -9,6 +9,7 @@ A simplified TCP streaming server for raw H.264 video streams from Eufy security
 - **NAL Unit Parsing**: Basic H.264 NAL unit extraction and key frame detection
 - **Connection Management**: Handles multiple client connections with automatic cleanup
 - **Statistics**: Basic streaming and connection statistics
+- **Automatic Camera Control**: Automatically starts/stops camera streaming based on client connections
 - **Zero Audio Complexity**: Completely removed audio processing from the legacy implementation
 
 ## Installation
@@ -38,8 +39,9 @@ const server = new StreamServer({
 await server.start();
 console.log("Stream server started and listening for video data");
 
-// The server will automatically stream video data when WebSocket events are received
-// No manual streamVideo() calls needed for Eufy cameras
+// The server will automatically start camera streaming when the first client connects
+// and automatically stop camera streaming when the last client disconnects
+// Video data is streamed automatically when WebSocket events are received
 
 // Get server statistics
 const stats = server.getStats();

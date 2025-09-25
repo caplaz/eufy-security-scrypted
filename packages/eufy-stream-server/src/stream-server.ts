@@ -104,17 +104,51 @@ export class StreamServer extends EventEmitter {
   private setupEventHandlers(): void {
     this.connectionManager.on(
       "clientConnected",
-      (connectionId, connectionInfo) => {
+      async (connectionId, connectionInfo) => {
+        const previousCount =
+          this.connectionManager.getActiveConnectionCount() - 1;
+
         this.logger.info(
           `Client connected: ${connectionId} from ${connectionInfo.remoteAddress}:${connectionInfo.remotePort}`
         );
         this.emit("clientConnected", connectionId, connectionInfo);
+
+        // Start livestream when first client connects
+        if (previousCount === 0) {
+          try {
+            this.logger.info("🎥 Starting livestream - first client connected");
+            await this.options.wsClient.commands
+              .device(this.options.serialNumber)
+              .startLivestream();
+            this.logger.info("✅ Livestream started successfully");
+          } catch (error) {
+            this.logger.error("❌ Failed to start livestream:", error);
+            this.emit("streamError", error);
+          }
+        }
       }
     );
 
-    this.connectionManager.on("clientDisconnected", (connectionId) => {
+    this.connectionManager.on("clientDisconnected", async (connectionId) => {
+      const previousCount =
+        this.connectionManager.getActiveConnectionCount() + 1;
+
       this.logger.info(`Client disconnected: ${connectionId}`);
       this.emit("clientDisconnected", connectionId);
+
+      // Stop livestream when last client disconnects
+      if (previousCount === 1) {
+        try {
+          this.logger.info("🛑 Stopping livestream - last client disconnected");
+          await this.options.wsClient.commands
+            .device(this.options.serialNumber)
+            .stopLivestream();
+          this.logger.info("✅ Livestream stopped successfully");
+        } catch (error) {
+          this.logger.error("❌ Failed to stop livestream:", error);
+          this.emit("streamError", error);
+        }
+      }
     });
   }
 
@@ -197,6 +231,26 @@ export class StreamServer extends EventEmitter {
   async stop(): Promise<void> {
     if (!this.isActive) {
       return;
+    }
+
+    // Stop livestream if there are active clients
+    const activeClients = this.connectionManager.getActiveConnectionCount();
+    if (activeClients > 0) {
+      try {
+        this.logger.info(
+          `🛑 Stopping livestream - server shutting down (${activeClients} clients)`
+        );
+        await this.options.wsClient.commands
+          .device(this.options.serialNumber)
+          .stopLivestream();
+        this.logger.info("✅ Livestream stopped successfully");
+      } catch (error) {
+        this.logger.error(
+          "❌ Failed to stop livestream during shutdown:",
+          error
+        );
+        // Don't emit error here since we're shutting down
+      }
     }
 
     // Clean up WebSocket event listener

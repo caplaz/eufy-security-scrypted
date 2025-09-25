@@ -25,6 +25,12 @@ describe("StreamServer", () => {
     // Create mock WebSocket client
     mockWsClient = {
       addEventListener: jest.fn().mockReturnValue(() => {}),
+      commands: {
+        device: jest.fn().mockReturnValue({
+          startLivestream: jest.fn().mockResolvedValue({}),
+          stopLivestream: jest.fn().mockResolvedValue({}),
+        }),
+      },
     };
 
     server = new StreamServer({
@@ -218,6 +224,12 @@ describe("StreamServer", () => {
     it("should setup WebSocket listener when wsClient and serialNumber provided", () => {
       const mockWsClient = {
         addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: {
+          device: jest.fn().mockReturnValue({
+            startLivestream: jest.fn().mockResolvedValue({}),
+            stopLivestream: jest.fn().mockResolvedValue({}),
+          }),
+        },
       };
 
       const serverWithWs = new StreamServer({
@@ -241,6 +253,12 @@ describe("StreamServer", () => {
     it("should handle video data events from WebSocket", async () => {
       const mockWsClient = {
         addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: {
+          device: jest.fn().mockReturnValue({
+            startLivestream: jest.fn().mockResolvedValue({}),
+            stopLivestream: jest.fn().mockResolvedValue({}),
+          }),
+        },
       };
 
       const serverWithWs = new StreamServer({
@@ -299,6 +317,12 @@ describe("StreamServer", () => {
     it("should filter events by serial number", async () => {
       const mockWsClient = {
         addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: {
+          device: jest.fn().mockReturnValue({
+            startLivestream: jest.fn().mockResolvedValue({}),
+            stopLivestream: jest.fn().mockResolvedValue({}),
+          }),
+        },
       };
 
       const serverWithWs = new StreamServer({
@@ -358,6 +382,12 @@ describe("StreamServer", () => {
       const mockEventRemover = jest.fn();
       const mockWsClient = {
         addEventListener: jest.fn().mockReturnValue(mockEventRemover),
+        commands: {
+          device: jest.fn().mockReturnValue({
+            startLivestream: jest.fn().mockResolvedValue({}),
+            stopLivestream: jest.fn().mockResolvedValue({}),
+          }),
+        },
       };
 
       const serverWithWs = new StreamServer({
