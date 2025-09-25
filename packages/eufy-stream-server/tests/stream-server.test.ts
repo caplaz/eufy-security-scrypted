@@ -7,7 +7,7 @@ import { StreamServer } from "../src/stream-server";
 import { createTestLogger, createTestH264Data, wait } from "./test-utils";
 
 // Mock the eufy-security-client
-jest.mock("@scrypted/eufy-security-client", () => ({
+jest.mock("eufy-security-client", () => ({
   DEVICE_EVENTS: {
     LIVESTREAM_VIDEO_DATA: "livestream video data",
   },

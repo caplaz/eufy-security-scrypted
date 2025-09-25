@@ -8,7 +8,7 @@ import { CLIParser } from "../../src/cli-parser";
 import { testUtils } from "../test-utils";
 
 // Mock the dependencies to avoid actual network calls
-jest.mock("@scrypted/eufy-security-client");
+jest.mock("eufy-security-client");
 jest.mock("eufy-stream-server");
 
 describe("CLI Workflow Integration", () => {

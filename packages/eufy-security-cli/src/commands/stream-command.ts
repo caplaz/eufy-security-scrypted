@@ -1,6 +1,6 @@
 import { BaseCommand } from "./base-command";
 import { StreamServer } from "eufy-stream-server";
-import { EufySecurityClient } from "@scrypted/eufy-security-client";
+import { EufySecurityClient } from "eufy-security-client";
 import { ParsedArgs, DeviceInfo } from "../interfaces";
 
 /**

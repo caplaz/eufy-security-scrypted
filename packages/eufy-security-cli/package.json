@@ -1,5 +1,5 @@
 {
-  "name": "@scrypted/eufy-security-cli",
+  "name": "eufy-security-cli",
   "version": "1.0.0",
   "description": "Command-line interface for Eufy Security camera control and streaming",
   "main": "dist/index.js",
@@ -64,7 +64,7 @@
   },
   "dependencies": {
     "eufy-stream-server": "file:../eufy-stream-server",
-    "@scrypted/eufy-security-client": "file:../eufy-security-client",
+    "eufy-security-client": "file:../eufy-security-client",
     "tslog": "^4.9.3"
   },
   "devDependencies": {
@@ -84,8 +84,5 @@
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
-  ],
-  "publishConfig": {
-    "access": "public"
-  }
+  ]
 }

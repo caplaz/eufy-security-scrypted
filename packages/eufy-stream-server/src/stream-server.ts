@@ -13,10 +13,7 @@ import { Logger, ILogObj } from "tslog";
 import { ConnectionManager } from "./connection-manager";
 import { H264Parser } from "./h264-parser";
 import { ServerStats, StreamData, VideoMetadata } from "./types";
-import {
-  EufyWebSocketClient,
-  DEVICE_EVENTS,
-} from "@scrypted/eufy-security-client";
+import { EufyWebSocketClient, DEVICE_EVENTS } from "eufy-security-client";
 
 /**
  * Configuration options for the TCP stream server

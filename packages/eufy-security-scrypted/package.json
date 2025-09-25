@@ -57,7 +57,7 @@
     ]
   },
   "dependencies": {
-    "@scrypted/eufy-security-client": "file:../eufy-security-client",
+    "eufy-security-client": "file:../eufy-security-client",
     "@scrypted/sdk": "^0.5.29",
     "eufy-stream-server": "file:../eufy-stream-server",
     "tslog": "^4.9.3"

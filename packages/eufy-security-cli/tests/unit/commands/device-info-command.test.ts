@@ -7,7 +7,7 @@ import { ParsedArgs, CommandContext } from "../../../src/interfaces";
 import { testUtils } from "../../test-utils";
 
 // Mock the dependencies
-jest.mock("@scrypted/eufy-security-client");
+jest.mock("eufy-security-client");
 
 describe("DeviceInfoCommand", () => {
   let mockContext: CommandContext;
@@ -38,7 +38,7 @@ describe("DeviceInfoCommand", () => {
 
     // Mock the constructor
     const MockEufySecurityClient =
-      require("@scrypted/eufy-security-client").EufySecurityClient;
+      require("eufy-security-client").EufySecurityClient;
     MockEufySecurityClient.mockImplementation(() => mockClient);
 
     command = new DeviceInfoCommand(mockContext);
@@ -60,7 +60,9 @@ describe("DeviceInfoCommand", () => {
       port: 0,
       verbose: false,
       help: false,
-    };    it("should validate required arguments", async () => {
+    };
+
+    it("should validate required arguments", async () => {
       const invalidArgs = { ...validArgs, cameraSerial: "" };
 
       await expect(command.execute(invalidArgs)).rejects.toThrow(

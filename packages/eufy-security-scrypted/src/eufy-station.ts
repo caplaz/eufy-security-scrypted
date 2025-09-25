@@ -17,7 +17,7 @@ import {
   Setting,
   Settings,
   SettingValue,
-} from '@scrypted/sdk';
+} from "@scrypted/sdk";
 
 import {
   AlarmMode,
@@ -29,11 +29,15 @@ import {
   StationEventType,
   StationProperties,
   StationPropertyChangedEventPayload,
-} from '@scrypted/eufy-security-client';
+} from "eufy-security-client";
 
-import { createDebugLogger, DebugLogger } from './utils/debug-logger';
-import { EufyDevice } from './eufy-device';
-import { alarmModeMap, DeviceUtils, securitySystemMap } from './utils/device-utils';
+import { createDebugLogger, DebugLogger } from "./utils/debug-logger";
+import { EufyDevice } from "./eufy-device";
+import {
+  alarmModeMap,
+  DeviceUtils,
+  securitySystemMap,
+} from "./utils/device-utils";
 
 /**
  * EufyStation - Barebone station implementation
@@ -55,7 +59,7 @@ export class EufyStation
    * @returns {string} Serial number from device info, or 'unknown' if not set.
    */
   get serialNumber(): string {
-    return this.info?.serialNumber || 'unknown';
+    return this.info?.serialNumber || "unknown";
   }
 
   /**
@@ -84,11 +88,11 @@ export class EufyStation
       }).bind(this)
     );
 
-    this.addEventListener(STATION_EVENTS.GUARD_MODE_CHANGED, event => {
+    this.addEventListener(STATION_EVENTS.GUARD_MODE_CHANGED, (event) => {
       // this.handlePropertyChangedEvent(event);
     });
 
-    this.addEventListener(STATION_EVENTS.CURRENT_MODE_CHANGED, event => {
+    this.addEventListener(STATION_EVENTS.CURRENT_MODE_CHANGED, (event) => {
       this.handlePropertyChangedEvent.bind(this);
     });
 
@@ -121,18 +125,24 @@ export class EufyStation
     });
   }
 
-  private handlePropertyChangedEvent({ name, value }: StationPropertyChangedEventPayload) {
+  private handlePropertyChangedEvent({
+    name,
+    value,
+  }: StationPropertyChangedEventPayload) {
     this.latestProperties = this.latestProperties && {
       ...this.latestProperties,
       [name]: value,
     };
 
     switch (name) {
-      case 'alarm':
-      case 'currentMode':
-        this.onDeviceEvent(ScryptedInterface.SecuritySystem, this.securitySystemState);
+      case "alarm":
+      case "currentMode":
+        this.onDeviceEvent(
+          ScryptedInterface.SecuritySystem,
+          this.securitySystemState
+        );
         break;
-      case 'guardMode':
+      case "guardMode":
         this.onDeviceEvent(ScryptedInterface.Settings, undefined);
         break;
       default:
@@ -148,7 +158,7 @@ export class EufyStation
    * @returns {Promise<EufyDevice>} The child device instance.
    */
   async getDevice(nativeId: ScryptedNativeId): Promise<any> {
-    if (nativeId && nativeId.startsWith('device_')) {
+    if (nativeId && nativeId.startsWith("device_")) {
       this.logger.d(`Getting device ${nativeId}`);
 
       // Return existing device or create new EufyDevice
@@ -170,7 +180,7 @@ export class EufyStation
    * @returns {Promise<void>}
    */
   async releaseDevice(id: string, nativeId: ScryptedNativeId): Promise<void> {
-    const deviceId = nativeId || '';
+    const deviceId = nativeId || "";
     this.logger.d(`Releasing device ${deviceId}`);
     this.childDevices.delete(deviceId);
   }
@@ -196,15 +206,15 @@ export class EufyStation
     const { info } = this;
     const { metadata } = info || {};
 
-    const securitySystemGroup = 'Security System';
+    const securitySystemGroup = "Security System";
 
     return [
       {
-        key: 'scryptedName',
-        title: 'Station Name',
-        description: 'Name shown in Scrypted (can be customized)',
+        key: "scryptedName",
+        title: "Station Name",
+        description: "Name shown in Scrypted (can be customized)",
         value: this.name,
-        type: 'string',
+        type: "string",
         readonly: false,
       },
 
@@ -213,13 +223,13 @@ export class EufyStation
 
       // Security system settings
       DeviceUtils.settingFromMetadata(
-        metadata['currentMode'],
+        metadata["currentMode"],
         this.latestProperties?.currentMode,
         "Indicates the current operating mode of the security system (e.g., Home, Away, Disarmed). This field is read-only and reflects the system's present state.",
         securitySystemGroup
       ),
       DeviceUtils.settingFromMetadata(
-        metadata['guardMode'],
+        metadata["guardMode"],
         this.latestProperties?.guardMode,
         "Guard mode determines how the security system responds to events. For example: 'Home' arms only outdoor sensors, 'Away' arms all sensors, and 'Disarmed' disables alarms. Other modes include 'Geofencing' (automatically arms/disarms based on your phone's location) and 'Schedule' (arms/disarms according to a set timetable). Select the mode that matches your current needs.",
         securitySystemGroup
@@ -237,16 +247,19 @@ export class EufyStation
     this.logger.d(`Setting ${key} = ${value}`);
 
     switch (key) {
-      case 'scryptedName':
+      case "scryptedName":
         this.name = String(value);
         break;
-      case 'guardMode':
+      case "guardMode":
         this.api
           .setProperty(
-            'guardMode',
-            DeviceUtils.valueAdjustedWithMetadata(value, this.info?.metadata['guardMode'])
+            "guardMode",
+            DeviceUtils.valueAdjustedWithMetadata(
+              value,
+              this.info?.metadata["guardMode"]
+            )
           )
-          .catch(error => {
+          .catch((error) => {
             this.logger.w(`Failed to set guardMode: ${error}`);
           });
         break;
@@ -258,7 +271,9 @@ export class EufyStation
   // =================== SECURITY SYSTEM INTERFACE ===================
 
   securitySystemState? = {
-    mode: alarmModeMap[this.latestProperties?.currentMode ?? AlarmMode.DISARMED],
+    mode: alarmModeMap[
+      this.latestProperties?.currentMode ?? AlarmMode.DISARMED
+    ],
     triggered: this.latestProperties?.alarm,
     supportedModes: [
       SecuritySystemMode.HomeArmed,
@@ -283,7 +298,7 @@ export class EufyStation
       this.securitySystemState.mode = mode;
     }
 
-    this.api.setProperty('guardMode', securitySystemMap[mode]);
+    this.api.setProperty("guardMode", securitySystemMap[mode]);
   }
 
   /**
@@ -304,7 +319,10 @@ export class EufyStation
     return 1800; // 30 minutes
   }
 
-  async refresh(refreshInterface?: string, userInitiated?: boolean): Promise<void> {
+  async refresh(
+    refreshInterface?: string,
+    userInitiated?: boolean
+  ): Promise<void> {
     // since I don't have a way to get a single property, we just refresh everything
     if (!refreshInterface) {
       try {
@@ -325,7 +343,7 @@ export class EufyStation
    * @returns {Promise<void>}
    */
   async reboot(): Promise<void> {
-    this.logger.i('Rebooting');
+    this.logger.i("Rebooting");
     await this.api.reboot();
   }
 
@@ -335,7 +353,7 @@ export class EufyStation
    * Dispose of all child devices and clean up resources.
    */
   dispose(): void {
-    this.childDevices.forEach(device => {
+    this.childDevices.forEach((device) => {
       device.dispose();
     });
     this.childDevices.clear();

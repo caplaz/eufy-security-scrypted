@@ -66,7 +66,7 @@ import {
   PanTiltDirection,
   StorageType,
   VideoQuality,
-} from "@scrypted/eufy-security-client";
+} from "eufy-security-client";
 
 import { DebugLogger, createDebugLogger } from "./utils/debug-logger";
 import { DeviceUtils } from "./utils/device-utils";

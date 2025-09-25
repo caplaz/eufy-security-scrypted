@@ -1,5 +1,5 @@
 {
-  "name": "@scrypted/eufy-security-client",
+  "name": "eufy-security-client",
   "version": "1.0.0",
   "description": "WebSocket client library for communicating with eufy-security-ws server with type-safe event handling and device management for Eufy security cameras",
   "main": "dist/index.js",
@@ -81,8 +81,5 @@
     "README.md",
     "LICENSE",
     "CHANGELOG.md"
-  ],
-  "publishConfig": {
-    "access": "public"
-  }
+  ]
 }

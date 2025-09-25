@@ -1,6 +1,11 @@
-import { Logger as TsLogger, ILogObj } from 'tslog';
-import { EufySecurityClient } from '@scrypted/eufy-security-client';
-import { CommandHandler, ParsedArgs, Logger, CommandContext } from '../interfaces';
+import { Logger as TsLogger, ILogObj } from "tslog";
+import { EufySecurityClient } from "eufy-security-client";
+import {
+  CommandHandler,
+  ParsedArgs,
+  Logger,
+  CommandContext,
+} from "../interfaces";
 
 /**
  * Base command class that provides common functionality for all CLI commands
@@ -41,7 +46,7 @@ export abstract class BaseCommand implements CommandHandler {
       name: `CLI-Command`,
       minLevel: context.verbose ? 1 : 3, // Debug level if verbose, Info level otherwise
       prettyLogTemplate:
-        '{{yyyy}}.{{mm}}.{{dd}} {{hh}}:{{MM}}:{{ss}}:{{ms}} {{logLevelName}} [{{name}}] ',
+        "{{yyyy}}.{{mm}}.{{dd}} {{hh}}:{{MM}}:{{ss}}:{{ms}} {{logLevelName}} [{{name}}] ",
     });
   }
 
@@ -74,7 +79,7 @@ export abstract class BaseCommand implements CommandHandler {
   protected async createClient(wsHost: string): Promise<EufySecurityClient> {
     // Ensure WebSocket URL has protocol
     let wsUrl = wsHost;
-    if (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://')) {
+    if (!wsUrl.startsWith("ws://") && !wsUrl.startsWith("wss://")) {
       wsUrl = `ws://${wsUrl}`;
     }
 
@@ -94,22 +99,22 @@ export abstract class BaseCommand implements CommandHandler {
         `Connection to WebSocket server ${wsUrl} timed out after 10 seconds`
       );
 
-      this.logger.info('✅ Connected to WebSocket server');
+      this.logger.info("✅ Connected to WebSocket server");
       return client;
     } catch (error) {
       // Provide more specific error messages based on error type
       if (error instanceof Error) {
-        if (error.message.includes('ECONNREFUSED')) {
+        if (error.message.includes("ECONNREFUSED")) {
           throw new Error(
             `❌ Connection refused: Unable to connect to WebSocket server at ${wsUrl}. ` +
               `Please ensure the eufy-security-ws server is running and accessible.`
           );
-        } else if (error.message.includes('ENOTFOUND')) {
+        } else if (error.message.includes("ENOTFOUND")) {
           throw new Error(
             `❌ Host not found: Unable to resolve hostname in ${wsUrl}. ` +
               `Please check the hostname and network connectivity.`
           );
-        } else if (error.message.includes('timeout')) {
+        } else if (error.message.includes("timeout")) {
           throw new Error(
             `❌ Connection timeout: Unable to connect to ${wsUrl} within 10 seconds. ` +
               `Please check if the server is running and network connectivity.`
@@ -165,10 +170,10 @@ export abstract class BaseCommand implements CommandHandler {
    * Format bytes in human-readable format
    */
   protected formatBytes(bytes: number): string {
-    if (bytes === 0) return '0 B';
+    if (bytes === 0) return "0 B";
 
     const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const sizes = ["B", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
 
     const value = bytes / Math.pow(k, i);
@@ -189,11 +194,11 @@ export abstract class BaseCommand implements CommandHandler {
       }, timeoutMs);
 
       promise
-        .then(result => {
+        .then((result) => {
           clearTimeout(timeoutId);
           resolve(result);
         })
-        .catch(error => {
+        .catch((error) => {
           clearTimeout(timeoutId);
           reject(error);
         });
@@ -208,16 +213,16 @@ export abstract class BaseCommand implements CommandHandler {
       this.logger.info(`Received ${signal}, shutting down gracefully...`);
       cleanup()
         .then(() => {
-          this.logger.info('✅ Shutdown completed');
+          this.logger.info("✅ Shutdown completed");
           process.exit(0);
         })
-        .catch(error => {
-          this.logger.error('❌ Error during shutdown:', error);
+        .catch((error) => {
+          this.logger.error("❌ Error during shutdown:", error);
           process.exit(1);
         });
     };
 
-    process.on('SIGINT', () => handleShutdown('SIGINT'));
-    process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+    process.on("SIGINT", () => handleShutdown("SIGINT"));
+    process.on("SIGTERM", () => handleShutdown("SIGTERM"));
   }
 }

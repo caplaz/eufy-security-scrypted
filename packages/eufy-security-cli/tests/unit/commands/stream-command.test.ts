@@ -12,7 +12,7 @@ import { testUtils } from "../../test-utils";
 
 // Mock the dependencies
 jest.mock("eufy-stream-server");
-jest.mock("@scrypted/eufy-security-client");
+jest.mock("eufy-security-client");
 
 describe("StreamCommand", () => {
   let mockContext: CommandContext;
@@ -56,7 +56,7 @@ describe("StreamCommand", () => {
     MockStreamServer.mockImplementation(() => mockStreamServer);
 
     const MockEufySecurityClient =
-      require("@scrypted/eufy-security-client").EufySecurityClient;
+      require("eufy-security-client").EufySecurityClient;
     MockEufySecurityClient.mockImplementation(() => mockClient);
 
     command = new StreamCommand(mockContext);
