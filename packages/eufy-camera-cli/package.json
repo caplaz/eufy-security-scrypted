@@ -1,0 +1,91 @@
+{
+  "name": "@scrypted/eufy-camera-cli",
+  "version": "1.0.0",
+  "description": "Command-line interface for Eufy Security camera control and streaming",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "eufy-camera": "dist/main.js",
+    "eufy-camera-streamer": "dist/main.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "build:watch": "tsc --build --watch",
+    "build:incremental": "tsc --build --incremental",
+    "test": "jest --passWithNoTests",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "clean": "rm -rf dist .tsbuildinfo tsconfig.tsbuildinfo coverage",
+    "typecheck": "tsc --noEmit --skipLibCheck",
+    "start": "node dist/main.js",
+    "dev": "tsc --build --watch",
+    "lint": "eslint src/**/*.ts --max-warnings 0 --cache",
+    "lint:fix": "eslint src/**/*.ts --fix --cache",
+    "format": "prettier --write src/**/*.ts --cache",
+    "format:check": "prettier --check src/**/*.ts --cache",
+    "prepublishOnly": "npm run clean && npm run build && npm test"
+  },
+  "keywords": [
+    "eufy",
+    "security",
+    "camera",
+    "cli",
+    "streaming",
+    "command-line",
+    "surveillance",
+    "video",
+    "tcp",
+    "websocket",
+    "scrypted",
+    "media-player",
+    "ffmpeg",
+    "vlc",
+    "iot",
+    "smart-home",
+    "home-security"
+  ],
+  "author": {
+    "name": "Scrypted Team",
+    "email": "support@scrypted.app",
+    "url": "https://scrypted.app"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/acerbetti/eufy-security-scrypted/tree/main/packages/eufy-camera-cli#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/acerbetti/eufy-security-scrypted.git",
+    "directory": "packages/eufy-camera-cli"
+  },
+  "bugs": {
+    "url": "https://github.com/acerbetti/eufy-security-scrypted/issues"
+  },
+  "dependencies": {
+    "eufy-stream-server": "file:../eufy-stream-server",
+    "@scrypted/eufy-security-client": "file:../eufy-security-client",
+    "tslog": "^4.9.3"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.10.1",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "jest-junit": "^16.0.0",
+    "prettier": "^3.2.5",
+    "ts-jest": "^29.1.5",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

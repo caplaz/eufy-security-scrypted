@@ -8,5 +8,7 @@ dist/
 # Test artifacts
 junit.xml
 **/junit.xml
+jest-results.xml
+**/jest-results.xml
 coverage/
 **/coverage/
