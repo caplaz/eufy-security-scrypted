@@ -19,15 +19,25 @@
  * 6. Stream lifecycle manages connection state and cleanup for both streams
  */
 
-import net from 'net';
-import { FFmpegInput, MediaObject, RequestMediaStreamOptions, sdk } from '@scrypted/sdk';
-import { DebugLogger } from './debug-logger';
+import net from "net";
+import {
+  FFmpegInput,
+  MediaObject,
+  RequestMediaStreamOptions,
+  sdk,
+} from "@scrypted/sdk";
+import { DebugLogger } from "./debug-logger";
 import {
   DeviceLivestreamAudioDataEventPayload,
   DeviceLivestreamVideoDataEventPayload,
   EufyWebSocketClient,
-} from '@scrypted/eufy-security-client';
-import { CleanupLevel, MemoryInfo, MemoryManager, getMemoryManager } from './memory-manager';
+} from "@scrypted/eufy-security-client";
+import {
+  CleanupLevel,
+  MemoryInfo,
+  MemoryManager,
+  getMemoryManager,
+} from "./memory-manager";
 
 /**
  * Advanced streaming settings for EufyStreamSession configuration.
@@ -104,14 +114,14 @@ export class EufyStreamSession {
    * Create ftyp (file type) box for MP4
    */
   private createFtypBox(): Buffer {
-    const majorBrand = Buffer.from('isom'); // 4 bytes
+    const majorBrand = Buffer.from("isom"); // 4 bytes
     const minorVersion = Buffer.alloc(4); // 4 bytes, all zeros
-    const compatibleBrands = Buffer.from('isomiso2avc1mp41'); // 16 bytes
+    const compatibleBrands = Buffer.from("isomiso2avc1mp41"); // 16 bytes
 
     const boxData = Buffer.concat([majorBrand, minorVersion, compatibleBrands]);
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + boxData.length, 0);
-    const boxType = Buffer.from('ftyp');
+    const boxType = Buffer.from("ftyp");
 
     return Buffer.concat([boxSize, boxType, boxData]);
   }
@@ -139,7 +149,7 @@ export class EufyStreamSession {
     const moovData = Buffer.concat(boxes);
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + moovData.length, 0);
-    const boxType = Buffer.from('moov');
+    const boxType = Buffer.from("moov");
 
     return Buffer.concat([boxSize, boxType, moovData]);
   }
@@ -162,7 +172,7 @@ export class EufyStreamSession {
 
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + mvhdData.length, 0);
-    const boxType = Buffer.from('mvhd');
+    const boxType = Buffer.from("mvhd");
 
     return Buffer.concat([boxSize, boxType, mvhdData]);
   }
@@ -178,7 +188,7 @@ export class EufyStreamSession {
     const trakData = Buffer.concat([tkhdBox, mdiaBox]);
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + trakData.length, 0);
-    const boxType = Buffer.from('trak');
+    const boxType = Buffer.from("trak");
 
     return Buffer.concat([boxSize, boxType, trakData]);
   }
@@ -199,7 +209,7 @@ export class EufyStreamSession {
 
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + tkhdData.length, 0);
-    const boxType = Buffer.from('tkhd');
+    const boxType = Buffer.from("tkhd");
 
     return Buffer.concat([boxSize, boxType, tkhdData]);
   }
@@ -215,7 +225,7 @@ export class EufyStreamSession {
     const mdiaData = Buffer.concat([mdhdBox, hdlrBox, minfBox]);
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + mdiaData.length, 0);
-    const boxType = Buffer.from('mdia');
+    const boxType = Buffer.from("mdia");
 
     return Buffer.concat([boxSize, boxType, mdiaData]);
   }
@@ -230,7 +240,7 @@ export class EufyStreamSession {
 
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + mdhdData.length, 0);
-    const boxType = Buffer.from('mdhd');
+    const boxType = Buffer.from("mdhd");
 
     return Buffer.concat([boxSize, boxType, mdhdData]);
   }
@@ -241,14 +251,14 @@ export class EufyStreamSession {
   private createHdlrBox(): Buffer {
     const hdlrData = Buffer.concat([
       Buffer.alloc(8), // version + flags + pre_defined
-      Buffer.from('vide'), // handler_type
+      Buffer.from("vide"), // handler_type
       Buffer.alloc(12), // reserved
-      Buffer.from('VideoHandler\0'), // name
+      Buffer.from("VideoHandler\0"), // name
     ]);
 
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + hdlrData.length, 0);
-    const boxType = Buffer.from('hdlr');
+    const boxType = Buffer.from("hdlr");
 
     return Buffer.concat([boxSize, boxType, hdlrData]);
   }
@@ -264,7 +274,7 @@ export class EufyStreamSession {
     const minfData = Buffer.concat([vmhdBox, dinfBox, stblBox]);
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + minfData.length, 0);
-    const boxType = Buffer.from('minf');
+    const boxType = Buffer.from("minf");
 
     return Buffer.concat([boxSize, boxType, minfData]);
   }
@@ -278,7 +288,7 @@ export class EufyStreamSession {
 
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + vmhdData.length, 0);
-    const boxType = Buffer.from('vmhd');
+    const boxType = Buffer.from("vmhd");
 
     return Buffer.concat([boxSize, boxType, vmhdData]);
   }
@@ -291,11 +301,11 @@ export class EufyStreamSession {
     drefData.writeUInt32BE(0, 0); // version + flags
     drefData.writeUInt32BE(1, 4); // entry count
     drefData.writeUInt32BE(12, 8); // url box size
-    drefData.write('url ', 12); // url box type
+    drefData.write("url ", 12); // url box type
 
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + drefData.length, 0);
-    const boxType = Buffer.from('dinf');
+    const boxType = Buffer.from("dinf");
 
     return Buffer.concat([boxSize, boxType, drefData]);
   }
@@ -310,10 +320,16 @@ export class EufyStreamSession {
     const stszBox = this.createStszBox();
     const stcoBox = this.createStcoBox();
 
-    const stblData = Buffer.concat([stsdBox, sttsBox, stscBox, stszBox, stcoBox]);
+    const stblData = Buffer.concat([
+      stsdBox,
+      sttsBox,
+      stscBox,
+      stszBox,
+      stcoBox,
+    ]);
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + stblData.length, 0);
-    const boxType = Buffer.from('stbl');
+    const boxType = Buffer.from("stbl");
 
     return Buffer.concat([boxSize, boxType, stblData]);
   }
@@ -331,7 +347,7 @@ export class EufyStreamSession {
 
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + stsdData.length, 0);
-    const boxType = Buffer.from('stsd');
+    const boxType = Buffer.from("stsd");
 
     return Buffer.concat([boxSize, boxType, stsdData]);
   }
@@ -358,7 +374,7 @@ export class EufyStreamSession {
 
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + avc1BoxData.length, 0);
-    const boxType = Buffer.from('avc1');
+    const boxType = Buffer.from("avc1");
 
     return Buffer.concat([boxSize, boxType, avc1BoxData]);
   }
@@ -386,7 +402,7 @@ export class EufyStreamSession {
 
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + avcCData.length, 0);
-    const boxType = Buffer.from('avcC');
+    const boxType = Buffer.from("avcC");
 
     return Buffer.concat([boxSize, boxType, avcCData]);
   }
@@ -398,7 +414,7 @@ export class EufyStreamSession {
     const sttsData = Buffer.alloc(8);
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + sttsData.length, 0);
-    const boxType = Buffer.from('stts');
+    const boxType = Buffer.from("stts");
     return Buffer.concat([boxSize, boxType, sttsData]);
   }
 
@@ -409,7 +425,7 @@ export class EufyStreamSession {
     const stscData = Buffer.alloc(8);
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + stscData.length, 0);
-    const boxType = Buffer.from('stsc');
+    const boxType = Buffer.from("stsc");
     return Buffer.concat([boxSize, boxType, stscData]);
   }
 
@@ -420,7 +436,7 @@ export class EufyStreamSession {
     const stszData = Buffer.alloc(12);
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + stszData.length, 0);
-    const boxType = Buffer.from('stsz');
+    const boxType = Buffer.from("stsz");
     return Buffer.concat([boxSize, boxType, stszData]);
   }
 
@@ -431,7 +447,7 @@ export class EufyStreamSession {
     const stcoData = Buffer.alloc(8);
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + stcoData.length, 0);
-    const boxType = Buffer.from('stco');
+    const boxType = Buffer.from("stco");
     return Buffer.concat([boxSize, boxType, stcoData]);
   }
 
@@ -445,7 +461,7 @@ export class EufyStreamSession {
     const trakData = Buffer.concat([tkhdBox, mdiaBox]);
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + trakData.length, 0);
-    const boxType = Buffer.from('trak');
+    const boxType = Buffer.from("trak");
 
     return Buffer.concat([boxSize, boxType, trakData]);
   }
@@ -462,7 +478,7 @@ export class EufyStreamSession {
 
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + tkhdData.length, 0);
-    const boxType = Buffer.from('tkhd');
+    const boxType = Buffer.from("tkhd");
 
     return Buffer.concat([boxSize, boxType, tkhdData]);
   }
@@ -478,7 +494,7 @@ export class EufyStreamSession {
     const mdiaData = Buffer.concat([mdhdBox, hdlrBox, minfBox]);
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + mdiaData.length, 0);
-    const boxType = Buffer.from('mdia');
+    const boxType = Buffer.from("mdia");
 
     return Buffer.concat([boxSize, boxType, mdiaData]);
   }
@@ -495,7 +511,7 @@ export class EufyStreamSession {
 
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + mdhdData.length, 0);
-    const boxType = Buffer.from('mdhd');
+    const boxType = Buffer.from("mdhd");
 
     return Buffer.concat([boxSize, boxType, mdhdData]);
   }
@@ -506,14 +522,14 @@ export class EufyStreamSession {
   private createAudioHdlrBox(): Buffer {
     const hdlrData = Buffer.concat([
       Buffer.alloc(8), // version + flags + pre_defined
-      Buffer.from('soun'), // handler_type for audio
+      Buffer.from("soun"), // handler_type for audio
       Buffer.alloc(12), // reserved
-      Buffer.from('AudioHandler\\0'), // name
+      Buffer.from("AudioHandler\\0"), // name
     ]);
 
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + hdlrData.length, 0);
-    const boxType = Buffer.from('hdlr');
+    const boxType = Buffer.from("hdlr");
 
     return Buffer.concat([boxSize, boxType, hdlrData]);
   }
@@ -529,7 +545,7 @@ export class EufyStreamSession {
     const minfData = Buffer.concat([smhdBox, dinfBox, stblBox]);
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + minfData.length, 0);
-    const boxType = Buffer.from('minf');
+    const boxType = Buffer.from("minf");
 
     return Buffer.concat([boxSize, boxType, minfData]);
   }
@@ -543,7 +559,7 @@ export class EufyStreamSession {
 
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + smhdData.length, 0);
-    const boxType = Buffer.from('smhd');
+    const boxType = Buffer.from("smhd");
 
     return Buffer.concat([boxSize, boxType, smhdData]);
   }
@@ -558,10 +574,16 @@ export class EufyStreamSession {
     const stszBox = this.createStszBox();
     const stcoBox = this.createStcoBox();
 
-    const stblData = Buffer.concat([stsdBox, sttsBox, stscBox, stszBox, stcoBox]);
+    const stblData = Buffer.concat([
+      stsdBox,
+      sttsBox,
+      stscBox,
+      stszBox,
+      stcoBox,
+    ]);
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + stblData.length, 0);
-    const boxType = Buffer.from('stbl');
+    const boxType = Buffer.from("stbl");
 
     return Buffer.concat([boxSize, boxType, stblData]);
   }
@@ -579,7 +601,7 @@ export class EufyStreamSession {
 
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + stsdData.length, 0);
-    const boxType = Buffer.from('stsd');
+    const boxType = Buffer.from("stsd");
 
     return Buffer.concat([boxSize, boxType, stsdData]);
   }
@@ -592,7 +614,10 @@ export class EufyStreamSession {
     audioData.writeUInt16BE(1, 6); // data reference index
     audioData.writeUInt16BE(2, 16); // channel count
     audioData.writeUInt16BE(16, 18); // sample size (16-bit)
-    audioData.writeUInt32BE(((this.audioMetadata as any)?.sampleRate || 48000) << 16, 24); // sample rate
+    audioData.writeUInt32BE(
+      ((this.audioMetadata as any)?.sampleRate || 48000) << 16,
+      24
+    ); // sample rate
 
     // Create esds box for AAC configuration
     const esdsBox = this.createEsdsBox();
@@ -600,7 +625,7 @@ export class EufyStreamSession {
 
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + audioBoxData.length, 0);
-    const boxType = Buffer.from('mp4a');
+    const boxType = Buffer.from("mp4a");
 
     return Buffer.concat([boxSize, boxType, audioBoxData]);
   }
@@ -628,7 +653,7 @@ export class EufyStreamSession {
 
     const boxSize = Buffer.alloc(4);
     boxSize.writeUInt32BE(8 + esdsData.length, 0);
-    const boxType = Buffer.from('esds');
+    const boxType = Buffer.from("esds");
 
     return Buffer.concat([boxSize, boxType, esdsData]);
   }
@@ -669,7 +694,11 @@ export class EufyStreamSession {
   private audioBuffer: Buffer = Buffer.alloc(0);
   private pendingAudioChunks: Buffer[] = [];
   private audioMetadata?: any;
-  private videoMetadata?: { videoWidth: number; videoHeight: number; videoFPS?: number };
+  private videoMetadata?: {
+    videoWidth: number;
+    videoHeight: number;
+    videoFPS?: number;
+  };
 
   /**
    * Checks if the device is currently streaming via the WebSocket API.
@@ -679,7 +708,9 @@ export class EufyStreamSession {
    */
   async isStreaming(): Promise<boolean> {
     try {
-      const result = await this.wsClient.commands.device(this.serialNumber).isLivestreaming();
+      const result = await this.wsClient.commands
+        .device(this.serialNumber)
+        .isLivestreaming();
       return result.livestreaming;
     } catch (error) {
       this.logger.w(`Failed to check streaming status: ${error}`);
@@ -708,9 +739,6 @@ export class EufyStreamSession {
         enableDetailedLogging: false,
       });
 
-    // Force update the threshold in case the singleton was created with old config
-    this.memoryManager.updateThreshold(options.memoryThresholdMB || 120);
-
     this.memoryCallbackId = `stream-${this.serialNumber}`;
 
     // Register memory cleanup callback
@@ -738,23 +766,27 @@ export class EufyStreamSession {
    * @returns Promise<MediaObject> FFmpeg-compatible media object for video consumption
    * @throws Error if stream initialization fails
    */
-  async getVideoStream(options?: RequestMediaStreamOptions): Promise<MediaObject> {
+  async getVideoStream(
+    options?: RequestMediaStreamOptions
+  ): Promise<MediaObject> {
     this.logger.i(`🎬 Starting video stream for device ${this.serialNumber}`);
 
     // Strategy 1: Reuse existing active stream if available
     if ((await this.isStreaming()) && this.tcpServer && this.serverPort) {
-      this.logger.i('🔄 Reusing existing P2P stream session for new consumer');
+      this.logger.i("🔄 Reusing existing P2P stream session for new consumer");
       return this.createMediaObjectFromTcpServer(options);
     }
 
     // Strategy 1.5: Check if we have a recent stream that just lost its client
     if (this.tcpServer && this.serverPort && this.hasInitialData) {
-      this.logger.i('🔄 Reusing existing TCP server for new consumer (stream may still be active)');
+      this.logger.i(
+        "🔄 Reusing existing TCP server for new consumer (stream may still be active)"
+      );
       return this.createMediaObjectFromTcpServer(options);
     }
 
     // Strategy 2: Initialize new stream session
-    this.logger.i('🚀 Starting new stream session');
+    this.logger.i("🚀 Starting new stream session");
     try {
       this.cleanupStream(); // Ensure clean state
       this.bufferCount = 0; // Reset buffer counter
@@ -766,14 +798,14 @@ export class EufyStreamSession {
       // Create TCP server and return MediaObject
       const mediaObject = await this.createTcpServerMediaObject(options);
       if (!mediaObject) {
-        throw new Error('Failed to create MediaObject with TCP server');
+        throw new Error("Failed to create MediaObject with TCP server");
       }
 
-      this.logger.i('✅ Stream session started successfully');
+      this.logger.i("✅ Stream session started successfully");
       return mediaObject;
     } catch (error) {
       this.logger.e(`❌ Failed to start video stream: ${error}`);
-      this.stopStream('startup failure'); // Cleanup on failure
+      this.stopStream("startup failure"); // Cleanup on failure
       throw error;
     }
   }
@@ -785,12 +817,15 @@ export class EufyStreamSession {
    * @param metadata Video metadata from the stream event
    * @returns Validation result with success status and error message if invalid
    */
-  private validateVideoMetadata(metadata: any): { isValid: boolean; error?: string } {
+  private validateVideoMetadata(metadata: any): {
+    isValid: boolean;
+    error?: string;
+  } {
     // Check if metadata has required video dimensions
     if (!metadata.videoWidth || !metadata.videoHeight) {
       return {
         isValid: false,
-        error: 'Video metadata missing width or height dimensions',
+        error: "Video metadata missing width or height dimensions",
       };
     }
 
@@ -838,16 +873,19 @@ export class EufyStreamSession {
   private getValidatedVideoDimensions(): { width: number; height: number } {
     if (!this.videoMetadata) {
       throw new Error(
-        'Video dimensions must be provided from VideoMetadata. ' +
-          'Hardcoded fallback values (1920x1080) are no longer supported. ' +
-          'Ensure VideoMetadata with videoWidth and videoHeight is available before processing.'
+        "Video dimensions must be provided from VideoMetadata. " +
+          "Hardcoded fallback values (1920x1080) are no longer supported. " +
+          "Ensure VideoMetadata with videoWidth and videoHeight is available before processing."
       );
     }
 
-    if (this.videoMetadata.videoWidth <= 0 || this.videoMetadata.videoHeight <= 0) {
+    if (
+      this.videoMetadata.videoWidth <= 0 ||
+      this.videoMetadata.videoHeight <= 0
+    ) {
       throw new Error(
         `Invalid video dimensions: ${this.videoMetadata.videoWidth}x${this.videoMetadata.videoHeight}. ` +
-          'Dimensions must be positive numbers from valid VideoMetadata.'
+          "Dimensions must be positive numbers from valid VideoMetadata."
       );
     }
 
@@ -862,7 +900,9 @@ export class EufyStreamSession {
    *
    * @returns Video metadata with dimensions and frame rate, or undefined if not yet available
    */
-  getVideoMetadata(): { videoWidth: number; videoHeight: number; videoFPS?: number } | undefined {
+  getVideoMetadata():
+    | { videoWidth: number; videoHeight: number; videoFPS?: number }
+    | undefined {
     return this.videoMetadata;
   }
 
@@ -882,7 +922,7 @@ export class EufyStreamSession {
     try {
       // Validate incoming data
       if (!event.buffer) {
-        this.logger.w('📹 Received video data event but no buffer data');
+        this.logger.w("📹 Received video data event but no buffer data");
         return;
       }
 
@@ -931,8 +971,8 @@ export class EufyStreamSession {
       if (this.activeStreamTimeout) {
         clearTimeout(this.activeStreamTimeout);
         this.activeStreamTimeout = setTimeout(() => {
-          this.logger.i('🕒 Stream timeout reached, stopping stream');
-          this.stopStream('video data timeout');
+          this.logger.i("🕒 Stream timeout reached, stopping stream");
+          this.stopStream("video data timeout");
         }, 30 * 1000);
       }
     } catch (error) {
@@ -956,7 +996,7 @@ export class EufyStreamSession {
     try {
       // Validate incoming data
       if (!event.buffer) {
-        this.logger.w('🎵 Received audio data event but no buffer data');
+        this.logger.w("🎵 Received audio data event but no buffer data");
         return;
       }
 
@@ -976,15 +1016,15 @@ export class EufyStreamSession {
       // Mark that we have initial audio data
       if (!this.hasInitialAudioData) {
         this.hasInitialAudioData = true;
-        this.logger.d('✅ Initial audio data received');
+        this.logger.d("✅ Initial audio data received");
       }
 
       // Reset stream timeout on successful audio data processing
       if (this.activeStreamTimeout) {
         clearTimeout(this.activeStreamTimeout);
         this.activeStreamTimeout = setTimeout(() => {
-          this.logger.i('🕒 Stream timeout reached, stopping stream');
-          this.stopStream('audio data timeout');
+          this.logger.i("🕒 Stream timeout reached, stopping stream");
+          this.stopStream("audio data timeout");
         }, 30 * 1000);
       }
     } catch (error) {
@@ -1007,14 +1047,14 @@ export class EufyStreamSession {
   async stopStream(reason?: string): Promise<void> {
     // Prevent multiple simultaneous stop operations
     if (this.isStoppingStream) {
-      this.logger.d('🛑 Stream stop already in progress, skipping');
+      this.logger.d("🛑 Stream stop already in progress, skipping");
       return;
     }
 
     this.isStoppingStream = true;
 
     try {
-      const stopReason = reason ? ` (reason: ${reason})` : '';
+      const stopReason = reason ? ` (reason: ${reason})` : "";
       this.logger.i(`🛑 Stopping video stream${stopReason}`);
 
       // Check if device is streaming before attempting to stop
@@ -1022,7 +1062,9 @@ export class EufyStreamSession {
       try {
         deviceIsStreaming = await this.isStreaming();
       } catch (error) {
-        this.logger.w(`⚠️ Failed to check streaming status, assuming stopped: ${error}`);
+        this.logger.w(
+          `⚠️ Failed to check streaming status, assuming stopped: ${error}`
+        );
         deviceIsStreaming = false;
       }
 
@@ -1031,22 +1073,31 @@ export class EufyStreamSession {
         try {
           const device = this.wsClient.commands.device(this.serialNumber);
           await device.stopLivestream();
-          this.logger.d('📻 WebSocket stream stop command sent successfully');
+          this.logger.d("📻 WebSocket stream stop command sent successfully");
         } catch (error: unknown) {
           // Handle specific error cases more gracefully
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          if (errorMessage.includes('device_livestream_not_running')) {
-            this.logger.d('📻 WebSocket stream already stopped');
-          } else if (errorMessage.includes('timeout')) {
-            this.logger.w(`⏱️ Timeout stopping WebSocket stream: ${errorMessage}`);
-          } else if (errorMessage.includes('connection')) {
-            this.logger.w(`🔌 Connection error stopping WebSocket stream: ${errorMessage}`);
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          if (errorMessage.includes("device_livestream_not_running")) {
+            this.logger.d("📻 WebSocket stream already stopped");
+          } else if (errorMessage.includes("timeout")) {
+            this.logger.w(
+              `⏱️ Timeout stopping WebSocket stream: ${errorMessage}`
+            );
+          } else if (errorMessage.includes("connection")) {
+            this.logger.w(
+              `🔌 Connection error stopping WebSocket stream: ${errorMessage}`
+            );
           } else {
-            this.logger.w(`⚠️ Failed to stop WebSocket stream: ${errorMessage}`);
+            this.logger.w(
+              `⚠️ Failed to stop WebSocket stream: ${errorMessage}`
+            );
           }
         }
       } else {
-        this.logger.d('🛑 Device not streaming or no serial number, skipping stop command');
+        this.logger.d(
+          "🛑 Device not streaming or no serial number, skipping stop command"
+        );
       }
 
       // Always perform local cleanup
@@ -1059,7 +1110,7 @@ export class EufyStreamSession {
         this.logger.w(`⚠️ Error unregistering memory callback: ${error}`);
       }
 
-      this.logger.i('✅ Stream stopped successfully');
+      this.logger.i("✅ Stream stopped successfully");
     } catch (error) {
       this.logger.e(`❌ Unexpected error stopping stream: ${error}`);
       // Force cleanup even on unexpected error
@@ -1086,7 +1137,7 @@ export class EufyStreamSession {
    * This method is safe to call multiple times.
    */
   private cleanupStream(): void {
-    this.logger.d('🧹 Cleaning up stream resources');
+    this.logger.d("🧹 Cleaning up stream resources");
 
     try {
       // Clear video buffers and counters
@@ -1116,7 +1167,7 @@ export class EufyStreamSession {
       if (this.tcpSocket) {
         this.tcpSocket.destroy();
         this.tcpSocket = undefined;
-        this.logger.d('🔌 TCP socket destroyed');
+        this.logger.d("🔌 TCP socket destroyed");
       }
     } catch (error) {
       this.logger.w(`⚠️ Error destroying TCP socket: ${error}`);
@@ -1129,7 +1180,7 @@ export class EufyStreamSession {
         this.tcpServer.close();
         this.tcpServer = undefined;
         this.serverPort = undefined;
-        this.logger.d('🏢 TCP server closed');
+        this.logger.d("🏢 TCP server closed");
       }
     } catch (error) {
       this.logger.w(`⚠️ Error closing TCP server: ${error}`);
@@ -1142,7 +1193,7 @@ export class EufyStreamSession {
       if (this.activeStreamTimeout) {
         clearTimeout(this.activeStreamTimeout);
         this.activeStreamTimeout = undefined;
-        this.logger.d('⏰ Stream timeout timer cleared');
+        this.logger.d("⏰ Stream timeout timer cleared");
       }
     } catch (error) {
       this.logger.w(`⚠️ Error clearing timeout timer: ${error}`);
@@ -1154,14 +1205,14 @@ export class EufyStreamSession {
       if (this.pendingStopTimeout) {
         clearTimeout(this.pendingStopTimeout);
         this.pendingStopTimeout = undefined;
-        this.logger.d('⏰ Pending stop timeout cleared');
+        this.logger.d("⏰ Pending stop timeout cleared");
       }
     } catch (error) {
       this.logger.w(`⚠️ Error clearing pending stop timeout: ${error}`);
       this.pendingStopTimeout = undefined; // Clear reference anyway
     }
 
-    this.logger.d('✅ Stream cleanup completed');
+    this.logger.d("✅ Stream cleanup completed");
   }
 
   /**
@@ -1178,27 +1229,31 @@ export class EufyStreamSession {
    */
   private async startWebSocketStream(): Promise<void> {
     if (!this.serialNumber) {
-      throw new Error('Device serial number not available for stream start');
+      throw new Error("Device serial number not available for stream start");
     }
 
-    this.logger.i(`📡 Starting WebSocket livestream for device ${this.serialNumber}`);
+    this.logger.i(
+      `📡 Starting WebSocket livestream for device ${this.serialNumber}`
+    );
 
     // Check current streaming status before attempting to start
     try {
       const isCurrentlyStreaming = await this.isStreaming();
       if (isCurrentlyStreaming) {
-        this.logger.d('📊 Device already streaming');
+        this.logger.d("📊 Device already streaming");
       }
     } catch (error) {
-      this.logger.w(`⚠️ Could not check streaming status before start: ${error}`);
+      this.logger.w(
+        `⚠️ Could not check streaming status before start: ${error}`
+      );
     }
 
     const device = this.wsClient.commands.device(this.serialNumber);
 
     try {
-      this.logger.d('🎯 Sending device.startLivestream() command...');
+      this.logger.d("🎯 Sending device.startLivestream() command...");
       await device.startLivestream();
-      this.logger.i('✅ WebSocket livestream start command sent successfully');
+      this.logger.i("✅ WebSocket livestream start command sent successfully");
 
       // Verification checks
       setTimeout(async () => {
@@ -1206,30 +1261,38 @@ export class EufyStreamSession {
           const streamingAfterStart = await this.isStreaming();
           if (!streamingAfterStart) {
             this.logger.w(
-              '⚠️ Device reports not streaming even after start command - potential issue'
+              "⚠️ Device reports not streaming even after start command - potential issue"
             );
           }
         } catch (error) {
-          this.logger.w(`⚠️ Could not verify streaming status after start: ${error}`);
+          this.logger.w(
+            `⚠️ Could not verify streaming status after start: ${error}`
+          );
         }
       }, 1000); // Check after 1 second
     } catch (error) {
       // Note: Start failures are often benign (device already streaming)
-      this.logger.w(`⚠️ Livestream start warning (may be already active): ${error}`);
+      this.logger.w(
+        `⚠️ Livestream start warning (may be already active): ${error}`
+      );
 
       // Log the error details for debugging
       if (error instanceof Error) {
-        this.logger.d(`🔍 Start error details: name=${error.name}, message=${error.message}`);
+        this.logger.d(
+          `🔍 Start error details: name=${error.name}, message=${error.message}`
+        );
         if (error.stack) {
-          this.logger.d(`🔍 Start error stack: ${error.stack.substring(0, 200)}...`);
+          this.logger.d(
+            `🔍 Start error stack: ${error.stack.substring(0, 200)}...`
+          );
         }
       }
     }
 
     // Set up auto-timeout to prevent orphaned streams
     this.activeStreamTimeout = setTimeout(() => {
-      this.logger.i('🕒 Stream auto-timeout reached, stopping stream');
-      this.stopStream('startup auto-timeout');
+      this.logger.i("🕒 Stream auto-timeout reached, stopping stream");
+      this.stopStream("startup auto-timeout");
     }, 30 * 1000);
 
     this.logger.d(`⏰ Stream timeout set to 30 seconds`);
@@ -1261,17 +1324,19 @@ export class EufyStreamSession {
 
     return new Promise((resolve, reject) => {
       // Create TCP server for FFmpeg connections
-      this.tcpServer = net.createServer(this.handleTcpClientConnection.bind(this));
+      this.tcpServer = net.createServer(
+        this.handleTcpClientConnection.bind(this)
+      );
 
       // Set up server timeout
       const serverTimeout = setTimeout(() => {
-        this.logger.w('⏰ Timeout waiting for FFmpeg connection to TCP server');
+        this.logger.w("⏰ Timeout waiting for FFmpeg connection to TCP server");
         this.tcpServer?.close();
-        reject(new Error('Timeout waiting for FFmpeg connection'));
+        reject(new Error("Timeout waiting for FFmpeg connection"));
       }, 15000);
 
       // Start listening on random port
-      this.tcpServer.listen(0, '127.0.0.1', () => {
+      this.tcpServer.listen(0, "127.0.0.1", () => {
         const address = this.tcpServer!.address() as net.AddressInfo;
         this.serverPort = address.port;
         clearTimeout(serverTimeout);
@@ -1281,7 +1346,7 @@ export class EufyStreamSession {
         // Create and return MediaObject
         this.createMediaObjectFromTcpServer(options)
           .then(resolve)
-          .catch(error => {
+          .catch((error) => {
             this.logger.e(`❌ Failed to create FFmpeg MediaObject: ${error}`);
             this.tcpServer?.close();
             reject(error);
@@ -1289,7 +1354,7 @@ export class EufyStreamSession {
       });
 
       // Handle server errors
-      this.tcpServer.on('error', error => {
+      this.tcpServer.on("error", (error) => {
         this.logger.e(`❌ TCP server error: ${error}`);
         clearTimeout(serverTimeout);
         reject(error);
@@ -1313,7 +1378,7 @@ export class EufyStreamSession {
     );
 
     while (!this.hasInitialData && Date.now() - dataWaitStart < maxWaitTime) {
-      await new Promise(resolve => setTimeout(resolve, checkInterval));
+      await new Promise((resolve) => setTimeout(resolve, checkInterval));
       checkCount++;
 
       if (this.pendingVideoChunks.length > 0) {
@@ -1359,22 +1424,27 @@ export class EufyStreamSession {
         const stillStreaming = await this.isStreaming();
         this.logger.d(
           `🔍 Device streaming status during timeout: ${
-            stillStreaming ? 'still streaming' : 'not streaming'
+            stillStreaming ? "still streaming" : "not streaming"
           }`
         );
       } catch (error) {
-        this.logger.d(`🔍 Could not check device streaming status during timeout: ${error}`);
+        this.logger.d(
+          `🔍 Could not check device streaming status during timeout: ${error}`
+        );
       }
     }
 
     // Audio check
     if (this.hasInitialData && !this.hasInitialAudioData) {
-      this.logger.d('⏳ Quick check for audio data...');
+      this.logger.d("⏳ Quick check for audio data...");
       const audioWaitStart = Date.now();
       const audioMaxWaitTime = 1000;
 
-      while (!this.hasInitialAudioData && Date.now() - audioWaitStart < audioMaxWaitTime) {
-        await new Promise(resolve => setTimeout(resolve, 25));
+      while (
+        !this.hasInitialAudioData &&
+        Date.now() - audioWaitStart < audioMaxWaitTime
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
         if (this.pendingAudioChunks.length > 0) {
           this.hasInitialAudioData = true;
           this.logger.d(`✅ Audio data also available`);
@@ -1393,11 +1463,11 @@ export class EufyStreamSession {
    * Sets up proper H.264 stream initialization and ongoing data streaming.
    */
   private handleTcpClientConnection(clientSocket: net.Socket): void {
-    this.logger.i('🔌 New TCP client connected');
+    this.logger.i("🔌 New TCP client connected");
 
     // If we already have a client, close the old one first
     if (this.tcpSocket && !this.tcpSocket.destroyed) {
-      this.logger.d('🔄 Replacing existing TCP client with new connection');
+      this.logger.d("🔄 Replacing existing TCP client with new connection");
       this.tcpSocket.destroy();
     }
 
@@ -1407,12 +1477,14 @@ export class EufyStreamSession {
     if (this.pendingStopTimeout) {
       clearTimeout(this.pendingStopTimeout);
       this.pendingStopTimeout = undefined;
-      this.logger.d('🔄 Cleared pending stop timeout due to new client connection');
+      this.logger.d(
+        "🔄 Cleared pending stop timeout due to new client connection"
+      );
     }
 
     // Remove server timeout since client connected
     if (this.tcpServer) {
-      this.tcpServer.removeAllListeners('timeout');
+      this.tcpServer.removeAllListeners("timeout");
     }
 
     // Set up client socket event handlers
@@ -1428,10 +1500,12 @@ export class EufyStreamSession {
 
     // If we have buffered data, immediately initialize the client
     if (this.pendingVideoChunks.length > 0) {
-      this.logger.d('📋 Initializing new client with existing buffered data');
+      this.logger.d("📋 Initializing new client with existing buffered data");
       this.initializeClientWithH264Frames(writeToClient);
     } else {
-      this.logger.d('📋 No buffered data yet, client will receive data as it arrives');
+      this.logger.d(
+        "📋 No buffered data yet, client will receive data as it arrives"
+      );
     }
 
     // Set up keepalive mechanism
@@ -1442,8 +1516,10 @@ export class EufyStreamSession {
    * Sets up event handlers for TCP client socket.
    */
   private setupTcpClientHandlers(clientSocket: net.Socket): void {
-    clientSocket.on('close', hadError => {
-      this.logger.i(`🔌 TCP client disconnected ${hadError ? 'with error' : 'normally'}`);
+    clientSocket.on("close", (hadError) => {
+      this.logger.i(
+        `🔌 TCP client disconnected ${hadError ? "with error" : "normally"}`
+      );
 
       this.tcpSocket = undefined;
 
@@ -1454,57 +1530,67 @@ export class EufyStreamSession {
       if (!this.isStoppingStream) {
         // Add delay before stopping stream to allow new viewers to connect
         // This prevents premature stream shutdown when switching between viewers
-        this.logger.d('🛑 TCP client disconnect - delaying stream stop to allow new connections');
+        this.logger.d(
+          "🛑 TCP client disconnect - delaying stream stop to allow new connections"
+        );
 
         // Clear any existing pending stop
         if (this.pendingStopTimeout) {
           clearTimeout(this.pendingStopTimeout);
           this.pendingStopTimeout = undefined;
-          this.logger.d('🔄 Cleared previous pending stop timeout');
+          this.logger.d("🔄 Cleared previous pending stop timeout");
         }
 
         this.pendingStopTimeout = setTimeout(async () => {
           this.pendingStopTimeout = undefined;
           // Check if a new client has connected during the delay
           if (!this.tcpSocket && !this.isStoppingStream) {
-            this.logger.d('🛑 No new TCP client connected, stopping stream');
-            this.stopStream('TCP client disconnect').catch(error => {
-              this.logger.w(`⚠️ Error during TCP disconnect stream stop: ${error}`);
+            this.logger.d("🛑 No new TCP client connected, stopping stream");
+            this.stopStream("TCP client disconnect").catch((error) => {
+              this.logger.w(
+                `⚠️ Error during TCP disconnect stream stop: ${error}`
+              );
             });
           } else {
-            this.logger.d('✅ New TCP client connected during delay, keeping stream alive');
+            this.logger.d(
+              "✅ New TCP client connected during delay, keeping stream alive"
+            );
           }
         }, 2000); // 2 second delay to allow new connections
       } else {
-        this.logger.d('🔄 TCP client disconnect during active stream stop - skipping');
+        this.logger.d(
+          "🔄 TCP client disconnect during active stream stop - skipping"
+        );
       }
     });
 
-    clientSocket.on('error', error => {
+    clientSocket.on("error", (error) => {
       this.logger.w(`⚠️ TCP client error: ${error.message}`);
 
       this.tcpSocket = undefined;
 
       // Only attempt to stop stream if not already stopping
       if (!this.isStoppingStream) {
-        this.logger.d('🛑 TCP client error triggered stream stop');
-        this.stopStream('TCP client error').catch(error => {
+        this.logger.d("🛑 TCP client error triggered stream stop");
+        this.stopStream("TCP client error").catch((error) => {
           this.logger.w(`⚠️ Error during TCP error stream stop: ${error}`);
         });
       } else {
-        this.logger.d('🔄 TCP client error during active stream stop - skipping');
+        this.logger.d(
+          "🔄 TCP client error during active stream stop - skipping"
+        );
       }
     });
 
     // Add a connect handler to log when client actually connects
-    clientSocket.on('connect', () => {
+    clientSocket.on("connect", () => {
       this.logger.d(
         `🔗 TCP client connected from ${clientSocket.remoteAddress}:${clientSocket.remotePort}`
       );
     });
 
     // Add a data handler to track if client is actually reading data
-    clientSocket.on('data', data => {
+    clientSocket.on("data", (data) => {
       this.logger.d(
         `📥 TCP client sent ${data.length} bytes (unusual - clients shouldn't send data)`
       );
@@ -1514,7 +1600,9 @@ export class EufyStreamSession {
   /**
    * Creates a safe writer function for TCP client communication.
    */
-  private createTcpWriter(clientSocket: net.Socket): (chunk: Buffer) => boolean {
+  private createTcpWriter(
+    clientSocket: net.Socket
+  ): (chunk: Buffer) => boolean {
     return (chunk: Buffer): boolean => {
       if (clientSocket.destroyed || clientSocket.writableEnded) {
         this.logger.d(
@@ -1528,8 +1616,8 @@ export class EufyStreamSession {
 
         if (!success) {
           // Handle backpressure
-          clientSocket.once('drain', () => {
-            this.logger.d('📤 TCP drain event - backpressure resolved');
+          clientSocket.once("drain", () => {
+            this.logger.d("📤 TCP drain event - backpressure resolved");
           });
         }
         return success;
@@ -1548,7 +1636,9 @@ export class EufyStreamSession {
    * Initializes new TCP client with essential H.264 frames (SPS, PPS, IDR).
    * This ensures FFmpeg can immediately start decoding the stream.
    */
-  private initializeClientWithH264Frames(writeToClient: (chunk: Buffer) => boolean): void {
+  private initializeClientWithH264Frames(
+    writeToClient: (chunk: Buffer) => boolean
+  ): void {
     // Generate and send MP4 initialization segment first
     const sps = this.findNALUnit(this.pendingVideoChunks, 0x67); // SPS
     const pps = this.findNALUnit(this.pendingVideoChunks, 0x68); // PPS
@@ -1557,13 +1647,15 @@ export class EufyStreamSession {
       const initSegment = this.generateMP4InitializationSegment(sps, pps);
       const success = writeToClient(initSegment);
       if (success) {
-        this.logger.i('📦 Sent MP4 initialization segment to client');
+        this.logger.i("📦 Sent MP4 initialization segment to client");
       } else {
-        this.logger.w('⚠️ Failed to send MP4 initialization segment');
+        this.logger.w("⚠️ Failed to send MP4 initialization segment");
         return;
       }
     } else {
-      this.logger.w('⚠️ Cannot generate MP4 initialization segment: missing SPS/PPS');
+      this.logger.w(
+        "⚠️ Cannot generate MP4 initialization segment: missing SPS/PPS"
+      );
     }
 
     // Find essential frame types in buffer for fallback
@@ -1573,9 +1665,9 @@ export class EufyStreamSession {
 
     this.logger.d(
       `🔍 Frame analysis: SPS=${
-        spsFrame ? `${spsFrame.length}B` : 'none'
-      }, PPS=${ppsFrame ? `${ppsFrame.length}B` : 'none'}, IDR=${
-        idr ? `${idr.length}B` : 'none'
+        spsFrame ? `${spsFrame.length}B` : "none"
+      }, PPS=${ppsFrame ? `${ppsFrame.length}B` : "none"}, IDR=${
+        idr ? `${idr.length}B` : "none"
       }, total chunks=${this.pendingVideoChunks.length}`
     );
 
@@ -1585,19 +1677,19 @@ export class EufyStreamSession {
       const success = writeToClient(spsFrame);
       if (success) framesWritten++;
     } else {
-      this.logger.w('⚠️ No SPS frame available for client initialization');
+      this.logger.w("⚠️ No SPS frame available for client initialization");
     }
     if (ppsFrame) {
       const success = writeToClient(ppsFrame);
       if (success) framesWritten++;
     } else {
-      this.logger.w('⚠️ No PPS frame available for client initialization');
+      this.logger.w("⚠️ No PPS frame available for client initialization");
     }
     if (idr) {
       const success = writeToClient(idr);
       if (success) framesWritten++;
     } else {
-      this.logger.w('⚠️ No IDR frame available for client initialization');
+      this.logger.w("⚠️ No IDR frame available for client initialization");
     }
 
     this.logger.i(
@@ -1612,7 +1704,7 @@ export class EufyStreamSession {
    * Finds a specific NAL unit type in the pending video chunks.
    */
   private findFrameByType(nalType: number): Buffer | undefined {
-    return this.pendingVideoChunks.find(chunk => {
+    return this.pendingVideoChunks.find((chunk) => {
       const startOffset = this.getStartCodeOffset(chunk);
       if (startOffset >= 0 && startOffset < chunk.length) {
         return (chunk[startOffset] & 0x1f) === nalType;
@@ -1633,7 +1725,12 @@ export class EufyStreamSession {
       chunk[3] === 0x01
     ) {
       return 4;
-    } else if (chunk.length >= 3 && chunk[0] === 0x00 && chunk[1] === 0x00 && chunk[2] === 0x01) {
+    } else if (
+      chunk.length >= 3 &&
+      chunk[0] === 0x00 &&
+      chunk[1] === 0x00 &&
+      chunk[2] === 0x01
+    ) {
       return 3;
     }
     return -1;
@@ -1672,7 +1769,7 @@ export class EufyStreamSession {
       }
 
       if (!writeToClient(chunk)) {
-        this.logger.w('⚠️ Failed to write buffered frame to client, stopping');
+        this.logger.w("⚠️ Failed to write buffered frame to client, stopping");
         break;
       }
     }
@@ -1715,7 +1812,6 @@ export class EufyStreamSession {
    */
   private handleMemoryCleanup(memoryInfo: MemoryInfo): void {
     const { level, rssMB, threshold } = memoryInfo;
-
     // Calculate buffer sizes for logging
     const bufferUsage = this.calculateBufferMemoryUsage();
     const totalBufferMB = Math.round(bufferUsage.totalSize / 1024 / 1024);
@@ -1729,9 +1825,12 @@ export class EufyStreamSession {
 
     switch (level) {
       case CleanupLevel.GENTLE:
-        // More aggressive gentle cleanup - reduce buffers even if they're not at max
+        // More aggressive light cleanup - reduce buffers even if they're not at max
         if (this.pendingVideoChunks.length > 5) {
-          const targetSize = Math.max(3, Math.floor(this.pendingVideoChunks.length * 0.6));
+          const targetSize = Math.max(
+            3,
+            Math.floor(this.pendingVideoChunks.length * 0.6)
+          );
           const dropped = this.pendingVideoChunks.length - targetSize;
           this.performSmartBufferCleanup(targetSize);
           this.logger.d(
@@ -1742,7 +1841,10 @@ export class EufyStreamSession {
 
         // More aggressive audio cleanup too
         if (this.pendingAudioChunks.length > 3) {
-          const targetSize = Math.max(2, Math.floor(this.pendingAudioChunks.length * 0.6));
+          const targetSize = Math.max(
+            2,
+            Math.floor(this.pendingAudioChunks.length * 0.6)
+          );
           const dropped = this.pendingAudioChunks.length - targetSize;
           this.pendingAudioChunks = this.pendingAudioChunks.slice(-targetSize);
           this.logger.d(
@@ -1765,7 +1867,9 @@ export class EufyStreamSession {
 
         if (bufferUsage.audioAssemblyBufferSize > 256 * 1024) {
           // 256KB
-          const currentSize = Math.round(bufferUsage.audioAssemblyBufferSize / 1024);
+          const currentSize = Math.round(
+            bufferUsage.audioAssemblyBufferSize / 1024
+          );
           this.audioBuffer = this.audioBuffer.slice(-128 * 1024); // Keep last 128KB
           const newSize = Math.round(this.audioBuffer.length / 1024);
           this.logger.d(
@@ -1777,18 +1881,22 @@ export class EufyStreamSession {
 
       case CleanupLevel.AGGRESSIVE:
         // Keep only essential frames for video
-        if (this.pendingVideoChunks.length > 3) {
-          const dropped = this.pendingVideoChunks.length - 3;
-          this.performSmartBufferCleanup(3);
-          this.logger.w(`🚨 Aggressive cleanup: dropped ${dropped} video chunks`);
+        if (this.pendingVideoChunks.length > 5) {
+          const dropped = this.pendingVideoChunks.length - 5;
+          this.performSmartBufferCleanup(5);
+          this.logger.w(
+            `🚨 Aggressive cleanup: dropped ${dropped} video chunks`
+          );
           cleanupPerformed = true;
         }
 
-        // Keep only 2 audio chunks
-        if (this.pendingAudioChunks.length > 2) {
-          const dropped = this.pendingAudioChunks.length - 2;
-          this.pendingAudioChunks = this.pendingAudioChunks.slice(-2);
-          this.logger.w(`🚨 Aggressive cleanup: dropped ${dropped} audio chunks`);
+        // Keep only 3 audio chunks
+        if (this.pendingAudioChunks.length > 3) {
+          const dropped = this.pendingAudioChunks.length - 3;
+          this.pendingAudioChunks = this.pendingAudioChunks.slice(-3);
+          this.logger.w(
+            `🚨 Aggressive cleanup: dropped ${dropped} audio chunks`
+          );
           cleanupPerformed = true;
         }
 
@@ -1821,7 +1929,9 @@ export class EufyStreamSession {
         if (this.pendingVideoChunks.length > 1) {
           const dropped = this.pendingVideoChunks.length - 1;
           this.pendingVideoChunks = this.pendingVideoChunks.slice(-1);
-          this.logger.e(`💥 Emergency: dropped ${dropped} video chunks, keeping only latest`);
+          this.logger.e(
+            `💥 Emergency: dropped ${dropped} video chunks, keeping only latest`
+          );
           cleanupPerformed = true;
         }
 
@@ -1829,7 +1939,9 @@ export class EufyStreamSession {
         if (this.pendingAudioChunks.length > 1) {
           const dropped = this.pendingAudioChunks.length - 1;
           this.pendingAudioChunks = this.pendingAudioChunks.slice(-1);
-          this.logger.e(`💥 Emergency: dropped ${dropped} audio chunks, keeping only latest`);
+          this.logger.e(
+            `💥 Emergency: dropped ${dropped} audio chunks, keeping only latest`
+          );
           cleanupPerformed = true;
         }
 
@@ -1844,7 +1956,9 @@ export class EufyStreamSession {
     if (cleanupPerformed) {
       // Log post-cleanup state
       const postCleanupUsage = this.calculateBufferMemoryUsage();
-      const postCleanupTotalMB = Math.round(postCleanupUsage.totalSize / 1024 / 1024);
+      const postCleanupTotalMB = Math.round(
+        postCleanupUsage.totalSize / 1024 / 1024
+      );
       this.logger.d(
         `✅ ${level.toUpperCase()} cleanup completed for ${this.serialNumber}: ` +
           `${totalBufferMB}MB -> ${postCleanupTotalMB}MB ` +
@@ -1863,11 +1977,11 @@ export class EufyStreamSession {
 
   /**
    * Checks for immediate memory pressure and performs emergency cleanup if needed.
-   * This is a lighter-weight check that delegates to the centralized MemoryManager.
+   * This delegates to the centralized MemoryManager which will call back if needed.
    */
   private checkMemoryPressure(): void {
-    // Use the centralized memory manager for immediate checks
-    this.memoryManager.checkMemoryPressure();
+    // The centralized MemoryManager handles this automatically via callbacks
+    // No direct action needed - cleanup will be called via handleMemoryCleanup
   }
 
   /**
@@ -1962,7 +2076,11 @@ export class EufyStreamSession {
 
     // Search for 3-byte start code
     for (let i = startOffset; i <= buffer.length - 3; i++) {
-      if (buffer[i] === 0x00 && buffer[i + 1] === 0x00 && buffer[i + 2] === 0x01) {
+      if (
+        buffer[i] === 0x00 &&
+        buffer[i + 1] === 0x00 &&
+        buffer[i + 2] === 0x01
+      ) {
         return i;
       }
     }
@@ -1992,14 +2110,14 @@ export class EufyStreamSession {
   private processNALUnit(nalUnit: Buffer): void {
     // Validate minimum NAL unit size
     if (nalUnit.length < 4) {
-      this.logger.d('⚠️ Skipping undersized NAL unit');
+      this.logger.d("⚠️ Skipping undersized NAL unit");
       return;
     }
 
     // Extract NAL unit type from header
     const nalStart = this.getStartCodeOffset(nalUnit);
     if (nalStart < 0 || nalStart >= nalUnit.length) {
-      this.logger.d('⚠️ Invalid NAL start code, skipping unit');
+      this.logger.d("⚠️ Invalid NAL start code, skipping unit");
       return;
     }
 
@@ -2033,22 +2151,24 @@ export class EufyStreamSession {
   private updateStreamStateForNALType(nalType: number): void {
     switch (nalType) {
       case 7: // SPS - Sequence Parameter Set
-        this.logger.d('📋 SPS (Sequence Parameter Set) received');
+        this.logger.d("📋 SPS (Sequence Parameter Set) received");
         break;
       case 8: // PPS - Picture Parameter Set
-        this.logger.d('📋 PPS (Picture Parameter Set) received');
+        this.logger.d("📋 PPS (Picture Parameter Set) received");
         break;
       case 5: // IDR - Instantaneous Decoder Refresh (keyframe)
         this.waitingForKeyFrame = false;
-        this.logger.d('🔑 IDR keyframe received, stream ready for decoding');
+        this.logger.d("🔑 IDR keyframe received, stream ready for decoding");
         break;
       case 1: // Non-IDR slice
         if (!this.waitingForKeyFrame) {
-          this.logger.d('🎬 Non-IDR slice processed');
+          this.logger.d("🎬 Non-IDR slice processed");
         }
         break;
       default:
-        this.logger.d(`📦 NAL unit type ${nalType} (${this.getNALTypeName(nalType)}) received`);
+        this.logger.d(
+          `📦 NAL unit type ${nalType} (${this.getNALTypeName(nalType)}) received`
+        );
         break;
     }
   }
@@ -2065,7 +2185,7 @@ export class EufyStreamSession {
     // For video slices, only process after we have a keyframe
     if (nalType === 1) {
       if (this.waitingForKeyFrame) {
-        this.logger.d('⏭️ Skipping non-IDR slice, waiting for keyframe');
+        this.logger.d("⏭️ Skipping non-IDR slice, waiting for keyframe");
         return false;
       }
       return true;
@@ -2134,7 +2254,8 @@ export class EufyStreamSession {
           (chunkNalType === 7 && !keptSPS) || // Keep SPS if not already kept
           (chunkNalType === 8 && !keptPPS) || // Keep PPS if not already kept
           (chunkNalType === 5 &&
-            (!keptIDR || (!keptRecentIDR && i >= this.pendingVideoChunks.length - 10))); // Keep IDR, prioritizing recent ones
+            (!keptIDR ||
+              (!keptRecentIDR && i >= this.pendingVideoChunks.length - 10))); // Keep IDR, prioritizing recent ones
 
         if (shouldKeep) {
           chunksToKeep.unshift(chunk);
@@ -2199,7 +2320,8 @@ export class EufyStreamSession {
           (chunkNalType === 7 && !keptSPS) || // Keep SPS if not already kept
           (chunkNalType === 8 && !keptPPS) || // Keep PPS if not already kept
           (chunkNalType === 5 &&
-            (!keptIDR || (!keptRecentIDR && i >= this.pendingVideoChunks.length - 10))); // Keep IDR, prioritizing recent ones
+            (!keptIDR ||
+              (!keptRecentIDR && i >= this.pendingVideoChunks.length - 10))); // Keep IDR, prioritizing recent ones
 
         if (shouldKeep) {
           chunksToKeep.unshift(chunk);
@@ -2259,18 +2381,18 @@ export class EufyStreamSession {
    */
   private getNALTypeName(nalType: number): string {
     const nalTypeNames: { [key: number]: string } = {
-      1: 'Non-IDR slice', // Regular video frame
-      2: 'Data Partition A', // Data partitioning (legacy)
-      3: 'Data Partition B', // Data partitioning (legacy)
-      4: 'Data Partition C', // Data partitioning (legacy)
-      5: 'IDR slice (keyframe)', // Instantaneous Decoder Refresh
-      6: 'SEI', // Supplemental Enhancement Information
-      7: 'SPS', // Sequence Parameter Set
-      8: 'PPS', // Picture Parameter Set
-      9: 'Access Unit Delimiter', // Frame boundary marker
-      10: 'End of Sequence', // Sequence termination
-      11: 'End of Stream', // Stream termination
-      12: 'Filler Data', // Padding/alignment data
+      1: "Non-IDR slice", // Regular video frame
+      2: "Data Partition A", // Data partitioning (legacy)
+      3: "Data Partition B", // Data partitioning (legacy)
+      4: "Data Partition C", // Data partitioning (legacy)
+      5: "IDR slice (keyframe)", // Instantaneous Decoder Refresh
+      6: "SEI", // Supplemental Enhancement Information
+      7: "SPS", // Sequence Parameter Set
+      8: "PPS", // Picture Parameter Set
+      9: "Access Unit Delimiter", // Frame boundary marker
+      10: "End of Sequence", // Sequence termination
+      11: "End of Stream", // Stream termination
+      12: "Filler Data", // Padding/alignment data
     };
 
     return nalTypeNames[nalType] || `Unknown (${nalType})`;
@@ -2293,11 +2415,11 @@ export class EufyStreamSession {
       if (this.pendingVideoChunks.length === 0) {
         const keepalive = Buffer.from([0x00, 0x00, 0x00, 0x01, 0x09, 0x10]);
         writeToClient(keepalive);
-        this.logger.d('💓 Sent keepalive packet to client');
+        this.logger.d("💓 Sent keepalive packet to client");
       }
     }, 2000);
 
-    clientSocket.on('close', () => {
+    clientSocket.on("close", () => {
       clearInterval(keepaliveInterval);
     });
   }
@@ -2317,52 +2439,56 @@ export class EufyStreamSession {
     const ffmpegInput: FFmpegInput = {
       url: undefined,
       inputArguments: [
-        '-f',
-        'h264', // Input format: raw H.264 stream
-        '-analyzeduration',
-        '1000000', // Reduced analysis time for HKSV responsiveness
-        '-probesize',
-        '3000000', // Increased probe size to match target FFmpeg flags
-        '-fflags',
-        '+nobuffer+fastseek+flush_packets+discardcorrupt+genpts', // HKSV-optimized flags
-        '-flags',
-        'low_delay', // Minimize buffering delay
-        '-avioflags',
-        'direct', // Direct I/O access
-        '-max_delay',
-        '0', // No additional delay
-        '-thread_queue_size',
-        '512', // Increase thread queue for stability
-        '-i',
+        "-f",
+        "h264", // Input format: raw H.264 stream
+        "-analyzeduration",
+        "1000000", // Reduced analysis time for HKSV responsiveness
+        "-probesize",
+        "3000000", // Increased probe size to match target FFmpeg flags
+        "-fflags",
+        "+nobuffer+fastseek+flush_packets+discardcorrupt+genpts", // HKSV-optimized flags
+        "-flags",
+        "low_delay", // Minimize buffering delay
+        "-avioflags",
+        "direct", // Direct I/O access
+        "-max_delay",
+        "0", // No additional delay
+        "-thread_queue_size",
+        "512", // Increase thread queue for stability
+        "-i",
         `tcp://127.0.0.1:${this.serverPort}`, // TCP input source
       ],
       mediaStreamOptions: options?.video
         ? {
-            id: options.id || 'main',
-            name: options.name || 'Eufy Camera Stream',
+            id: options.id || "main",
+            name: options.name || "Eufy Camera Stream",
             container: options.container,
             video: {
-              codec: 'h264',
+              codec: "h264",
               ...options.video, // Use provided video options
             },
             audio: this.audioMetadata
               ? {
-                  codec: (this.audioMetadata as any)?.audioCodec?.toLowerCase() || 'aac',
+                  codec:
+                    (this.audioMetadata as any)?.audioCodec?.toLowerCase() ||
+                    "aac",
                   ...options.audio, // Use provided audio options
                 }
               : options.audio, // Use provided audio options or undefined
           }
         : {
-            id: 'main',
-            name: 'Eufy Camera Stream',
+            id: "main",
+            name: "Eufy Camera Stream",
             container: undefined,
             video: {
-              codec: 'h264',
+              codec: "h264",
               // Default dimensions if not provided - these will be auto-detected by FFmpeg
             },
             audio: this.audioMetadata
               ? {
-                  codec: (this.audioMetadata as any)?.audioCodec?.toLowerCase() || 'aac',
+                  codec:
+                    (this.audioMetadata as any)?.audioCodec?.toLowerCase() ||
+                    "aac",
                 }
               : undefined, // Include audio if metadata is available
           },
@@ -2386,8 +2512,14 @@ export class EufyStreamSession {
     audioAssemblyBufferSize: number;
     totalSize: number;
   } {
-    const videoBufferSize = this.pendingVideoChunks.reduce((size, chunk) => size + chunk.length, 0);
-    const audioBufferSize = this.pendingAudioChunks.reduce((size, chunk) => size + chunk.length, 0);
+    const videoBufferSize = this.pendingVideoChunks.reduce(
+      (size, chunk) => size + chunk.length,
+      0
+    );
+    const audioBufferSize = this.pendingAudioChunks.reduce(
+      (size, chunk) => size + chunk.length,
+      0
+    );
     const h264BufferSize = this.h264Buffer.length;
     const audioAssemblyBufferSize = this.audioBuffer.length;
 
@@ -2396,7 +2528,11 @@ export class EufyStreamSession {
       audioBufferSize,
       h264BufferSize,
       audioAssemblyBufferSize,
-      totalSize: videoBufferSize + audioBufferSize + h264BufferSize + audioAssemblyBufferSize,
+      totalSize:
+        videoBufferSize +
+        audioBufferSize +
+        h264BufferSize +
+        audioAssemblyBufferSize,
     };
   }
 
@@ -2407,7 +2543,12 @@ export class EufyStreamSession {
     for (const chunk of chunks) {
       if (chunk.length > 4) {
         // Check for 4-byte start code (0x00000001)
-        if (chunk[0] === 0x00 && chunk[1] === 0x00 && chunk[2] === 0x00 && chunk[3] === 0x01) {
+        if (
+          chunk[0] === 0x00 &&
+          chunk[1] === 0x00 &&
+          chunk[2] === 0x00 &&
+          chunk[3] === 0x01
+        ) {
           const nalUnitType = chunk[4] & 0x1f;
           if (nalUnitType === nalType) {
             return chunk.slice(4); // Return NAL unit without start code
