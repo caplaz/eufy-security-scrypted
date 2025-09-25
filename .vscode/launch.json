@@ -15,7 +15,7 @@
             ],
             "preLaunchTask": "scrypted: deploy+debug",
             "sourceMaps": true,
-            "localRoot": "${workspaceFolder}/out",
+            "localRoot": "${workspaceFolder}/packages/eufy-security-scrypted/out",
             "remoteRoot": "/plugin/",
             "type": "node"
         }
