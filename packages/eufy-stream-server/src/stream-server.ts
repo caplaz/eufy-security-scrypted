@@ -64,6 +64,11 @@ export class StreamServer extends EventEmitter {
   private startTime?: Date;
   private eventRemover?: () => boolean;
 
+  // Livestream state tracking
+  private livestreamIntendedState = false; // true = should be streaming
+  private livestreamActualState = false; // true = actually streaming based on events
+  private startStopTimeout?: NodeJS.Timeout;
+
   // Statistics
   private stats = {
     framesProcessed: 0,
@@ -112,16 +117,8 @@ export class StreamServer extends EventEmitter {
 
         // Start livestream when first client connects
         if (previousCount === 0) {
-          try {
-            this.logger.info("🎥 Starting livestream - first client connected");
-            await this.options.wsClient.commands
-              .device(this.options.serialNumber)
-              .startLivestream();
-            this.logger.info("✅ Livestream started successfully");
-          } catch (error) {
-            this.logger.error("❌ Failed to start livestream:", error);
-            this.emit("streamError", error);
-          }
+          this.livestreamIntendedState = true;
+          await this.ensureLivestreamState();
         }
       }
     );
@@ -135,16 +132,8 @@ export class StreamServer extends EventEmitter {
 
       // Stop livestream when last client disconnects
       if (previousCount === 1) {
-        try {
-          this.logger.info("🛑 Stopping livestream - last client disconnected");
-          await this.options.wsClient.commands
-            .device(this.options.serialNumber)
-            .stopLivestream();
-          this.logger.info("✅ Livestream stopped successfully");
-        } catch (error) {
-          this.logger.error("❌ Failed to stop livestream:", error);
-          this.emit("streamError", error);
-        }
+        this.livestreamIntendedState = false;
+        await this.ensureLivestreamState();
       }
     });
   }
@@ -164,6 +153,14 @@ export class StreamServer extends EventEmitter {
         // Filter events by device serial number
         if (event.serialNumber !== this.options.serialNumber) {
           return;
+        }
+
+        // Mark livestream as actually running when we receive data
+        if (!this.livestreamActualState) {
+          this.livestreamActualState = true;
+          this.logger.info(
+            "📹 Livestream confirmed active - receiving video data"
+          );
         }
 
         this.logger.debug(
@@ -187,6 +184,92 @@ export class StreamServer extends EventEmitter {
     this.logger.info(
       `WebSocket listener setup complete for device: ${this.options.serialNumber}`
     );
+  }
+
+  /**
+   * Ensure the livestream is in the correct state with retry logic
+   */
+  private async ensureLivestreamState(): Promise<void> {
+    // Clear any existing timeout
+    if (this.startStopTimeout) {
+      clearTimeout(this.startStopTimeout);
+      this.startStopTimeout = undefined;
+    }
+
+    const maxRetries = 3;
+    const retryDelay = 5000; // 5 seconds
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        if (this.livestreamIntendedState && !this.livestreamActualState) {
+          // Need to start livestream
+          this.logger.info(
+            `🎥 Attempting to start livestream (attempt ${attempt}/${maxRetries})`
+          );
+          await this.options.wsClient.commands
+            .device(this.options.serialNumber)
+            .startLivestream();
+          this.logger.info("✅ Livestream start command sent successfully");
+
+          // Set timeout to check if it actually started
+          this.startStopTimeout = setTimeout(() => {
+            if (this.livestreamIntendedState && !this.livestreamActualState) {
+              this.logger.warn(
+                "⚠️ Livestream start timeout - no video data received, will retry"
+              );
+              this.ensureLivestreamState();
+            }
+          }, 30000); // 30 seconds to receive first video data
+        } else if (
+          !this.livestreamIntendedState &&
+          this.livestreamActualState
+        ) {
+          // Need to stop livestream
+          this.logger.info(
+            `🛑 Attempting to stop livestream (attempt ${attempt}/${maxRetries})`
+          );
+          try {
+            await this.options.wsClient.commands
+              .device(this.options.serialNumber)
+              .stopLivestream();
+            this.logger.info("✅ Livestream stop command sent successfully");
+            this.livestreamActualState = false;
+          } catch (error: any) {
+            // Ignore LivestreamNotRunningError - it's not really an error
+            if (
+              error.message &&
+              error.message.includes("LivestreamNotRunningError")
+            ) {
+              this.logger.debug(
+                "Livestream was already stopped (not an error)"
+              );
+              this.livestreamActualState = false;
+            } else {
+              throw error;
+            }
+          }
+        }
+
+        // Success - break out of retry loop
+        break;
+      } catch (error: any) {
+        this.logger.warn(
+          `❌ Livestream command failed (attempt ${attempt}/${maxRetries}):`,
+          error.message || error
+        );
+
+        if (attempt === maxRetries) {
+          this.logger.error(
+            `❌ Failed to set livestream state after ${maxRetries} attempts`
+          );
+          this.emit("streamError", error);
+        } else {
+          // Wait before retrying
+          this.logger.info(`⏳ Retrying in ${retryDelay / 1000} seconds...`);
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+        }
+      }
+    }
   }
 
   /**
@@ -230,24 +313,17 @@ export class StreamServer extends EventEmitter {
       return;
     }
 
+    // Clear any pending timeouts
+    if (this.startStopTimeout) {
+      clearTimeout(this.startStopTimeout);
+      this.startStopTimeout = undefined;
+    }
+
     // Stop livestream if there are active clients
     const activeClients = this.connectionManager.getActiveConnectionCount();
     if (activeClients > 0) {
-      try {
-        this.logger.info(
-          `🛑 Stopping livestream - server shutting down (${activeClients} clients)`
-        );
-        await this.options.wsClient.commands
-          .device(this.options.serialNumber)
-          .stopLivestream();
-        this.logger.info("✅ Livestream stopped successfully");
-      } catch (error) {
-        this.logger.error(
-          "❌ Failed to stop livestream during shutdown:",
-          error
-        );
-        // Don't emit error here since we're shutting down
-      }
+      this.livestreamIntendedState = false;
+      await this.ensureLivestreamState();
     }
 
     // Clean up WebSocket event listener
