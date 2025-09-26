@@ -427,113 +427,144 @@ export class EufySecurityProvider
       return;
     }
 
-    if (value !== undefined && value !== null) {
-      this.storage.setItem(key, value.toString());
-      if (key === "wsUrl") {
-        try {
-          // Reconnect with new URL
-          this.wsClient.disconnect();
-          this.wsClient = new EufyWebSocketClient(
-            value.toString(),
-            this.wsLogger
-          );
-          await this.startConnection();
-        } catch (error) {
-          this.logger.e("Failed to connect with new WebSocket URL:", error);
-        }
-      } else if (key === "debugLogging") {
-        this.debugLogging = value === true || value === "true";
-        // Update global debug setting immediately
-        setDebugEnabled(this.debugLogging);
-        // Update WebSocket logger level
-        this.wsLogger.settings.minLevel = this.debugLogging ? 0 : 3;
-        this.logger.i(
-          `Debug logging ${this.debugLogging ? "enabled" : "disabled"}`
-        );
-      } else if (key === "memoryThresholdMB") {
-        const memMB = Math.max(50, parseInt(value as string) || 120);
-        this.storage.setItem("memoryThresholdMB", memMB.toString());
-        // Update the MemoryManager singleton directly
-        MemoryManager.setMemoryThreshold(memMB, this.logger);
-        this.logger.i(`Memory threshold updated to ${memMB}MB system-wide`);
-      }
-      // Other button handlers for captcha
-      else if (key === "captchaInput") {
-        // Store the captcha input for later submission
-        this.storage.setItem("pendingCaptcha", value as string);
-        this.logger.d("Captcha input stored");
-      } else if (key === "submitCaptcha") {
-        const captchaCode = this.storage.getItem("pendingCaptcha");
-        const captchaId = this.storage.getItem("currentCaptchaId");
-
-        if (!captchaCode || !captchaId) {
-          this.logger.w("⚠️ No captcha code or captcha ID available");
-          throw new Error(
-            "Please enter a captcha code first, or no captcha was requested"
-          );
-        }
-
-        this.logger.i("📝 Submitting captcha code...");
-        try {
-          await this.wsClient.commands.driver().setCaptcha({
-            captchaId,
-            captcha: captchaCode,
-          });
-          this.logger.i("✅ Captcha submitted successfully");
-          // Clear stored captcha data
-          this.storage.removeItem("pendingCaptcha");
-          this.storage.removeItem("currentCaptchaId");
-          this.storage.removeItem("currentCaptchaImage");
-
-          // Refresh the settings UI to remove captcha display
-          this.onDeviceEvent(ScryptedInterface.Settings, undefined);
-        } catch (error) {
-          this.logger.e("❌ Failed to submit captcha:", error);
-
-          // Refresh the settings UI even on error
-          this.onDeviceEvent(ScryptedInterface.Settings, undefined);
-          throw error;
-        }
-      } else if (key === "verifyCodeInput") {
-        // Store the verification code input for later submission
-        this.storage.setItem("pendingVerifyCode", value as string);
-        this.logger.d("2FA verification code input stored");
-      } else if (key === "submitVerifyCode") {
-        const verifyCode = this.storage.getItem("pendingVerifyCode");
-
-        if (!verifyCode) {
-          this.logger.w("⚠️ No verification code available");
-          throw new Error("Please enter a 2FA verification code first");
-        }
-
-        this.logger.i("🔐 Submitting 2FA verification code...");
-        try {
-          const captchaId = this.storage.getItem("currentCaptchaId");
-          if (!captchaId) {
-            throw new Error(
-              "No captcha ID available - captcha may be required first"
-            );
-          }
-
-          await this.wsClient.commands.driver().setVerifyCode({
-            captchaId,
-            verifyCode,
-          });
-          this.logger.i("✅ 2FA verification code submitted successfully");
-          // Clear stored verification code
-          this.storage.removeItem("pendingVerifyCode");
-
-          // Refresh the settings UI
-          this.onDeviceEvent(ScryptedInterface.Settings, undefined);
-        } catch (error) {
-          this.logger.e("❌ Failed to submit 2FA verification code:", error);
-
-          // Refresh the settings UI even on error
-          this.onDeviceEvent(ScryptedInterface.Settings, undefined);
-          throw error;
-        }
-      }
+    // Handle regular settings (require non-null values)
+    if (value === undefined || value === null) {
+      this.logger.w(
+        `⚠️ Ignoring setting update for ${key}: value is null/undefined`
+      );
+      return;
     }
+
+    // Store the setting value
+    this.storage.setItem(key, value.toString());
+
+    if (key === "wsUrl") {
+      try {
+        // Reconnect with new URL
+        this.wsClient.disconnect();
+        this.wsClient = new EufyWebSocketClient(
+          value.toString(),
+          this.wsLogger
+        );
+        await this.startConnection();
+        this.logger.i("✅ Reconnected with new WebSocket URL");
+      } catch (error) {
+        this.logger.e("❌ Failed to connect with new WebSocket URL:", error);
+        throw error;
+      }
+    } else if (key === "debugLogging") {
+      // Handle boolean conversion more robustly
+      const newDebugValue =
+        value === true || value === "true" || value === 1 || value === "1";
+      this.debugLogging = newDebugValue;
+
+      // Update global debug setting immediately
+      setDebugEnabled(this.debugLogging);
+
+      // Update WebSocket logger level
+      this.wsLogger.settings.minLevel = this.debugLogging ? 0 : 3;
+
+      // Update the stored value
+      this.storage.setItem("debugLogging", this.debugLogging.toString());
+
+      this.logger.i(
+        `✅ Debug logging ${this.debugLogging ? "enabled" : "disabled"} (immediate)`
+      );
+
+      // Refresh the settings UI to reflect the immediate change
+      this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+    } else if (key === "memoryThresholdMB") {
+      const memMB = Math.max(50, parseInt(value as string) || 120);
+      this.storage.setItem("memoryThresholdMB", memMB.toString());
+      // Update the MemoryManager singleton directly
+      MemoryManager.setMemoryThreshold(memMB, this.logger);
+      this.logger.i(`✅ Memory threshold updated to ${memMB}MB system-wide`);
+
+      // Refresh the settings UI to indicate successful save
+      this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+    }
+    // Handle captcha and 2FA inputs
+    else if (key === "captchaInput") {
+      // Store the captcha input for later submission
+      this.storage.setItem("pendingCaptcha", value as string);
+      this.logger.d("✅ Captcha input stored");
+    } else if (key === "submitCaptcha") {
+      const captchaCode = this.storage.getItem("pendingCaptcha");
+      const captchaId = this.storage.getItem("currentCaptchaId");
+
+      if (!captchaCode || !captchaId) {
+        this.logger.w("⚠️ No captcha code or captcha ID available");
+        throw new Error(
+          "Please enter a captcha code first, or no captcha was requested"
+        );
+      }
+
+      this.logger.i("📝 Submitting captcha code...");
+      try {
+        await this.wsClient.commands.driver().setCaptcha({
+          captchaId,
+          captcha: captchaCode,
+        });
+        this.logger.i("✅ Captcha submitted successfully");
+        // Clear stored captcha data
+        this.storage.removeItem("pendingCaptcha");
+        this.storage.removeItem("currentCaptchaId");
+        this.storage.removeItem("currentCaptchaImage");
+
+        // Refresh the settings UI to remove captcha display
+        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+      } catch (error) {
+        this.logger.e("❌ Failed to submit captcha:", error);
+
+        // Refresh the settings UI even on error
+        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+        throw error;
+      }
+    } else if (key === "verifyCodeInput") {
+      // Store the verification code input for later submission
+      this.storage.setItem("pendingVerifyCode", value as string);
+      this.logger.d("✅ 2FA verification code input stored");
+    } else if (key === "submitVerifyCode") {
+      const verifyCode = this.storage.getItem("pendingVerifyCode");
+
+      if (!verifyCode) {
+        this.logger.w("⚠️ No verification code available");
+        throw new Error("Please enter a 2FA verification code first");
+      }
+
+      this.logger.i("🔐 Submitting 2FA verification code...");
+      try {
+        const captchaId = this.storage.getItem("currentCaptchaId");
+        if (!captchaId) {
+          throw new Error(
+            "No captcha ID available - captcha may be required first"
+          );
+        }
+
+        await this.wsClient.commands.driver().setVerifyCode({
+          captchaId,
+          verifyCode,
+        });
+        this.logger.i("✅ 2FA verification code submitted successfully");
+        // Clear stored verification code
+        this.storage.removeItem("pendingVerifyCode");
+
+        // Refresh the settings UI
+        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+      } catch (error) {
+        this.logger.e("❌ Failed to submit 2FA verification code:", error);
+
+        // Refresh the settings UI even on error
+        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+        throw error;
+      }
+    } else {
+      // Unknown setting key - this is not necessarily an error
+      this.logger.d(`ℹ️ Setting updated: ${key} = ${value}`);
+    }
+
+    // Successfully saved setting
+    this.logger.i(`✅ Setting "${key}" saved successfully`);
   }
 
   /**
