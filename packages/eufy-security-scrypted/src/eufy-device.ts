@@ -31,6 +31,7 @@ import {
   Brightness,
   ChargeState,
   Charger,
+  FFmpegInput,
   MediaObject,
   MotionSensor,
   OnOff,
@@ -71,6 +72,7 @@ import {
 import { DebugLogger, createDebugLogger } from "./utils/debug-logger";
 import { DeviceUtils } from "./utils/device-utils";
 import { StreamServer } from "eufy-stream-server";
+import sdk from "@scrypted/sdk";
 
 /**
  * EufyDevice - TCP server implementation for VideoCamera
@@ -443,7 +445,7 @@ export class EufyDevice
       throw new Error("Failed to get stream server port");
     }
     this.logger.i(`Stream server is listening on port ${port}`);
-    return this.createMediaObject(`tcp://localhost:${port}`, "video/h264");
+    return this.createOptimizedMediaObject(port, options);
   }
 
   // =================== REFRESH INTERFACE ===================
@@ -503,6 +505,63 @@ export class EufyDevice
   }
 
   // =================== UTILITY METHODS ===================
+
+  /**
+   * Creates an optimized MediaObject for FFmpeg streaming with low-latency H.264 configuration.
+   * Based on the createMediaObjectFromTcpServer pattern but adapted for video-only streaming.
+   */
+  private async createOptimizedMediaObject(
+    port: number,
+    options?: RequestMediaStreamOptions
+  ): Promise<MediaObject> {
+    // Get video dimensions for proper configuration
+    const { width, height } = this.getVideoDimensions();
+
+    // FFmpeg configuration optimized for low-latency H.264 streaming
+    const ffmpegInput: FFmpegInput = {
+      url: undefined,
+      inputArguments: [
+        "-f",
+        "h264", // Input format: raw H.264 stream
+        "-analyzeduration",
+        "1000000", // Reduced analysis time for responsiveness
+        "-probesize",
+        "3000000", // Increased probe size for stability
+        "-fflags",
+        "+nobuffer+fastseek+flush_packets+discardcorrupt+genpts", // Low-latency flags
+        "-flags",
+        "low_delay", // Minimize buffering delay
+        "-avioflags",
+        "direct", // Direct I/O access
+        "-max_delay",
+        "0", // No additional delay
+        "-thread_queue_size",
+        "512", // Increase thread queue for stability
+        "-hwaccel",
+        "auto", // Enable hardware acceleration if available
+        "-err_detect",
+        "ignore_err", // Be more tolerant of H.264 parsing errors
+        "-i",
+        `tcp://127.0.0.1:${port}`, // TCP input source
+      ],
+      mediaStreamOptions: {
+        id: options?.id || "main",
+        name: options?.name || "Eufy Camera Stream",
+        container: options?.container,
+        video: {
+          codec: "h264",
+          width,
+          height,
+          ...options?.video, // Use provided video options
+        },
+        // Audio support can be added later when needed
+      },
+    };
+
+    return sdk.mediaManager.createFFmpegMediaObject(ffmpegInput, {
+      sourceId: this.serialNumber,
+    });
+  }
 
   /**
    * Creates a new stream server.
