@@ -509,6 +509,7 @@ export class EufyDevice
   /**
    * Creates an optimized MediaObject for FFmpeg streaming with low-latency H.264 configuration.
    * Based on the createMediaObjectFromTcpServer pattern but adapted for video-only streaming.
+   * Includes robust handling for different camera models and battery-powered devices.
    */
   private async createOptimizedMediaObject(
     port: number,
@@ -517,16 +518,16 @@ export class EufyDevice
     // Get video dimensions for proper configuration
     const { width, height } = this.getVideoDimensions();
 
-    // FFmpeg configuration optimized for low-latency H.264 streaming
+    // FFmpeg configuration optimized for low-latency H.264 streaming with balanced error handling
     const ffmpegInput: FFmpegInput = {
       url: undefined,
       inputArguments: [
         "-f",
         "h264", // Input format: raw H.264 stream
         "-analyzeduration",
-        "1000000", // Reduced analysis time for responsiveness
+        "1500000", // Balanced analysis time (1.5M) for both camera types
         "-probesize",
-        "3000000", // Increased probe size for stability
+        "4000000", // Balanced probe size (4M) for codec detection
         "-fflags",
         "+nobuffer+fastseek+flush_packets+discardcorrupt+genpts", // Low-latency flags
         "-flags",
@@ -536,11 +537,11 @@ export class EufyDevice
         "-max_delay",
         "0", // No additional delay
         "-thread_queue_size",
-        "512", // Increase thread queue for stability
+        "768", // Balanced thread queue size
         "-hwaccel",
         "auto", // Enable hardware acceleration if available
         "-err_detect",
-        "ignore_err", // Be more tolerant of H.264 parsing errors
+        "ignore_err+crccheck", // Selective error tolerance for battery cameras
         "-i",
         `tcp://127.0.0.1:${port}`, // TCP input source
       ],
