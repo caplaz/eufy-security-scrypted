@@ -28,10 +28,4 @@ export { H264Parser } from "./h264-parser";
 
 export type { StreamServerOptions } from "./stream-server";
 
-export type {
-  VideoMetadata,
-  StreamData,
-  ConnectionInfo,
-  ServerStats,
-  NALUnit,
-} from "./types";
+export type { StreamData, ConnectionInfo, ServerStats, NALUnit } from "./types";

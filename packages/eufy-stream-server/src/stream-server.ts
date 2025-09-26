@@ -12,8 +12,12 @@ import { EventEmitter } from "events";
 import { Logger, ILogObj } from "tslog";
 import { ConnectionManager } from "./connection-manager";
 import { H264Parser } from "./h264-parser";
-import { ServerStats, StreamData, VideoMetadata } from "./types";
-import { EufyWebSocketClient, DEVICE_EVENTS } from "eufy-security-client";
+import { ServerStats, StreamData } from "./types";
+import {
+  EufyWebSocketClient,
+  DEVICE_EVENTS,
+  VideoMetadata,
+} from "eufy-security-client";
 
 /**
  * Configuration options for the TCP stream server
@@ -68,6 +72,10 @@ export class StreamServer extends EventEmitter {
   private livestreamIntendedState = false;
   private livestreamActualState = false;
   private startStopTimeout?: ReturnType<typeof setTimeout>;
+
+  // Video metadata from first frame
+  private videoMetadata: VideoMetadata | null = null;
+  private metadataReceived = false;
 
   // Client activity monitoring for battery optimization
   private lastClientActivity = 0;
@@ -234,6 +242,33 @@ export class StreamServer extends EventEmitter {
         // Filter events by device serial number
         if (event.serialNumber !== this.options.serialNumber) {
           return;
+        }
+
+        // Log that we received a video data event (first few only to avoid spam)
+        if (this.stats.framesProcessed < 3) {
+          this.logger.debug(
+            `Received video data event for ${event.serialNumber}: ${event.buffer.data.length} bytes, metadata present: ${!!event.metadata}`
+          );
+          if (event.metadata) {
+            this.logger.debug(
+              `Video metadata: codec=${event.metadata.videoCodec}, ${event.metadata.videoWidth}x${event.metadata.videoHeight} @ ${event.metadata.videoFPS}fps`
+            );
+          }
+        }
+
+        // Capture video metadata from first frame
+        if (!this.metadataReceived && event.metadata) {
+          this.videoMetadata = {
+            videoCodec: event.metadata.videoCodec,
+            videoFPS: event.metadata.videoFPS,
+            videoWidth: event.metadata.videoWidth,
+            videoHeight: event.metadata.videoHeight,
+          };
+          this.metadataReceived = true;
+          this.logger.info(
+            `📐 Captured video metadata: ${this.videoMetadata.videoWidth}x${this.videoMetadata.videoHeight} @ ${this.videoMetadata.videoFPS}fps, codec: ${this.videoMetadata.videoCodec}`
+          );
+          this.emit("metadataReceived", this.videoMetadata);
         }
 
         // Mark livestream as actually running when we receive data
@@ -534,10 +569,43 @@ export class StreamServer extends EventEmitter {
   }
 
   /**
-   * Extract video metadata from H.264 stream
+   * Get video metadata from the first received frame
    */
-  extractVideoMetadata(data: Buffer): VideoMetadata | null {
-    return this.h264Parser.extractVideoMetadata(data);
+  getVideoMetadata(): VideoMetadata | null {
+    return this.videoMetadata;
+  }
+
+  /**
+   * Wait for video metadata to be received
+   */
+  async waitForVideoMetadata(
+    timeoutMs: number = 10000
+  ): Promise<VideoMetadata> {
+    if (this.videoMetadata) {
+      this.logger.debug("Video metadata already available");
+      return this.videoMetadata;
+    }
+
+    this.logger.debug(
+      `Waiting for video metadata (timeout: ${timeoutMs}ms)...`
+    );
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.logger.warn(
+          `Timeout waiting for video metadata (${timeoutMs}ms). Livestream state: ${this.livestreamActualState}, intended: ${this.livestreamIntendedState}`
+        );
+        reject(
+          new Error(`Timeout waiting for video metadata (${timeoutMs}ms)`)
+        );
+      }, timeoutMs);
+
+      this.once("metadataReceived", (metadata) => {
+        clearTimeout(timeout);
+        this.logger.debug("Video metadata received successfully");
+        resolve(metadata);
+      });
+    });
   }
 
   /**

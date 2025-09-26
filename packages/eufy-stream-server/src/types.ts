@@ -3,24 +3,6 @@
  */
 
 /**
- * Video metadata extracted from H.264 stream
- */
-export interface VideoMetadata {
-  /** Video frame width in pixels */
-  width?: number;
-  /** Video frame height in pixels */
-  height?: number;
-  /** Video frame rate in frames per second */
-  frameRate?: number;
-  /** Video bitrate in bits per second */
-  bitrate?: number;
-  /** Video codec profile */
-  profile?: string;
-  /** Video codec level */
-  level?: string;
-}
-
-/**
  * Stream data packet containing video data
  */
 export interface StreamData {

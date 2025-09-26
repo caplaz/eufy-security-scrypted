@@ -88,34 +88,6 @@ describe("H264Parser", () => {
     });
   });
 
-  describe("extractVideoMetadata", () => {
-    it("should extract basic metadata from SPS", () => {
-      const h264Data = createTestH264Data();
-      const metadata = parser.extractVideoMetadata(h264Data);
-
-      expect(metadata).not.toBeNull();
-      expect(metadata?.profile).toBeDefined();
-      expect(metadata?.level).toBeDefined();
-    });
-
-    it("should return null for data without SPS", () => {
-      // Create data without SPS NAL unit
-      const dataWithoutSPS = Buffer.from([
-        0x00,
-        0x00,
-        0x00,
-        0x01, // Start code
-        0x61,
-        0x88,
-        0x84,
-        0x00, // P-frame NAL
-      ]);
-
-      const metadata = parser.extractVideoMetadata(dataWithoutSPS);
-      expect(metadata).toBeNull();
-    });
-  });
-
   describe("getNALTypeName", () => {
     it("should return correct NAL type names", () => {
       expect(parser.getNALTypeName(1)).toBe("P-slice");

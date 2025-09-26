@@ -69,6 +69,8 @@ import {
   VideoQuality,
 } from "eufy-security-client";
 
+import { VideoMetadata } from "eufy-security-client";
+
 import { DebugLogger, createDebugLogger } from "./utils/debug-logger";
 import { DeviceUtils } from "./utils/device-utils";
 import { StreamServer } from "eufy-stream-server";
@@ -445,6 +447,12 @@ export class EufyDevice
       throw new Error("Failed to get stream server port");
     }
     this.logger.i(`Stream server is listening on port ${port}`);
+
+    // For now, create MediaObject with fallback dimensions
+    // The actual metadata will be used when the stream starts
+    this.logger.i(
+      "Creating MediaObject with fallback dimensions (metadata will be updated when stream starts)"
+    );
     return this.createOptimizedMediaObject(port, options);
   }
 
@@ -515,7 +523,7 @@ export class EufyDevice
     port: number,
     options?: RequestMediaStreamOptions
   ): Promise<MediaObject> {
-    // Get video dimensions for proper configuration
+    // Use quality-based dimensions as fallback (metadata will be available when stream actually starts)
     const { width, height } = this.getVideoDimensions();
 
     // FFmpeg configuration optimized for low-latency H.264 streaming with balanced error handling
@@ -523,19 +531,21 @@ export class EufyDevice
       url: undefined,
       inputArguments: [
         "-f",
-        "h264", // Input format: raw H.264 stream
+        "h264", // Default to h264, will be updated when metadata is available
+        "-framerate",
+        "25", // Default framerate, will be updated when metadata is available
         "-analyzeduration",
-        "1500000", // Balanced analysis time (1.5M) for both camera types
+        "5000000", // Increased analysis time (5M) to find SPS/PPS for front camera
         "-probesize",
-        "4000000", // Balanced probe size (4M) for codec detection
+        "5000000", // Increased probe size (5M) to find SPS/PPS for front camera
         "-fflags",
-        "+nobuffer+fastseek+flush_packets+discardcorrupt+genpts", // Low-latency flags
+        "+nobuffer+fastseek+flush_packets+discardcorrupt+igndts+genpts", // Low-latency flags + ignore timestamps
         "-flags",
         "low_delay", // Minimize buffering delay
         "-avioflags",
         "direct", // Direct I/O access
         "-max_delay",
-        "0", // No additional delay
+        "1000", // Allow more delay for stream analysis
         "-thread_queue_size",
         "768", // Balanced thread queue size
         "-hwaccel",

@@ -3,7 +3,7 @@
  */
 
 import { Logger, ILogObj } from "tslog";
-import { NALUnit, VideoMetadata } from "./types";
+import { NALUnit } from "./types";
 
 /**
  * Simple H.264 parser for extracting NAL units and basic metadata
@@ -112,38 +112,6 @@ export class H264Parser {
   isKeyFrame(data: Buffer): boolean {
     const nalUnits = this.extractNALUnits(data);
     return nalUnits.some((nal) => nal.isKeyFrame);
-  }
-
-  /**
-   * Extract basic video metadata from SPS NAL unit (simplified)
-   */
-  extractVideoMetadata(data: Buffer): VideoMetadata | null {
-    const nalUnits = this.extractNALUnits(data);
-    const spsNal = nalUnits.find((nal) => nal.type === 7); // SPS
-
-    if (!spsNal) {
-      return null;
-    }
-
-    try {
-      // Very basic SPS parsing - in production you'd want more robust parsing
-      const spsData = spsNal.data;
-      if (spsData.length < 4) {
-        return null;
-      }
-
-      // Extract profile and level (simplified)
-      const profile = spsData[1];
-      const level = spsData[3];
-
-      return {
-        profile: `0x${profile.toString(16).padStart(2, "0")}`,
-        level: `0x${level.toString(16).padStart(2, "0")}`,
-      };
-    } catch (error) {
-      this.logger.error("Failed to extract video metadata:", error);
-      return null;
-    }
   }
 
   /**
