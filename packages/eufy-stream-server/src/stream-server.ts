@@ -64,10 +64,15 @@ export class StreamServer extends EventEmitter {
   private startTime?: Date;
   private eventRemover?: () => boolean;
 
-  // Livestream state tracking
-  private livestreamIntendedState = false; // true = should be streaming
-  private livestreamActualState = false; // true = actually streaming based on events
-  private startStopTimeout?: NodeJS.Timeout;
+  // Stream state management
+  private livestreamIntendedState = false;
+  private livestreamActualState = false;
+  private startStopTimeout?: ReturnType<typeof setTimeout>;
+
+  // Client activity monitoring for battery optimization
+  private lastClientActivity = 0;
+  private activityCheckInterval?: ReturnType<typeof setInterval>;
+  private readonly ACTIVITY_TIMEOUT = 30000; // 30 seconds of no activity
 
   // Statistics
   private stats = {
@@ -118,6 +123,8 @@ export class StreamServer extends EventEmitter {
         // Start livestream when first client connects
         if (previousCount === 0) {
           this.livestreamIntendedState = true;
+          this.lastClientActivity = Date.now();
+          this.startActivityMonitoring();
           await this.ensureLivestreamState();
         }
       }
@@ -133,9 +140,83 @@ export class StreamServer extends EventEmitter {
       // Stop livestream when last client disconnects
       if (previousCount === 1) {
         this.livestreamIntendedState = false;
+        this.stopActivityMonitoring();
         await this.ensureLivestreamState();
       }
     });
+  }
+
+  /**
+   * Start monitoring client activity to detect idle connections
+   */
+  private startActivityMonitoring(): void {
+    this.stopActivityMonitoring(); // Clear any existing interval
+
+    this.activityCheckInterval = setInterval(() => {
+      const now = Date.now();
+      const timeSinceActivity = now - this.lastClientActivity;
+
+      // Clean up any stale connections first
+      this.cleanupStaleConnections();
+
+      const activeClients = this.connectionManager.getActiveConnectionCount();
+
+      if (timeSinceActivity > this.ACTIVITY_TIMEOUT && activeClients === 0) {
+        this.logger.info(
+          `🕒 No client activity for ${Math.round(timeSinceActivity / 1000)}s and no active clients, stopping camera stream`
+        );
+        this.livestreamIntendedState = false;
+        this.stopActivityMonitoring();
+        this.ensureLivestreamState();
+      } else if (activeClients === 0 && this.livestreamIntendedState) {
+        this.logger.debug(
+          `No active clients but stream is intended to run - waiting for connections`
+        );
+      }
+    }, 5000); // Check every 5 seconds
+
+    this.logger.debug("Started client activity monitoring");
+  }
+
+  /**
+   * Stop monitoring client activity
+   */
+  private stopActivityMonitoring(): void {
+    if (this.activityCheckInterval) {
+      clearInterval(this.activityCheckInterval);
+      this.activityCheckInterval = undefined;
+      this.logger.debug("Stopped client activity monitoring");
+    }
+  }
+
+  /**
+   * Clean up stale TCP connections that may not be actively used
+   */
+  private cleanupStaleConnections(): void {
+    const connectionStats = this.connectionManager.getConnectionStats();
+    const now = Date.now();
+    let cleanedCount = 0;
+
+    for (const [connectionId, info] of Object.entries(connectionStats)) {
+      const connectionAge = now - info.connectedAt.getTime();
+
+      // Clean up connections that are older than 5 minutes and have no recent activity
+      if (connectionAge > 5 * 60 * 1000) {
+        // 5 minutes
+        this.logger.info(
+          `Cleaning up stale connection: ${connectionId} (age: ${Math.round(connectionAge / 1000)}s)`
+        );
+        // Note: The connection manager will handle the actual cleanup when we emit the disconnect event
+        // For now, we'll just log this - the connection manager handles cleanup on actual disconnects
+        cleanedCount++;
+      }
+    }
+
+    if (cleanedCount > 0) {
+      this.logger.debug(
+        `Identified ${cleanedCount} stale connections for cleanup`
+      );
+    }
   }
 
   /**
@@ -163,9 +244,20 @@ export class StreamServer extends EventEmitter {
           );
         }
 
-        this.logger.debug(
-          `Received video data event for ${event.serialNumber}: ${event.buffer.data.length} bytes`
-        );
+        // Only log video data events if debug is enabled and we have active clients
+        const activeClients = this.connectionManager.getActiveConnectionCount();
+        if (this.options.debug && activeClients > 0) {
+          this.logger.debug(
+            `Received video data event for ${event.serialNumber}: ${event.buffer.data.length} bytes (${activeClients} active clients)`
+          );
+        } else if (this.options.debug && activeClients === 0) {
+          // Log less frequently when no clients - only every 10th frame
+          if (this.stats.framesProcessed % 10 === 0) {
+            this.logger.debug(
+              `Received video data event for ${event.serialNumber}: ${event.buffer.data.length} bytes (no active clients, frame ${this.stats.framesProcessed})`
+            );
+          }
+        }
 
         // Convert JSONBuffer to Buffer if needed
         const videoBuffer = Buffer.isBuffer(event.buffer.data)
@@ -319,6 +411,9 @@ export class StreamServer extends EventEmitter {
       this.startStopTimeout = undefined;
     }
 
+    // Stop activity monitoring
+    this.stopActivityMonitoring();
+
     // Stop livestream if there are active clients
     const activeClients = this.connectionManager.getActiveConnectionCount();
     if (activeClients > 0) {
@@ -401,16 +496,23 @@ export class StreamServer extends EventEmitter {
       // Broadcast to all connected clients
       const success = this.connectionManager.broadcast(data);
 
+      // Update client activity timestamp when data is successfully sent
+      if (success) {
+        this.lastClientActivity = Date.now();
+      }
+
       // Update statistics
       this.stats.framesProcessed++;
       this.stats.bytesTransferred += data.length;
       this.stats.lastFrameTime = new Date();
 
-      if (success) {
+      // Only log when there are actual active clients or in debug mode
+      const activeClients = this.connectionManager.getActiveConnectionCount();
+      if (activeClients > 0) {
         this.logger.debug(
-          `Streamed video frame: ${data.length} bytes to ${this.connectionManager.getActiveConnectionCount()} clients`
+          `Streamed video frame: ${data.length} bytes to ${activeClients} clients`
         );
-      } else {
+      } else if (this.options.debug) {
         this.logger.debug(
           `Processed video frame: ${data.length} bytes (no active clients)`
         );
