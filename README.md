@@ -6,12 +6,11 @@ A comprehensive Scrypted plugin for Eufy Security cameras with streaming support
 
 ### September 2025 Updates
 
+- ✅ **Versioning Update**: Changed from independent to fixed versioning (v0.1.0) for all packages
 - ✅ **Added eufy-stream-server package**: New simplified TCP streaming server for raw H.264 video streams
 - ✅ **Comprehensive testing**: All packages now have extensive test coverage (206 total tests)
 - ✅ **Clean repository**: Removed test artifacts and updated .gitignore for better development experience
 - ✅ **Lerna monorepo integration**: All packages properly integrated with shared build and test workflows
-
-## 🚀 Developmentining Scrypted plugins and libraries for Eufy Security integration.
 
 ## 📦 Packages
 
@@ -41,16 +40,7 @@ Simplified TCP streaming server for raw H.264 video streams from Eufy cameras. F
 - Comprehensive test suite (22 tests)
 - Event-driven architecture with TypeScript support
 
-## � Recent Progress
-
-### September 2025 Updates
-
-- ✅ **Added eufy-stream-server package**: New simplified TCP streaming server for raw H.264 video streams
-- ✅ **Comprehensive testing**: All packages now have extensive test coverage (206 total tests)
-- ✅ **Clean repository**: Removed test artifacts and updated .gitignore for better development experience
-- ✅ **Lerna monorepo integration**: All packages properly integrated with shared build and test workflows
-
-## �🚀 Development
+## 🚀 Development
 
 ### Prerequisites
 
@@ -129,15 +119,15 @@ This repository uses GitHub Actions for automated testing and releases:
 
 ### Publishing
 
-To release new versions:
+To release new versions (all packages share the same version):
 
 ```bash
-# Create and push a version tag
-git tag v1.0.0
-git push origin v1.0.0
+# Create and push a version tag (all packages will be published with this version)
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
-The release workflow will automatically publish all packages to npm.
+The release workflow will automatically publish all packages to npm with the same version number.
 
 ## 📋 Scripts
 

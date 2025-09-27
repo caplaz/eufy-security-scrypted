@@ -5,6 +5,13 @@ All notable changes to the Eufy Camera CLI will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.0] - 2025-09-27
+
+### Changed
+
+- **Versioning**: Changed from independent to fixed versioning to align with monorepo versioning scheme
+- **Package Version**: Updated from 1.0.0 to 0.1.0 to reflect initial development phase
+
 ## [1.0.0] - 2024-12-19
 
 ### Added
