@@ -31,6 +31,14 @@ export interface ParsedArgs {
   command?: string;
   /** Subcommand for hierarchical commands (status, connect for driver command) */
   subcommand?: string;
+  /** Captcha code for 2FA verification */
+  captcha?: string;
+  /** Captcha ID for 2FA verification */
+  captchaId?: string;
+  /** Verification code for 2FA */
+  verifyCode?: string;
+  /** Captcha ID for verification code (same as captchaId) */
+  verifyCodeId?: string;
 }
 
 /**

@@ -22,3 +22,6 @@ jest-results.xml
 **/jest-results.xml
 coverage/
 **/coverage/
+
+# Docker persistent data
+docker/data/persistent.json

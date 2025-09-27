@@ -318,14 +318,53 @@ export class EufySecurityClient extends EventEmitter {
   }
 
   /**
-   * Add event listener (inherited from EventEmitter)
+   * Get pending CAPTCHA information
+   *
+   * Returns CAPTCHA information from the last CAPTCHA request event.
+   * This is used by the CLI to display CAPTCHA information to the user.
+   *
+   * @returns CAPTCHA information or null if no CAPTCHA is pending
    */
-  // on() method is inherited from EventEmitter
+  getPendingCaptcha(): { captchaId: string; captcha: string } | null {
+    return this.apiManager.getPendingCaptcha();
+  }
 
   /**
-   * Remove event listener (inherited from EventEmitter)
+   * Clear pending CAPTCHA information
+   *
+   * Clears any stored CAPTCHA information after it has been used.
    */
-  // off() method is inherited from EventEmitter
+  clearPendingCaptcha(): void {
+    this.apiManager.clearPendingCaptcha();
+  }
+
+  /**
+   * Get pending MFA information
+   *
+   * Returns MFA information from the last MFA request event.
+   * This is used by the CLI to display MFA information to the user.
+   *
+   * @returns MFA information or null if no MFA is pending
+   */
+  getPendingMfa(): { methods: string[] } | null {
+    return this.apiManager.getPendingMfa();
+  }
+
+  /**
+   * Clear pending MFA information
+   *
+   * Clears any stored MFA information after it has been used.
+   */
+  clearPendingMfa(): void {
+    this.apiManager.clearPendingMfa();
+  }
+
+  /**
+   * Enhanced command API with more elegant fluent interface
+   */
+  get commands() {
+    return this.apiManager.commands;
+  }
 
   // Private methods
 

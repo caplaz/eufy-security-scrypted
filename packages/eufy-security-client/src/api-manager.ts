@@ -28,27 +28,30 @@
  * @since 1.0.0
  */
 
-import { WebSocketClient } from './websocket-client';
-import { ClientStateManager } from './client-state';
+import { WebSocketClient } from "./websocket-client";
+import { ClientStateManager } from "./client-state";
 
-import { SERVER_COMMANDS } from './server/constants';
-import { DRIVER_COMMANDS, DRIVER_EVENTS } from './driver/constants';
+import { SERVER_COMMANDS } from "./server/constants";
+import { DRIVER_COMMANDS, DRIVER_EVENTS } from "./driver/constants";
 
-import { EventType, EventCallbackForType, EventListener } from './types/events';
-import type { EventSource } from './common/constants';
-import { SchemaCompatibilityInfo } from './types/schema';
+import { EventType, EventCallbackForType, EventListener } from "./types/events";
+import type { EventSource } from "./common/constants";
+import { SchemaCompatibilityInfo } from "./types/schema";
 import {
   ResponseForCommand,
   SupportedCommandType,
   isSupportedCommand,
   ParamsForCommand,
-} from './types/commands';
-import { StartListeningResponse } from './server/responses';
-import { WebSocketEventMessage, WebSocketVersionMessage } from './websocket-types';
+} from "./types/commands";
+import { StartListeningResponse } from "./server/responses";
+import {
+  WebSocketEventMessage,
+  WebSocketVersionMessage,
+} from "./websocket-types";
 
 // Import enhanced command API
-import { EnhancedCommandAPI } from './api-manager-commands';
-import { Logger, ILogObj } from 'tslog';
+import { EnhancedCommandAPI } from "./api-manager-commands";
+import { Logger, ILogObj } from "tslog";
 
 /**
  * High-Level API Manager for Eufy Security WebSocket API
@@ -87,6 +90,10 @@ export class ApiManager {
 
   // Error handlers
   private errorHandlers: Array<(error: Error) => void> = [];
+
+  // CAPTCHA/MFA state
+  private pendingCaptcha: { captchaId: string; captcha: string } | null = null;
+  private pendingMfa: { methods: string[] } | null = null;
 
   /**
    * Create a new API Manager instance
@@ -259,10 +266,16 @@ export class ApiManager {
    * @param source - (Optional) Event source to filter (e.g., 'device', 'station')
    * @returns Number of listeners removed
    */
-  removeEventListenersBySerialNumber(serialNumber: string, source?: EventSource): number {
+  removeEventListenersBySerialNumber(
+    serialNumber: string,
+    source?: EventSource
+  ): number {
     let removedCount = 0;
     for (const [id, listener] of this.eventListeners) {
-      if (listener.serialNumber === serialNumber && (!source || listener.source === source)) {
+      if (
+        listener.serialNumber === serialNumber &&
+        (!source || listener.source === source)
+      ) {
         this.eventListeners.delete(id);
         removedCount++;
       }
@@ -297,7 +310,7 @@ export class ApiManager {
     source?: EventSource;
     serialNumber?: string;
   }> {
-    return Array.from(this.eventListeners.values()).map(listener => ({
+    return Array.from(this.eventListeners.values()).map((listener) => ({
       id: listener.id,
       eventType: listener.eventType,
       source: listener.source,
@@ -389,8 +402,11 @@ export class ApiManager {
     command: T,
     params: ParamsForCommand<T> = {} as ParamsForCommand<T>
   ): Promise<ResponseForCommand<T>> {
-    if (command !== SERVER_COMMANDS.SET_API_SCHEMA && !this.stateManager.isReady()) {
-      throw new Error('Client not ready. Cannot send commands.');
+    if (
+      command !== SERVER_COMMANDS.SET_API_SCHEMA &&
+      !this.stateManager.isReady()
+    ) {
+      throw new Error("Client not ready. Cannot send commands.");
     }
 
     if (!isSupportedCommand(command)) {
@@ -410,7 +426,8 @@ export class ApiManager {
     let lastError: any;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const response = await this.client.sendMessage<ResponseForCommand<T>>(fullCommand);
+        const response =
+          await this.client.sendMessage<ResponseForCommand<T>>(fullCommand);
         return response;
       } catch (error) {
         lastError = error;
@@ -425,13 +442,15 @@ export class ApiManager {
         if (attempt < MAX_RETRIES) {
           const delay = BASE_DELAY * Math.pow(2, attempt - 1);
           const jitter = Math.random() * 0.1 * delay; // 10% jitter
-          await new Promise(resolve => setTimeout(resolve, delay + jitter));
+          await new Promise((resolve) => setTimeout(resolve, delay + jitter));
         }
       }
     }
     throw (
       lastError ||
-      new Error(`sendCommand failed for command: ${command} after ${MAX_RETRIES} attempts`)
+      new Error(
+        `sendCommand failed for command: ${command} after ${MAX_RETRIES} attempts`
+      )
     );
   }
 
@@ -447,7 +466,7 @@ export class ApiManager {
    */
   async connectDriver(): Promise<void> {
     if (!this.stateManager.isReady()) {
-      throw new Error('Client not ready. Cannot connect driver.');
+      throw new Error("Client not ready. Cannot connect driver.");
     }
 
     try {
@@ -471,14 +490,16 @@ export class ApiManager {
    */
   async startListening(): Promise<StartListeningResponse> {
     if (!this.stateManager.isReady()) {
-      throw new Error('Client not ready. Cannot start listening.');
+      throw new Error("Client not ready. Cannot start listening.");
     }
 
     const result = await this.sendCommand(SERVER_COMMANDS.START_LISTENING);
 
     const driverConnected = result.state.driver.connected;
     if (this.logger) {
-      this.logger.info(`startListening response: driver connected = ${driverConnected}`);
+      this.logger.info(
+        `startListening response: driver connected = ${driverConnected}`
+      );
     }
     this.stateManager.setDriverConnected(driverConnected);
 
@@ -508,11 +529,11 @@ export class ApiManager {
       } catch (error) {
         // Re-trigger the error through the error handler system
         this.stateManager.setError(error as Error);
-        this.errorHandlers.forEach(handler => {
+        this.errorHandlers.forEach((handler) => {
           try {
             handler(error as Error);
           } catch (handlerError) {
-            this.logger.error('Error in error handler:', handlerError);
+            this.logger.error("Error in error handler:", handlerError);
           }
         });
       }
@@ -525,12 +546,12 @@ export class ApiManager {
     this.client.onError((error: Error) => {
       this.stateManager.setError(error);
       // Call all registered error handlers
-      this.errorHandlers.forEach(handler => {
+      this.errorHandlers.forEach((handler) => {
         try {
           handler(error);
         } catch (handlerError) {
           // Prevent handler errors from breaking the error flow
-          this.logger.error('Error in error handler:', handlerError);
+          this.logger.error("Error in error handler:", handlerError);
         }
       });
     });
@@ -546,7 +567,9 @@ export class ApiManager {
    * @param versionMessage - Version message from server containing schema info.
    * @throws Error if schema incompatibility is detected.
    */
-  private async handleVersionMessage(versionMessage: WebSocketVersionMessage): Promise<void> {
+  private async handleVersionMessage(
+    versionMessage: WebSocketVersionMessage
+  ): Promise<void> {
     const serverMinSchema = versionMessage.minSchemaVersion;
     const serverMaxSchema = versionMessage.maxSchemaVersion;
 
@@ -662,7 +685,7 @@ export class ApiManager {
         if (
           listener.serialNumber &&
           (!eventPayload ||
-            !('serialNumber' in eventPayload) ||
+            !("serialNumber" in eventPayload) ||
             (eventPayload as any).serialNumber !== listener.serialNumber)
         ) {
           continue;
@@ -672,10 +695,10 @@ export class ApiManager {
       } catch (error) {
         // Log error but don't break other listeners
         if (this.logger) {
-          this.logger.error('Error in event listener:', error);
+          this.logger.error("Error in event listener:", error);
         } else {
           // Fallback to console if no logger available
-          console.error('Error in event listener:', error);
+          console.error("Error in event listener:", error);
         }
       }
     }
@@ -693,7 +716,7 @@ export class ApiManager {
   private handleDriverConnectionStateEvents(eventPayload: any): void {
     if (
       !eventPayload ||
-      typeof eventPayload !== 'object' ||
+      typeof eventPayload !== "object" ||
       !eventPayload.source ||
       !eventPayload.event
     ) {
@@ -701,23 +724,88 @@ export class ApiManager {
     }
 
     // Check if this is a driver event
-    if (eventPayload.source === 'driver') {
+    if (eventPayload.source === "driver") {
       switch (eventPayload.event) {
         case DRIVER_EVENTS.CONNECTED:
           if (this.logger) {
-            this.logger.info('Driver connected event received, updating state to connected');
+            this.logger.info(
+              "Driver connected event received, updating state to connected"
+            );
           }
           this.stateManager.setDriverConnected(true);
           break;
 
         case DRIVER_EVENTS.DISCONNECTED:
           if (this.logger) {
-            this.logger.info('Driver disconnected event received, updating state to disconnected');
+            this.logger.info(
+              "Driver disconnected event received, updating state to disconnected"
+            );
           }
           this.stateManager.setDriverConnected(false);
           break;
+
+        case DRIVER_EVENTS.CAPTCHA_REQUEST:
+          if (this.logger) {
+            this.logger.info("CAPTCHA request event received");
+          }
+          // Handle CAPTCHA request - this will be caught by the connect flow
+          this.handleCaptchaRequest(eventPayload);
+          break;
+
+        case DRIVER_EVENTS.VERIFY_CODE:
+          if (this.logger) {
+            this.logger.info("MFA verification code request event received");
+          }
+          // Handle MFA request - this will be caught by the connect flow
+          this.handleMfaRequest(eventPayload);
+          break;
       }
     }
+  }
+
+  /**
+   * Handle CAPTCHA request event
+   *
+   * Called when the server requests CAPTCHA authentication. Extracts the CAPTCHA
+   * information and stores it for later retrieval by the CLI.
+   *
+   * @param eventPayload - CAPTCHA request event payload
+   */
+  private handleCaptchaRequest(eventPayload: any): void {
+    const captchaId = eventPayload.captchaId;
+    const captcha = eventPayload.captcha;
+
+    if (this.logger) {
+      this.logger.info(`CAPTCHA required - ID: ${captchaId}`);
+    }
+
+    // Store CAPTCHA info for later retrieval
+    this.pendingCaptcha = { captchaId, captcha };
+
+    // Don't throw here - let the CLI check for pending CAPTCHA after operations
+  }
+
+  /**
+   * Handle MFA verification code request event
+   *
+   * Called when the server requests MFA verification. Stores the information
+   * for later retrieval by the CLI.
+   *
+   * @param eventPayload - MFA request event payload
+   */
+  private handleMfaRequest(eventPayload: any): void {
+    const methods = eventPayload.methods || [];
+
+    if (this.logger) {
+      this.logger.info(
+        `MFA verification required - methods: ${methods.join(", ")}`
+      );
+    }
+
+    // Store MFA info for later retrieval
+    this.pendingMfa = { methods };
+
+    // Don't throw here - let the CLI check for pending MFA after operations
   }
 
   /**
@@ -734,6 +822,48 @@ export class ApiManager {
   }
 
   // ================= LOGGING =================
+
+  /**
+   * Get pending CAPTCHA information
+   *
+   * Returns CAPTCHA information from the last CAPTCHA request event.
+   * This is used by the CLI to display CAPTCHA information to the user.
+   *
+   * @returns CAPTCHA information or null if no CAPTCHA is pending
+   */
+  getPendingCaptcha(): { captchaId: string; captcha: string } | null {
+    return this.pendingCaptcha;
+  }
+
+  /**
+   * Clear pending CAPTCHA information
+   *
+   * Clears any stored CAPTCHA information after it has been used.
+   */
+  clearPendingCaptcha(): void {
+    this.pendingCaptcha = null;
+  }
+
+  /**
+   * Get pending MFA information
+   *
+   * Returns MFA information from the last MFA request event.
+   * This is used by the CLI to display MFA information to the user.
+   *
+   * @returns MFA information or null if no MFA is pending
+   */
+  getPendingMfa(): { methods: string[] } | null {
+    return this.pendingMfa;
+  }
+
+  /**
+   * Clear pending MFA information
+   *
+   * Clears any stored MFA information after it has been used.
+   */
+  clearPendingMfa(): void {
+    this.pendingMfa = null;
+  }
 
   /**
    * Register error handler for WebSocket and API errors

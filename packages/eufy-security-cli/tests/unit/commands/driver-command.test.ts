@@ -25,13 +25,33 @@ describe("DriverCommand", () => {
       wsHost: "192.168.1.100:3000",
     };
 
-    // Create mock client
+    // Create mock client with apiManager
     mockClient = {
       connect: jest.fn().mockResolvedValue(undefined),
       disconnect: jest.fn().mockResolvedValue(undefined),
       isConnected: jest.fn(),
       on: jest.fn(),
       off: jest.fn(),
+      apiManager: {
+        startListening: jest.fn().mockResolvedValue({
+          state: {
+            driver: {
+              connected: true,
+            },
+          },
+        }),
+        connectDriver: jest.fn().mockResolvedValue(undefined),
+        getPendingCaptcha: jest.fn().mockReturnValue(null),
+        clearPendingCaptcha: jest.fn(),
+        getPendingMfa: jest.fn().mockReturnValue(null),
+        clearPendingMfa: jest.fn(),
+        commands: {
+          driver: jest.fn().mockReturnValue({
+            setCaptcha: jest.fn().mockResolvedValue(undefined),
+            setVerifyCode: jest.fn().mockResolvedValue(undefined),
+          }),
+        },
+      },
     };
 
     // Mock the constructor
@@ -81,11 +101,11 @@ describe("DriverCommand", () => {
         expect.stringContaining("🔍 Eufy Security Driver Status")
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("✅ Status: CONNECTED")
+        expect.stringContaining("✅ Status: FULLY CONNECTED")
       );
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          "The Eufy Security driver is successfully connected and ready."
+          "You can now use other CLI commands to interact with your devices."
         )
       );
 
@@ -103,10 +123,7 @@ describe("DriverCommand", () => {
         expect.stringContaining("🔍 Eufy Security Driver Status")
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("❌ Status: DISCONNECTED")
-      );
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("The Eufy Security driver is not connected.")
+        expect.stringContaining("❌ Status: WEBSOCKET DISCONNECTED")
       );
 
       consoleSpy.mockRestore();
@@ -169,9 +186,7 @@ describe("DriverCommand", () => {
         expect.stringContaining("🔗 Eufy Security Driver Connection")
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "✅ Successfully connected to Eufy Security driver!"
-        )
+        expect.stringContaining("✅ Connection Successful: FULLY CONNECTED")
       );
 
       consoleSpy.mockRestore();
@@ -181,7 +196,7 @@ describe("DriverCommand", () => {
       mockClient.isConnected.mockReturnValue(false);
 
       await expect(command.execute(validArgs)).rejects.toThrow(
-        "Connection established but driver reports as disconnected"
+        "❌ WebSocket connection failed"
       );
     });
 
@@ -240,7 +255,7 @@ describe("DriverCommand", () => {
       };
 
       await expect(command.execute(args)).rejects.toThrow(
-        "Unknown driver subcommand: invalid. Valid subcommands: status, connect"
+        "Unknown driver subcommand: invalid. Valid subcommands: status, connect, set_captcha, set_verify_code"
       );
     });
   });

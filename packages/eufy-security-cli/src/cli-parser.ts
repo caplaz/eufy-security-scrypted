@@ -59,11 +59,47 @@ export class CLIParser {
           !args[0].startsWith("-")
         ) {
           const possibleSubcommand = args[0];
-          const validSubcommands = ["status", "connect"];
+          const validSubcommands = [
+            "status",
+            "connect",
+            "set_captcha",
+            "set_verify_code",
+          ];
 
           if (validSubcommands.includes(possibleSubcommand)) {
             result.subcommand = possibleSubcommand;
             args = args.slice(1); // Remove subcommand from args
+
+            // For set_captcha, the next arguments should be captchaId and captcha code
+            if (possibleSubcommand === "set_captcha") {
+              if (
+                args.length < 2 ||
+                args[0].startsWith("-") ||
+                args[1].startsWith("-")
+              ) {
+                throw new Error(
+                  "Both captcha ID and captcha code are required for set_captcha command"
+                );
+              }
+              result.captchaId = args[0];
+              result.captcha = args[1];
+              args = args.slice(2); // Remove captchaId and captcha from args
+            }
+            // For set_verify_code, the next arguments should be captchaId and verify code
+            else if (possibleSubcommand === "set_verify_code") {
+              if (
+                args.length < 2 ||
+                args[0].startsWith("-") ||
+                args[1].startsWith("-")
+              ) {
+                throw new Error(
+                  "Both captcha ID and verification code are required for set_verify_code command"
+                );
+              }
+              result.verifyCodeId = args[0];
+              result.verifyCode = args[1];
+              args = args.slice(2); // Remove captchaId and verify code from args
+            }
           } else {
             throw new Error(
               `Unknown driver subcommand: ${possibleSubcommand}. Valid subcommands: ${validSubcommands.join(", ")}`
@@ -176,6 +212,8 @@ USAGE:
 COMMANDS:
   driver status                     Check the connection status of the driver
   driver connect                    Establish connection to the Eufy Security driver
+  driver set_captcha <id> <code>     Set captcha ID and code for 2FA verification
+  driver set_verify_code <id> <code> Set captcha ID and verification code for 2FA
   device list                       List all available camera devices
   device info                       Show detailed information about a device
   device stream                     Start streaming from a camera device
@@ -196,6 +234,12 @@ EXAMPLES:
 
   # Check driver connection status
   eufy-security-cli driver status --ws-host 192.168.7.100:3000
+
+  # Set captcha ID and code for 2FA verification
+  eufy-security-cli driver set_captcha captcha123 123456 --ws-host 192.168.7.100:3000
+
+  # Set captcha ID and verification code for 2FA
+  eufy-security-cli driver set_verify_code captcha123 123456 --ws-host 192.168.7.100:3000
 
   # List all available devices
   eufy-security-cli device list --ws-host 192.168.7.100:3000
