@@ -183,7 +183,7 @@ describe("Build Configuration Integration", () => {
       const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
 
       // Check essential fields
-      expect(packageJson.name).toBe("eufy-security-cli");
+      expect(packageJson.name).toBe("@caplaz/eufy-security-cli");
       expect(packageJson.main).toBe("dist/index.js");
       expect(packageJson.types).toBe("dist/index.d.ts");
 
@@ -193,8 +193,12 @@ describe("Build Configuration Integration", () => {
       expect(packageJson.scripts.start).toBe("node dist/main.js");
 
       // Check dependencies
-      expect(packageJson.dependencies).toHaveProperty("eufy-security-client");
-      expect(packageJson.dependencies).toHaveProperty("eufy-stream-server");
+      expect(packageJson.dependencies).toHaveProperty(
+        "@caplaz/eufy-security-client"
+      );
+      expect(packageJson.dependencies).toHaveProperty(
+        "@caplaz/eufy-stream-server"
+      );
 
       // Check files array
       expect(packageJson.files).toContain("dist/**/*");
