@@ -44,6 +44,7 @@ jest.mock("../../src/utils/debug-logger", () => ({
     w: jest.fn(),
     e: jest.fn(),
   })),
+  isDebugEnabled: jest.fn().mockReturnValue(false),
 }));
 
 describe("EufyDevice PTZ Functionality", () => {

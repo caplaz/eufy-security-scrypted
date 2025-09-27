@@ -72,7 +72,11 @@ import {
 
 import { VideoMetadata } from "eufy-security-client";
 
-import { DebugLogger, createDebugLogger } from "./utils/debug-logger";
+import {
+  DebugLogger,
+  createDebugLogger,
+  isDebugEnabled,
+} from "./utils/debug-logger";
 import { DeviceUtils } from "./utils/device-utils";
 import { StreamServer } from "eufy-stream-server";
 import sdk from "@scrypted/sdk";
@@ -590,7 +594,7 @@ export class EufyDevice
     this.streamServer = new StreamServer({
       port: 0, // Let the system assign a free port
       host: "127.0.0.1", // Only allow connections from localhost
-      debug: true, // Enable debug logging to see server activity
+      debug: isDebugEnabled(), // Respect global debug logging setting
       wsClient: this.wsClient,
       serialNumber: this.serialNumber,
     });
