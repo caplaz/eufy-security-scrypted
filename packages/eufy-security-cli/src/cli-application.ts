@@ -106,7 +106,10 @@ export class CLIApplication {
         );
       }
 
-      this.logger.info(`🚀 Executing command: ${commandName}`);
+      const displayCommand = parsedArgs.subcommand
+        ? `${commandName} ${parsedArgs.subcommand}`
+        : commandName;
+      this.logger.info(`🚀 Executing command: ${displayCommand}`);
 
       // Execute the command
       await command.execute(parsedArgs);

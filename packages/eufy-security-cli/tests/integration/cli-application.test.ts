@@ -52,6 +52,50 @@ describe("CLI Basic Integration", () => {
       });
     });
 
+    it("should parse driver status subcommand", () => {
+      const args = [
+        "driver",
+        "status",
+        "--ws-host",
+        "192.168.1.100:3000",
+        "--verbose",
+      ];
+
+      const parsed = CLIParser.parse(args);
+
+      expect(parsed).toEqual({
+        command: "driver",
+        subcommand: "status",
+        wsHost: "192.168.1.100:3000",
+        cameraSerial: "",
+        port: 0,
+        verbose: true,
+        help: false,
+      });
+    });
+
+    it("should parse driver connect subcommand", () => {
+      const args = [
+        "driver",
+        "connect",
+        "--ws-host",
+        "192.168.1.100:3000",
+        "--verbose",
+      ];
+
+      const parsed = CLIParser.parse(args);
+
+      expect(parsed).toEqual({
+        command: "driver",
+        subcommand: "connect",
+        wsHost: "192.168.1.100:3000",
+        cameraSerial: "",
+        port: 0,
+        verbose: true,
+        help: false,
+      });
+    });
+
     it("should default to stream command when no command specified", () => {
       const args = [
         "--ws-host",
@@ -185,12 +229,13 @@ describe("CLI Basic Integration", () => {
       const registry = createCommandRegistry(context);
       const availableCommands = getAvailableCommands();
 
-      expect(registry.size).toBe(4);
+      expect(registry.size).toBe(5);
       expect(availableCommands).toEqual([
         "stream",
         "list-devices",
         "device-info",
         "monitor",
+        "driver",
       ]);
 
       // Verify all commands are registered

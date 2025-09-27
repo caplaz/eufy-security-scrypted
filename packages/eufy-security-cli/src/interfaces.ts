@@ -27,8 +27,10 @@ export interface ParsedArgs {
   verbose: boolean;
   /** Show help information */
   help: boolean;
-  /** Command to execute (stream, list-devices, device-info, monitor) */
+  /** Main command to execute (stream, list-devices, device-info, monitor, driver) */
   command?: string;
+  /** Subcommand for hierarchical commands (status, connect for driver command) */
+  subcommand?: string;
 }
 
 /**

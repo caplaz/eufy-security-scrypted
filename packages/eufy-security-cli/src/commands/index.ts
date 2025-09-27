@@ -7,6 +7,7 @@ export { StreamCommand } from "./stream-command";
 export { ListDevicesCommand } from "./list-devices-command";
 export { DeviceInfoCommand } from "./device-info-command";
 export { MonitorCommand } from "./monitor-command";
+export { DriverCommand } from "./driver-command";
 
 // Command registry for easy access
 import { CommandHandler } from "../interfaces";
@@ -14,6 +15,7 @@ import { StreamCommand } from "./stream-command";
 import { ListDevicesCommand } from "./list-devices-command";
 import { DeviceInfoCommand } from "./device-info-command";
 import { MonitorCommand } from "./monitor-command";
+import { DriverCommand } from "./driver-command";
 
 export function createCommandRegistry(
   context: any
@@ -26,6 +28,7 @@ export function createCommandRegistry(
     new ListDevicesCommand(context),
     new DeviceInfoCommand(context),
     new MonitorCommand(context),
+    new DriverCommand(context),
   ];
 
   commands.forEach((command) => {
@@ -36,5 +39,5 @@ export function createCommandRegistry(
 }
 
 export function getAvailableCommands(): string[] {
-  return ["stream", "list-devices", "device-info", "monitor"];
+  return ["stream", "list-devices", "device-info", "monitor", "driver"];
 }

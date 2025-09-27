@@ -51,11 +51,31 @@ export class CLIParser {
         "list-devices",
         "device-info",
         "monitor",
+        "driver",
       ];
 
       if (validCommands.includes(possibleCommand)) {
         result.command = possibleCommand;
         args = args.slice(1); // Remove command from args
+
+        // Check for subcommands (currently only for driver command)
+        if (
+          possibleCommand === "driver" &&
+          args.length > 0 &&
+          !args[0].startsWith("-")
+        ) {
+          const possibleSubcommand = args[0];
+          const validSubcommands = ["status", "connect"];
+
+          if (validSubcommands.includes(possibleSubcommand)) {
+            result.subcommand = possibleSubcommand;
+            args = args.slice(1); // Remove subcommand from args
+          } else {
+            throw new Error(
+              `Unknown driver subcommand: ${possibleSubcommand}. Valid subcommands: ${validSubcommands.join(", ")}`
+            );
+          }
+        }
       } else {
         // Default to stream command for backward compatibility
         result.command = "stream";
@@ -146,6 +166,8 @@ COMMANDS:
   list-devices                      List all available camera devices
   device-info                       Show detailed information about a device
   monitor                           Monitor camera connection status
+  driver status                     Check the connection status of the driver
+  driver connect                    Establish connection to the Eufy Security driver
 
 GLOBAL OPTIONS:
   --ws-host, -w <host>              WebSocket server host (e.g., 192.168.7.100:3000)
@@ -157,6 +179,12 @@ STREAM COMMAND OPTIONS:
   --port, -p <port>                 TCP server port (default: random available port)
 
 EXAMPLES:
+  # Establish connection to the driver
+  eufy-security-cli driver connect --ws-host 192.168.7.100:3000
+
+  # Check driver connection status
+  eufy-security-cli driver status --ws-host 192.168.7.100:3000
+
   # List all available devices
   eufy-security-cli list-devices --ws-host 192.168.7.100:3000
 

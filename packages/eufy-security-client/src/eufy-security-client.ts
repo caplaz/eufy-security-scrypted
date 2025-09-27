@@ -191,6 +191,28 @@ export class EufySecurityClient extends EventEmitter {
   }
 
   /**
+   * Connect to the Eufy driver
+   *
+   * Establishes connection to the Eufy cloud driver. This is called automatically
+   * by connect(), but can be called separately for more granular control.
+   *
+   * @throws {Error} If client not ready or driver connection fails
+   *
+   * @example
+   * ```typescript
+   * await client.connectDriver();
+   * console.log('Driver connected');
+   * ```
+   */
+  async connectDriver(): Promise<void> {
+    if (!this.apiManager.isConnected()) {
+      throw new Error("Client not connected. Call connect() first.");
+    }
+
+    await this.apiManager.connectDriver();
+  }
+
+  /**
    * Get all available devices from the connected Eufy account
    *
    * @returns Promise resolving to array of device information objects

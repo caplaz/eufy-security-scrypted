@@ -196,6 +196,7 @@ describe("CLI Workflow Integration", () => {
         "list-devices",
         "device-info",
         "monitor",
+        "driver",
       ]);
 
       // Test that each command can be retrieved and has proper structure
