@@ -20,19 +20,25 @@ npm install -g @scrypted/eufy-security-cli
 
 ## Quick Start
 
-1. **List available devices:**
+1. **Check driver status:**
 
    ```bash
-   eufy-security-cli list-devices --ws-host 192.168.1.100:3000
+   eufy-security-cli driver status --ws-host 192.168.1.100:3000
    ```
 
-2. **Start streaming:**
+2. **List available devices:**
 
    ```bash
-   eufy-security-cli stream --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789
+   eufy-security-cli device list --ws-host 192.168.1.100:3000
    ```
 
-3. **Connect with a media player:**
+3. **Start streaming:**
+
+   ```bash
+   eufy-security-cli device stream --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789
+   ```
+
+4. **Connect with a media player:**
    ```bash
    # The CLI will show the actual port, e.g., "TCP Server: localhost:45123"
    ffplay tcp://localhost:45123
@@ -40,12 +46,12 @@ npm install -g @scrypted/eufy-security-cli
 
 ## Commands
 
-### `list-devices`
+### `driver status`
 
-List all available camera devices from your Eufy account.
+Check the connection status of the Eufy Security WebSocket server.
 
 ```bash
-eufy-security-cli list-devices --ws-host <host>
+eufy-security-cli driver status --ws-host <host>
 ```
 
 **Options:**
@@ -57,7 +63,47 @@ eufy-security-cli list-devices --ws-host <host>
 **Example:**
 
 ```bash
-eufy-security-cli list-devices --ws-host 192.168.1.100:3000
+eufy-security-cli driver status --ws-host 192.168.1.100:3000
+```
+
+### `driver connect`
+
+Connect to the Eufy Security WebSocket server and verify authentication.
+
+```bash
+eufy-security-cli driver connect --ws-host <host>
+```
+
+**Options:**
+
+- `--ws-host, -w <host>` - WebSocket server host (required)
+- `--verbose, -v` - Enable verbose logging
+- `--help, -h` - Show help
+
+**Example:**
+
+```bash
+eufy-security-cli driver connect --ws-host 192.168.1.100:3000
+```
+
+### `device list`
+
+List all available camera devices from your Eufy account.
+
+```bash
+eufy-security-cli device list --ws-host <host>
+```
+
+**Options:**
+
+- `--ws-host, -w <host>` - WebSocket server host (required)
+- `--verbose, -v` - Enable verbose logging
+- `--help, -h` - Show help
+
+**Example:**
+
+```bash
+eufy-security-cli device list --ws-host 192.168.1.100:3000
 ```
 
 **Output:**
@@ -85,12 +131,12 @@ eufy-security-cli list-devices --ws-host 192.168.1.100:3000
 📊 Total: 2 device(s) found
 ```
 
-### `device-info`
+### `device info`
 
 Show detailed information about a specific device.
 
 ```bash
-eufy-security-cli device-info --ws-host <host> --camera-serial <serial>
+eufy-security-cli device info --ws-host <host> --camera-serial <serial>
 ```
 
 **Options:**
@@ -103,15 +149,15 @@ eufy-security-cli device-info --ws-host <host> --camera-serial <serial>
 **Example:**
 
 ```bash
-eufy-security-cli device-info --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789
+eufy-security-cli device info --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789
 ```
 
-### `stream`
+### `device stream`
 
 Start streaming from a camera device to a TCP server that media players can connect to.
 
 ```bash
-eufy-security-cli stream --ws-host <host> --camera-serial <serial> [options]
+eufy-security-cli device stream --ws-host <host> --camera-serial <serial> [options]
 ```
 
 **Options:**
@@ -126,21 +172,21 @@ eufy-security-cli stream --ws-host <host> --camera-serial <serial> [options]
 
 ```bash
 # Basic streaming
-eufy-security-cli stream --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789
+eufy-security-cli device stream --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789
 
 # Stream with specific port
-eufy-security-cli stream -w 192.168.1.100:3000 -c T8210N20123456789 -p 8080
+eufy-security-cli device stream -w 192.168.1.100:3000 -c T8210N20123456789 -p 8080
 
 # Stream with verbose logging
-eufy-security-cli stream -w 192.168.1.100:3000 -c T8210N20123456789 -v
+eufy-security-cli device stream -w 192.168.1.100:3000 -c T8210N20123456789 -v
 ```
 
-### `monitor`
+### `device monitor`
 
 Monitor camera connection status and streaming health.
 
 ```bash
-eufy-security-cli monitor --ws-host <host> --camera-serial <serial>
+eufy-security-cli device monitor --ws-host <host> --camera-serial <serial>
 ```
 
 **Options:**
@@ -242,7 +288,7 @@ WS_HOST="192.168.1.100:3000"
 DURATION=300  # 5 minutes
 
 # Start streaming in background
-eufy-security-cli stream -w $WS_HOST -c $CAMERA_SERIAL -p 8080 &
+eufy-security-cli device stream -w $WS_HOST -c $CAMERA_SERIAL -p 8080 &
 CLI_PID=$!
 
 # Wait for server to start
@@ -260,7 +306,7 @@ kill $CLI_PID
 ```bash
 #!/bin/bash
 while true; do
-    eufy-security-cli monitor -w 192.168.1.100:3000 -c T8210N20123456789
+    eufy-security-cli device monitor -w 192.168.1.100:3000 -c T8210N20123456789
     if [ $? -ne 0 ]; then
         echo "Camera connection failed, retrying in 30 seconds..."
         sleep 30
@@ -276,13 +322,13 @@ Stream from multiple cameras simultaneously:
 
 ```bash
 # Terminal 1
-eufy-security-cli stream -w 192.168.1.100:3000 -c CAMERA1_SERIAL -p 8081
+eufy-security-cli device stream -w 192.168.1.100:3000 -c CAMERA1_SERIAL -p 8081
 
 # Terminal 2
-eufy-security-cli stream -w 192.168.1.100:3000 -c CAMERA2_SERIAL -p 8082
+eufy-security-cli device stream -w 192.168.1.100:3000 -c CAMERA2_SERIAL -p 8082
 
 # Terminal 3
-eufy-security-cli stream -w 192.168.1.100:3000 -c CAMERA3_SERIAL -p 8083
+eufy-security-cli device stream -w 192.168.1.100:3000 -c CAMERA3_SERIAL -p 8083
 ```
 
 Then connect media players to each port:
@@ -338,7 +384,7 @@ ffplay tcp://localhost:8083  # Camera 3
 1. List available devices to verify serial number:
 
    ```bash
-   eufy-security-cli list-devices -w 192.168.1.100:3000
+   eufy-security-cli device list -w 192.168.1.100:3000
    ```
 
 2. Check serial number format (should be 10-20 alphanumeric characters)
@@ -361,13 +407,13 @@ ffplay tcp://localhost:8083  # Camera 3
 1. Use a different port:
 
    ```bash
-   eufy-security-cli stream -w 192.168.1.100:3000 -c SERIAL -p 8081
+   eufy-security-cli device stream -w 192.168.1.100:3000 -c SERIAL -p 8081
    ```
 
 2. Use automatic port assignment:
 
    ```bash
-   eufy-security-cli stream -w 192.168.1.100:3000 -c SERIAL -p 0
+   eufy-security-cli device stream -w 192.168.1.100:3000 -c SERIAL -p 0
    ```
 
 3. Find and stop the process using the port:
@@ -401,7 +447,7 @@ ffplay tcp://localhost:8083  # Camera 3
 1. Limit concurrent connections by using specific ports
 2. Monitor with verbose logging to identify bottlenecks:
    ```bash
-   eufy-security-cli stream -w HOST -c SERIAL -v
+   eufy-security-cli device stream -w HOST -c SERIAL -v
    ```
 
 **Problem:** Stream lag or buffering
@@ -422,7 +468,7 @@ ffplay tcp://localhost:8083  # Camera 3
 Enable verbose logging for detailed troubleshooting:
 
 ```bash
-eufy-security-cli stream -w 192.168.1.100:3000 -c T8210N20123456789 -v
+eufy-security-cli device stream -w 192.168.1.100:3000 -c T8210N20123456789 -v
 ```
 
 This will show:
@@ -440,17 +486,17 @@ This will show:
 
 ```bash
 # List all devices
-eufy-security-cli list-devices --ws-host 192.168.1.100:3000
+eufy-security-cli device list --ws-host 192.168.1.100:3000
 
 # Get detailed info about a specific device
-eufy-security-cli device-info --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789
+eufy-security-cli device info --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789
 ```
 
 ### Simple Streaming
 
 ```bash
 # Start streaming (system assigns port)
-eufy-security-cli stream --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789
+eufy-security-cli device stream --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789
 
 # Connect with ffplay (use the port shown in CLI output)
 ffplay tcp://localhost:45123
@@ -460,7 +506,7 @@ ffplay tcp://localhost:45123
 
 ```bash
 # Stream with specific port
-eufy-security-cli stream -w 192.168.1.100:3000 -c T8210N20123456789 -p 8080
+eufy-security-cli device stream -w 192.168.1.100:3000 -c T8210N20123456789 -p 8080
 
 # Connect with optimized ffplay settings
 ffplay -fflags nobuffer -flags low_delay tcp://localhost:8080
@@ -470,7 +516,7 @@ ffplay -fflags nobuffer -flags low_delay tcp://localhost:8080
 
 ```bash
 # Start streaming
-eufy-security-cli stream -w 192.168.1.100:3000 -c T8210N20123456789 -p 8080 &
+eufy-security-cli device stream -w 192.168.1.100:3000 -c T8210N20123456789 -p 8080 &
 
 # Record for 5 minutes
 timeout 300 ffmpeg -i tcp://localhost:8080 -c copy recording.h264
@@ -485,9 +531,9 @@ pkill -f eufy-security
 # Create a script to start multiple streams
 cat > start_cameras.sh << 'EOF'
 #!/bin/bash
-eufy-security-cli stream -w 192.168.1.100:3000 -c FRONT_DOOR_SERIAL -p 8081 &
-eufy-security-cli stream -w 192.168.1.100:3000 -c BACKYARD_SERIAL -p 8082 &
-eufy-security-cli stream -w 192.168.1.100:3000 -c GARAGE_SERIAL -p 8083 &
+eufy-security-cli device stream -w 192.168.1.100:3000 -c FRONT_DOOR_SERIAL -p 8081 &
+eufy-security-cli device stream -w 192.168.1.100:3000 -c BACKYARD_SERIAL -p 8082 &
+eufy-security-cli device stream -w 192.168.1.100:3000 -c GARAGE_SERIAL -p 8083 &
 wait
 EOF
 
@@ -504,7 +550,7 @@ Use the CLI in Home Assistant automations:
 ```yaml
 # configuration.yaml
 shell_command:
-  start_front_door_stream: "eufy-security-cli stream -w 192.168.1.100:3000 -c T8210N20123456789 -p 8080 &"
+  start_front_door_stream: "eufy-security-cli device stream -w 192.168.1.100:3000 -c T8210N20123456789 -p 8080 &"
   stop_front_door_stream: "pkill -f 'eufy-security.*T8210N20123456789'"
 
 camera:
@@ -521,7 +567,7 @@ Run the CLI in a Docker container:
 FROM node:18-alpine
 RUN npm install -g @scrypted/eufy-security-cli
 EXPOSE 8080
-CMD ["eufy-security", "stream", "--ws-host", "host.docker.internal:3000", "--camera-serial", "T8210N20123456789", "--port", "8080"]
+CMD ["eufy-security-cli", "device", "stream", "--ws-host", "host.docker.internal:3000", "--camera-serial", "T8210N20123456789", "--port", "8080"]
 ```
 
 ### Systemd Service
@@ -537,7 +583,7 @@ After=network.target
 [Service]
 Type=simple
 User=eufy
-ExecStart=/usr/bin/eufy-security-cli stream --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789 --port 8080
+ExecStart=/usr/bin/eufy-security-cli device stream --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789 --port 8080
 Restart=always
 RestartSec=10
 

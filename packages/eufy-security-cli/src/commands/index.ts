@@ -3,19 +3,12 @@
  */
 
 export { BaseCommand } from "./base-command";
-export { StreamCommand } from "./stream-command";
-export { ListDevicesCommand } from "./list-devices-command";
-export { DeviceInfoCommand } from "./device-info-command";
-export { MonitorCommand } from "./monitor-command";
-export { DriverCommand } from "./driver-command";
+export { DeviceCommand } from "./device-command";
 
 // Command registry for easy access
 import { CommandHandler } from "../interfaces";
-import { StreamCommand } from "./stream-command";
-import { ListDevicesCommand } from "./list-devices-command";
-import { DeviceInfoCommand } from "./device-info-command";
-import { MonitorCommand } from "./monitor-command";
 import { DriverCommand } from "./driver-command";
+import { DeviceCommand } from "./device-command";
 
 export function createCommandRegistry(
   context: any
@@ -23,13 +16,7 @@ export function createCommandRegistry(
   const registry = new Map<string, CommandHandler>();
 
   // Register all available commands
-  const commands = [
-    new StreamCommand(context),
-    new ListDevicesCommand(context),
-    new DeviceInfoCommand(context),
-    new MonitorCommand(context),
-    new DriverCommand(context),
-  ];
+  const commands = [new DriverCommand(context), new DeviceCommand(context)];
 
   commands.forEach((command) => {
     registry.set(command.name, command);
@@ -39,5 +26,5 @@ export function createCommandRegistry(
 }
 
 export function getAvailableCommands(): string[] {
-  return ["stream", "list-devices", "device-info", "monitor", "driver"];
+  return ["driver", "device"];
 }

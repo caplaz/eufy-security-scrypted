@@ -172,8 +172,8 @@ describe("Build Configuration Integration", () => {
         encoding: "utf8",
       });
       expect(commandsOutput).toContain("Available commands:");
-      expect(commandsOutput).toContain("stream");
-      expect(commandsOutput).toContain("list-devices");
+      expect(commandsOutput).toContain("driver status");
+      expect(commandsOutput).toContain("device list");
     });
   });
 
@@ -284,10 +284,8 @@ describe("Build Configuration Integration", () => {
       const requiredCommandFiles = [
         "index.ts",
         "base-command.ts",
-        "stream-command.ts",
-        "list-devices-command.ts",
-        "device-info-command.ts",
-        "monitor-command.ts",
+        "driver-command.ts",
+        "device-command.ts",
       ];
 
       requiredCommandFiles.forEach((file) => {

@@ -99,10 +99,10 @@ describe("CLI Executable Integration", () => {
   });
 
   describe("Command Execution", () => {
-    it("should handle list-devices command with valid arguments", async () => {
+    it("should handle device list command with valid arguments", async () => {
       // This test will fail with connection error, but we're testing argument parsing
       const result = await runCLI(
-        ["list-devices", "--ws-host", "192.168.1.100:3000"],
+        ["device", "list", "--ws-host", "192.168.1.100:3000"],
         2000
       );
 
@@ -112,11 +112,12 @@ describe("CLI Executable Integration", () => {
       expect(result.stderr).not.toContain("WebSocket host is required");
     });
 
-    it("should handle device-info command with valid arguments", async () => {
+    it("should handle device info command with valid arguments", async () => {
       // This test will fail with connection error, but we're testing argument parsing
       const result = await runCLI(
         [
-          "device-info",
+          "device",
+          "info",
           "--ws-host",
           "192.168.1.100:3000",
           "--camera-serial",
@@ -131,10 +132,11 @@ describe("CLI Executable Integration", () => {
       expect(result.stderr).not.toContain("Camera serial is required");
     });
 
-    it("should handle monitor command with valid arguments", async () => {
+    it("should handle device monitor command with valid arguments", async () => {
       // This test will fail with connection error, but we're testing argument parsing
       const result = await runCLI(
         [
+          "device",
           "monitor",
           "--ws-host",
           "192.168.1.100:3000",

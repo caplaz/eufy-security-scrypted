@@ -6,8 +6,9 @@ import { CLIParser } from "../../src/cli-parser";
 
 describe("CLIParser", () => {
   describe("parse", () => {
-    it("should parse stream command with all options", () => {
+    it("should parse device stream command with all options", () => {
       const args = [
+        "device",
         "stream",
         "--ws-host",
         "192.168.1.100:3000",
@@ -21,7 +22,8 @@ describe("CLIParser", () => {
       const result = CLIParser.parse(args);
 
       expect(result).toEqual({
-        command: "stream",
+        command: "device",
+        subcommand: "stream",
         wsHost: "192.168.1.100:3000",
         cameraSerial: "ABC1234567890",
         port: 8080,
@@ -32,6 +34,7 @@ describe("CLIParser", () => {
 
     it("should parse with short flags", () => {
       const args = [
+        "device",
         "stream",
         "-w",
         "192.168.1.100:3000",
@@ -45,7 +48,8 @@ describe("CLIParser", () => {
       const result = CLIParser.parse(args);
 
       expect(result).toEqual({
-        command: "stream",
+        command: "device",
+        subcommand: "stream",
         wsHost: "192.168.1.100:3000",
         cameraSerial: "ABC1234567890",
         port: 8080,
@@ -64,15 +68,17 @@ describe("CLIParser", () => {
 
       const result = CLIParser.parse(args);
 
-      expect(result.command).toBe("stream");
+      expect(result.command).toBe("device");
+      expect(result.subcommand).toBe("stream");
     });
 
-    it("should parse list-devices command", () => {
-      const args = ["list-devices", "--ws-host", "192.168.1.100:3000"];
+    it("should parse device list command", () => {
+      const args = ["device", "list", "--ws-host", "192.168.1.100:3000"];
 
       const result = CLIParser.parse(args);
 
-      expect(result.command).toBe("list-devices");
+      expect(result.command).toBe("device");
+      expect(result.subcommand).toBe("list");
       expect(result.wsHost).toBe("192.168.1.100:3000");
     });
 
@@ -120,7 +126,8 @@ describe("CLIParser", () => {
   describe("validateArgs", () => {
     it("should skip validation when help is requested", () => {
       const args = {
-        command: "stream",
+        command: "device",
+        subcommand: "stream",
         wsHost: "",
         cameraSerial: "",
         port: 0,
@@ -133,7 +140,8 @@ describe("CLIParser", () => {
 
     it("should require ws-host", () => {
       const args = {
-        command: "list-devices",
+        command: "device",
+        subcommand: "list",
         wsHost: "",
         cameraSerial: "ABC1234567890",
         port: 0,
@@ -148,7 +156,8 @@ describe("CLIParser", () => {
 
     it("should require camera-serial for stream command", () => {
       const args = {
-        command: "stream",
+        command: "device",
+        subcommand: "stream",
         wsHost: "192.168.1.100:3000",
         cameraSerial: "",
         port: 0,
@@ -157,13 +166,14 @@ describe("CLIParser", () => {
       };
 
       expect(() => CLIParser.validateArgs(args)).toThrow(
-        "Camera serial is required for the stream command"
+        "Camera serial is required for the device stream command"
       );
     });
 
     it("should not require camera-serial for list-devices command", () => {
       const args = {
-        command: "list-devices",
+        command: "device",
+        subcommand: "list",
         wsHost: "192.168.1.100:3000",
         cameraSerial: "",
         port: 0,
@@ -191,7 +201,8 @@ describe("CLIParser", () => {
 
     it("should validate camera serial format", () => {
       const args = {
-        command: "stream",
+        command: "device",
+        subcommand: "stream",
         wsHost: "192.168.1.100:3000",
         cameraSerial: "invalid",
         port: 0,
@@ -206,7 +217,8 @@ describe("CLIParser", () => {
 
     it("should accept valid IP address", () => {
       const args = {
-        command: "list-devices",
+        command: "device",
+        subcommand: "list",
         wsHost: "192.168.1.100:3000",
         cameraSerial: "",
         port: 0,
@@ -219,7 +231,8 @@ describe("CLIParser", () => {
 
     it("should accept valid hostname", () => {
       const args = {
-        command: "list-devices",
+        command: "device",
+        subcommand: "list",
         wsHost: "eufy-server.local:3000",
         cameraSerial: "",
         port: 0,
@@ -232,7 +245,8 @@ describe("CLIParser", () => {
 
     it("should accept WebSocket URL with protocol", () => {
       const args = {
-        command: "list-devices",
+        command: "device",
+        subcommand: "list",
         wsHost: "ws://192.168.1.100:3000",
         cameraSerial: "",
         port: 0,
@@ -245,7 +259,8 @@ describe("CLIParser", () => {
 
     it("should accept secure WebSocket URL", () => {
       const args = {
-        command: "list-devices",
+        command: "device",
+        subcommand: "list",
         wsHost: "wss://eufy-server.com:3000",
         cameraSerial: "",
         port: 0,
@@ -270,7 +285,7 @@ describe("CLIParser", () => {
         expect.stringContaining("COMMANDS:")
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("stream")
+        expect.stringContaining("device list")
       );
 
       consoleSpy.mockRestore();

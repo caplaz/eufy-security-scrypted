@@ -26,7 +26,7 @@ describe("CLI Workflow Integration", () => {
   });
 
   describe("Argument Parsing Workflow", () => {
-    it("should parse stream command arguments correctly", () => {
+    it("should reject old stream command", () => {
       const args = [
         "stream",
         "--ws-host",
@@ -38,15 +38,10 @@ describe("CLI Workflow Integration", () => {
         "--verbose",
       ];
 
-      const parsed = CLIParser.parse(args);
-      expect(parsed.command).toBe("stream");
-      expect(parsed.wsHost).toBe("192.168.1.100:3000");
-      expect(parsed.cameraSerial).toBe("ABC1234567890");
-      expect(parsed.port).toBe(8080);
-      expect(parsed.verbose).toBe(true);
+      expect(() => CLIParser.parse(args)).toThrow("Unknown command: stream");
     });
 
-    it("should parse list-devices command arguments correctly", () => {
+    it("should reject old list-devices command", () => {
       const args = [
         "list-devices",
         "--ws-host",
@@ -54,13 +49,12 @@ describe("CLI Workflow Integration", () => {
         "--verbose",
       ];
 
-      const parsed = CLIParser.parse(args);
-      expect(parsed.command).toBe("list-devices");
-      expect(parsed.wsHost).toBe("192.168.1.100:3000");
-      expect(parsed.verbose).toBe(true);
+      expect(() => CLIParser.parse(args)).toThrow(
+        "Unknown command: list-devices"
+      );
     });
 
-    it("should parse device-info command arguments correctly", () => {
+    it("should reject old device-info command", () => {
       const args = [
         "device-info",
         "--ws-host",
@@ -69,13 +63,12 @@ describe("CLI Workflow Integration", () => {
         "ABC1234567890",
       ];
 
-      const parsed = CLIParser.parse(args);
-      expect(parsed.command).toBe("device-info");
-      expect(parsed.wsHost).toBe("192.168.1.100:3000");
-      expect(parsed.cameraSerial).toBe("ABC1234567890");
+      expect(() => CLIParser.parse(args)).toThrow(
+        "Unknown command: device-info"
+      );
     });
 
-    it("should parse monitor command arguments correctly", () => {
+    it("should reject old monitor command", () => {
       const args = [
         "monitor",
         "--ws-host",
@@ -84,17 +77,15 @@ describe("CLI Workflow Integration", () => {
         "ABC1234567890",
       ];
 
-      const parsed = CLIParser.parse(args);
-      expect(parsed.command).toBe("monitor");
-      expect(parsed.wsHost).toBe("192.168.1.100:3000");
-      expect(parsed.cameraSerial).toBe("ABC1234567890");
+      expect(() => CLIParser.parse(args)).toThrow("Unknown command: monitor");
     });
   });
 
   describe("Error Handling Workflow", () => {
     it("should handle validation errors gracefully", () => {
       const args = {
-        command: "stream",
+        command: "device",
+        subcommand: "stream",
         wsHost: "",
         cameraSerial: "ABC1234567890",
         port: 0,
@@ -111,12 +102,12 @@ describe("CLI Workflow Integration", () => {
       const args = ["unknown-command"];
 
       expect(() => CLIParser.parse(args)).toThrow(
-        "Unknown argument: unknown-command"
+        "Unknown command: unknown-command"
       );
     });
 
     it("should handle argument parsing errors gracefully", () => {
-      const args = ["stream", "--invalid-flag"];
+      const args = ["device", "--invalid-flag"];
 
       expect(() => CLIParser.parse(args)).toThrow(
         "Unknown argument: --invalid-flag"
@@ -156,7 +147,8 @@ describe("CLI Workflow Integration", () => {
   describe("Command Context Creation", () => {
     it("should create proper context for verbose mode", () => {
       const args = [
-        "list-devices",
+        "device",
+        "list",
         "--ws-host",
         "192.168.1.100:3000",
         "--verbose",
@@ -164,13 +156,17 @@ describe("CLI Workflow Integration", () => {
 
       const parsed = CLIParser.parse(args);
       expect(parsed.verbose).toBe(true);
+      expect(parsed.command).toBe("device");
+      expect(parsed.subcommand).toBe("list");
     });
 
     it("should create proper context for non-verbose mode", () => {
-      const args = ["list-devices", "--ws-host", "192.168.1.100:3000"];
+      const args = ["device", "list", "--ws-host", "192.168.1.100:3000"];
 
       const parsed = CLIParser.parse(args);
       expect(parsed.verbose).toBe(false);
+      expect(parsed.command).toBe("device");
+      expect(parsed.subcommand).toBe("list");
     });
   });
 
@@ -191,13 +187,7 @@ describe("CLI Workflow Integration", () => {
       const availableCommands = getAvailableCommands();
 
       // Test that all commands are properly registered
-      expect(availableCommands).toEqual([
-        "stream",
-        "list-devices",
-        "device-info",
-        "monitor",
-        "driver",
-      ]);
+      expect(availableCommands).toEqual(["driver", "device"]);
 
       // Test that each command can be retrieved and has proper structure
       availableCommands.forEach((commandName: string) => {
@@ -214,7 +204,8 @@ describe("CLI Workflow Integration", () => {
       const testCases = [
         {
           args: {
-            command: "stream",
+            command: "device",
+            subcommand: "stream",
             wsHost: "192.168.1.100:3000",
             cameraSerial: "ABC1234567890",
             port: 8080,
@@ -225,7 +216,8 @@ describe("CLI Workflow Integration", () => {
         },
         {
           args: {
-            command: "list-devices",
+            command: "device",
+            subcommand: "list",
             wsHost: "192.168.1.100:3000",
             cameraSerial: "",
             port: 0,
@@ -236,7 +228,8 @@ describe("CLI Workflow Integration", () => {
         },
         {
           args: {
-            command: "stream",
+            command: "device",
+            subcommand: "stream",
             wsHost: "",
             cameraSerial: "ABC1234567890",
             port: 0,
@@ -248,7 +241,8 @@ describe("CLI Workflow Integration", () => {
         },
         {
           args: {
-            command: "stream",
+            command: "device",
+            subcommand: "stream",
             wsHost: "192.168.1.100:3000",
             cameraSerial: "",
             port: 0,
@@ -256,7 +250,8 @@ describe("CLI Workflow Integration", () => {
             help: false,
           },
           shouldPass: false,
-          expectedError: "Camera serial is required for the stream command",
+          expectedError:
+            "Camera serial is required for the device stream command",
         },
       ];
 

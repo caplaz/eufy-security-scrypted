@@ -8,8 +8,9 @@ import { testUtils } from "../test-utils";
 
 describe("CLI Basic Integration", () => {
   describe("CLIParser", () => {
-    it("should parse basic stream command arguments", () => {
+    it("should parse basic device stream command arguments", () => {
       const args = [
+        "device",
         "stream",
         "--ws-host",
         "192.168.1.100:3000",
@@ -23,7 +24,8 @@ describe("CLI Basic Integration", () => {
       const parsed = CLIParser.parse(args);
 
       expect(parsed).toEqual({
-        command: "stream",
+        command: "device",
+        subcommand: "stream",
         wsHost: "192.168.1.100:3000",
         cameraSerial: "ABC1234567890",
         port: 8080,
@@ -32,9 +34,10 @@ describe("CLI Basic Integration", () => {
       });
     });
 
-    it("should parse list-devices command", () => {
+    it("should parse device list command", () => {
       const args = [
-        "list-devices",
+        "device",
+        "list",
         "--ws-host",
         "192.168.1.100:3000",
         "--verbose",
@@ -43,7 +46,8 @@ describe("CLI Basic Integration", () => {
       const parsed = CLIParser.parse(args);
 
       expect(parsed).toEqual({
-        command: "list-devices",
+        command: "device",
+        subcommand: "list",
         wsHost: "192.168.1.100:3000",
         cameraSerial: "",
         port: 0,
@@ -96,6 +100,51 @@ describe("CLI Basic Integration", () => {
       });
     });
 
+    it("should parse device list subcommand", () => {
+      const args = [
+        "device",
+        "list",
+        "--ws-host",
+        "192.168.1.100:3000",
+        "--verbose",
+      ];
+
+      const parsed = CLIParser.parse(args);
+
+      expect(parsed).toEqual({
+        command: "device",
+        subcommand: "list",
+        wsHost: "192.168.1.100:3000",
+        cameraSerial: "",
+        port: 0,
+        verbose: true,
+        help: false,
+      });
+    });
+
+    it("should parse device info subcommand", () => {
+      const args = [
+        "device",
+        "info",
+        "--ws-host",
+        "192.168.1.100:3000",
+        "--camera-serial",
+        "ABC1234567890",
+      ];
+
+      const parsed = CLIParser.parse(args);
+
+      expect(parsed).toEqual({
+        command: "device",
+        subcommand: "info",
+        wsHost: "192.168.1.100:3000",
+        cameraSerial: "ABC1234567890",
+        port: 0,
+        verbose: false,
+        help: false,
+      });
+    });
+
     it("should default to stream command when no command specified", () => {
       const args = [
         "--ws-host",
@@ -106,7 +155,8 @@ describe("CLI Basic Integration", () => {
 
       const parsed = CLIParser.parse(args);
 
-      expect(parsed.command).toBe("stream");
+      expect(parsed.command).toBe("device");
+      expect(parsed.subcommand).toBe("stream");
     });
 
     it("should handle help flag", () => {
@@ -119,7 +169,8 @@ describe("CLI Basic Integration", () => {
 
     it("should validate required arguments for stream command", () => {
       const args = {
-        command: "stream",
+        command: "device",
+        subcommand: "stream",
         wsHost: "192.168.1.100:3000",
         cameraSerial: "ABC1234567890",
         port: 0,
@@ -132,7 +183,8 @@ describe("CLI Basic Integration", () => {
 
     it("should throw error for missing camera serial in stream command", () => {
       const args = {
-        command: "stream",
+        command: "device",
+        subcommand: "stream",
         wsHost: "192.168.1.100:3000",
         cameraSerial: "",
         port: 0,
@@ -141,13 +193,14 @@ describe("CLI Basic Integration", () => {
       };
 
       expect(() => CLIParser.validateArgs(args)).toThrow(
-        "Camera serial is required for the stream command"
+        "Camera serial is required for the device stream command"
       );
     });
 
     it("should validate WebSocket URL format", () => {
       const args = {
-        command: "list-devices",
+        command: "device",
+        subcommand: "list",
         wsHost: "://invalid",
         cameraSerial: "",
         port: 0,
@@ -162,7 +215,8 @@ describe("CLI Basic Integration", () => {
 
     it("should validate camera serial format", () => {
       const args = {
-        command: "stream",
+        command: "device",
+        subcommand: "stream",
         wsHost: "192.168.1.100:3000",
         cameraSerial: "invalid",
         port: 0,
@@ -203,10 +257,10 @@ describe("CLI Basic Integration", () => {
         expect.stringContaining("Available commands:")
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("stream")
+        expect.stringContaining("driver status")
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("list-devices")
+        expect.stringContaining("device list")
       );
 
       consoleSpy.mockRestore();
@@ -229,14 +283,8 @@ describe("CLI Basic Integration", () => {
       const registry = createCommandRegistry(context);
       const availableCommands = getAvailableCommands();
 
-      expect(registry.size).toBe(5);
-      expect(availableCommands).toEqual([
-        "stream",
-        "list-devices",
-        "device-info",
-        "monitor",
-        "driver",
-      ]);
+      expect(registry.size).toBe(2);
+      expect(availableCommands).toEqual(["driver", "device"]);
 
       // Verify all commands are registered
       availableCommands.forEach((commandName: string) => {

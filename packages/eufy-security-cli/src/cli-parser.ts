@@ -46,19 +46,13 @@ export class CLIParser {
     // Check if first argument is a command
     if (args.length > 0 && !args[0].startsWith("-")) {
       const possibleCommand = args[0];
-      const validCommands = [
-        "stream",
-        "list-devices",
-        "device-info",
-        "monitor",
-        "driver",
-      ];
+      const validCommands = ["driver", "device"];
 
       if (validCommands.includes(possibleCommand)) {
         result.command = possibleCommand;
         args = args.slice(1); // Remove command from args
 
-        // Check for subcommands (currently only for driver command)
+        // Check for subcommands
         if (
           possibleCommand === "driver" &&
           args.length > 0 &&
@@ -75,14 +69,32 @@ export class CLIParser {
               `Unknown driver subcommand: ${possibleSubcommand}. Valid subcommands: ${validSubcommands.join(", ")}`
             );
           }
+        } else if (
+          possibleCommand === "device" &&
+          args.length > 0 &&
+          !args[0].startsWith("-")
+        ) {
+          const possibleSubcommand = args[0];
+          const validSubcommands = ["list", "info", "stream", "monitor"];
+
+          if (validSubcommands.includes(possibleSubcommand)) {
+            result.subcommand = possibleSubcommand;
+            args = args.slice(1); // Remove subcommand from args
+          } else {
+            throw new Error(
+              `Unknown device subcommand: ${possibleSubcommand}. Valid subcommands: ${validSubcommands.join(", ")}`
+            );
+          }
         }
       } else {
-        // Default to stream command for backward compatibility
-        result.command = "stream";
+        throw new Error(
+          `Unknown command: ${possibleCommand}. Valid commands: ${validCommands.join(", ")}`
+        );
       }
     } else {
-      // Default to stream command if no command specified
-      result.command = "stream";
+      // Default to device stream command if no command specified
+      result.command = "device";
+      result.subcommand = "stream";
     }
 
     for (let i = 0; i < args.length; i++) {
@@ -162,12 +174,12 @@ USAGE:
   eufy-security-cli [COMMAND] [OPTIONS]
 
 COMMANDS:
-  stream                            Start streaming from a camera
-  list-devices                      List all available camera devices
-  device-info                       Show detailed information about a device
-  monitor                           Monitor camera connection status
   driver status                     Check the connection status of the driver
   driver connect                    Establish connection to the Eufy Security driver
+  device list                       List all available camera devices
+  device info                       Show detailed information about a device
+  device stream                     Start streaming from a camera device
+  device monitor                    Monitor camera connection status and events
 
 GLOBAL OPTIONS:
   --ws-host, -w <host>              WebSocket server host (e.g., 192.168.7.100:3000)
@@ -186,19 +198,19 @@ EXAMPLES:
   eufy-security-cli driver status --ws-host 192.168.7.100:3000
 
   # List all available devices
-  eufy-security-cli list-devices --ws-host 192.168.7.100:3000
+  eufy-security-cli device list --ws-host 192.168.7.100:3000
 
   # Get device information
-  eufy-security-cli device-info --ws-host 192.168.7.100:3000 --camera-serial ABC1234567890
+  eufy-security-cli device info --ws-host 192.168.7.100:3000 --camera-serial ABC1234567890
 
   # Start streaming with development server
-  eufy-security-cli stream --ws-host 192.168.7.100:3000 --camera-serial ABC1234567890
+  eufy-security-cli device stream --ws-host 192.168.7.100:3000 --camera-serial ABC1234567890
 
   # Stream with custom port and verbose logging
-  eufy-security-cli stream -w 192.168.7.100:3000 -c ABC1234567890 -p 8080 -v
+  eufy-security-cli device stream -w 192.168.7.100:3000 -c ABC1234567890 -p 8080 -v
 
   # Monitor camera connection
-  eufy-security-cli monitor --ws-host 192.168.7.100:3000 --camera-serial ABC1234567890
+  eufy-security-cli device monitor --ws-host 192.168.7.100:3000 --camera-serial ABC1234567890
 
 CONNECTING WITH MEDIA PLAYERS:
   # The CLI will display the actual port when streaming starts, e.g.:
@@ -279,16 +291,20 @@ NOTES:
 
     // Command-specific validation
     if (
-      args.command === "stream" ||
-      args.command === "device-info" ||
-      args.command === "monitor"
+      args.command === "device" &&
+      (args.subcommand === "info" ||
+        args.subcommand === "stream" ||
+        args.subcommand === "monitor")
     ) {
       if (!args.cameraSerial) {
+        const commandName = args.subcommand
+          ? `${args.command} ${args.subcommand}`
+          : args.command;
         throw new Error(
-          `❌ Camera serial is required for the ${args.command} command.\n\n` +
-            `Usage: eufy-security-cli ${args.command} --ws-host <host> --camera-serial <serial>\n\n` +
+          `❌ Camera serial is required for the ${commandName} command.\n\n` +
+            `Usage: eufy-security-cli ${commandName} --ws-host <host> --camera-serial <serial>\n\n` +
             `💡 To find available device serials, run:\n` +
-            `   eufy-security-cli list-devices --ws-host ${args.wsHost || "<host>"}`
+            `   eufy-security-cli device list --ws-host ${args.wsHost || "<host>"}`
         );
       }
       this.validateCameraSerial(args.cameraSerial);
