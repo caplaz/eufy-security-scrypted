@@ -87,16 +87,24 @@ cd packages/eufy-security-client && npm run test
 cd packages/eufy-stream-server && npm run test
 ```
 
-### Development Workflow
+### Docker Development Environment
+
+For local development with the `eufy-security-ws` server, use the Docker environment:
 
 ```bash
-# Start development mode (client package)
-cd packages/eufy-security-client && npm run dev
+# Configure your Eufy credentials
+cp docker/.env.example docker/.env
+nano docker/.env
 
-# Debug the Scrypted plugin
-cd packages/eufy-security-scrypted
-# Open in VS Code and use the Launch button (green arrow)
+# Start the eufy-security-ws server
+cd docker && docker-compose up -d
+
+# Test with the CLI
+cd ../packages/eufy-security-cli
+npm run start -- device list --ws-host localhost:3000
 ```
+
+See [docker/README.md](docker/README.md) for detailed setup instructions.
 
 ## 🔧 Scrypted Plugin Setup
 

@@ -1,0 +1,29 @@
+services:
+  eufy-security-ws:
+    image: bropat/eufy-security-ws:latest
+    container_name: eufy-security-ws
+    network_mode: host
+    volumes:
+      - ./data:/data
+    environment:
+      - USERNAME=${EUFY_EMAIL}
+      - PASSWORD=${EUFY_PASSWORD}
+      - PORT=${PORT:-3000}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TRUSTED_DEVICE_NAME=${TRUSTED_DEVICE_NAME:-eufy-security-ws}
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://localhost:${PORT:-3000}/health",
+          "||",
+          "exit",
+          "1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

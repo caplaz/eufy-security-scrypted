@@ -10,6 +10,11 @@ tsconfig.tsbuildinfo
 **/tsconfig.tsbuildinfo
 *.tsbuildinfo
 
+# Environment files
+.env
+.env.local
+.env.*.local
+
 # Test artifacts
 junit.xml
 **/junit.xml
