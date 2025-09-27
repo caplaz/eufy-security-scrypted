@@ -22,8 +22,11 @@ import {
   EufyWebSocketClient,
   GuardMode,
   PropertyMetadataAny,
-} from "eufy-security-client";
-import { MODEL_NAMES, getDeviceCapabilities } from "eufy-security-client";
+} from "@caplaz/eufy-security-client";
+import {
+  MODEL_NAMES,
+  getDeviceCapabilities,
+} from "@caplaz/eufy-security-client";
 import { getScryptedDeviceType } from "./scrypted-device-detection";
 
 // Maps Eufy alarm/guard modes to Scrypted security system modes

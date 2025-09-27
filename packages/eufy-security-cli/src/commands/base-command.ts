@@ -1,5 +1,5 @@
 import { Logger as TsLogger, ILogObj } from "tslog";
-import { EufySecurityClient } from "eufy-security-client";
+import { EufySecurityClient } from "@caplaz/eufy-security-client";
 import {
   CommandHandler,
   ParsedArgs,

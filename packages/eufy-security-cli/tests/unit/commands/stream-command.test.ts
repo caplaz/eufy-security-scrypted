@@ -11,8 +11,8 @@ import {
 import { testUtils } from "../../test-utils";
 
 // Mock the dependencies
-jest.mock("eufy-stream-server");
-jest.mock("eufy-security-client");
+jest.mock("@caplaz/eufy-stream-server");
+jest.mock("@caplaz/eufy-security-client");
 
 describe("StreamCommand", () => {
   let mockContext: CommandContext;
@@ -52,11 +52,11 @@ describe("StreamCommand", () => {
     };
 
     // Mock the constructors
-    const MockStreamServer = require("eufy-stream-server").StreamServer;
+    const MockStreamServer = require("@caplaz/eufy-stream-server").StreamServer;
     MockStreamServer.mockImplementation(() => mockStreamServer);
 
     const MockEufySecurityClient =
-      require("eufy-security-client").EufySecurityClient;
+      require("@caplaz/eufy-security-client").EufySecurityClient;
     MockEufySecurityClient.mockImplementation(() => mockClient);
 
     command = new StreamCommand(mockContext);
@@ -161,7 +161,8 @@ describe("StreamCommand", () => {
 
       await command.execute(validArgs);
 
-      const MockStreamServer = require("eufy-stream-server").StreamServer;
+      const MockStreamServer =
+        require("@caplaz/eufy-stream-server").StreamServer;
       expect(MockStreamServer).toHaveBeenCalledWith({
         port: 8080,
         debug: false,

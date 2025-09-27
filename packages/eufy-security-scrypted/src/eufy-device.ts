@@ -68,9 +68,9 @@ import {
   StorageType,
   VideoQuality,
   getDeviceCapabilities,
-} from "eufy-security-client";
+} from "@caplaz/eufy-security-client";
 
-import { VideoMetadata } from "eufy-security-client";
+import { VideoMetadata } from "@caplaz/eufy-security-client";
 
 import {
   DebugLogger,
@@ -78,7 +78,7 @@ import {
   isDebugEnabled,
 } from "./utils/debug-logger";
 import { DeviceUtils } from "./utils/device-utils";
-import { StreamServer } from "eufy-stream-server";
+import { StreamServer } from "@caplaz/eufy-stream-server";
 import sdk from "@scrypted/sdk";
 
 /**

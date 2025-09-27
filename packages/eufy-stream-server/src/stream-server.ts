@@ -17,7 +17,7 @@ import {
   EufyWebSocketClient,
   DEVICE_EVENTS,
   VideoMetadata,
-} from "eufy-security-client";
+} from "@caplaz/eufy-security-client";
 
 /**
  * Configuration options for the TCP stream server

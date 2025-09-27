@@ -29,7 +29,7 @@ import {
   StationEventType,
   StationProperties,
   StationPropertyChangedEventPayload,
-} from "eufy-security-client";
+} from "@caplaz/eufy-security-client";
 
 import { createDebugLogger, DebugLogger } from "./utils/debug-logger";
 import { EufyDevice } from "./eufy-device";

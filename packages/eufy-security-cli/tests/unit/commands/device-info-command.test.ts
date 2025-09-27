@@ -7,7 +7,7 @@ import { ParsedArgs, CommandContext } from "../../../src/interfaces";
 import { testUtils } from "../../test-utils";
 
 // Mock the dependencies
-jest.mock("eufy-security-client");
+jest.mock("@caplaz/eufy-security-client");
 
 describe("DeviceInfoCommand", () => {
   let mockContext: CommandContext;
@@ -38,7 +38,7 @@ describe("DeviceInfoCommand", () => {
 
     // Mock the constructor
     const MockEufySecurityClient =
-      require("eufy-security-client").EufySecurityClient;
+      require("@caplaz/eufy-security-client").EufySecurityClient;
     MockEufySecurityClient.mockImplementation(() => mockClient);
 
     command = new DeviceInfoCommand(mockContext);

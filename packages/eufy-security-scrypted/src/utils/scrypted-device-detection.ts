@@ -6,7 +6,12 @@
  */
 
 import { ScryptedDeviceType } from "@scrypted/sdk";
-import { isCamera, isDoorbell, isSensor, isLock } from "eufy-security-client";
+import {
+  isCamera,
+  isDoorbell,
+  isSensor,
+  isLock,
+} from "@caplaz/eufy-security-client";
 
 /**
  * Maps a Eufy device type to the appropriate Scrypted device type.

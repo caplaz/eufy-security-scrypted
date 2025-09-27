@@ -44,7 +44,7 @@ import sdk, {
 import {
   EufyWebSocketClient,
   StartListeningResponse,
-} from "eufy-security-client";
+} from "@caplaz/eufy-security-client";
 import { Logger } from "tslog";
 import { EufyStation } from "./eufy-station";
 import {

@@ -8,7 +8,7 @@ import {
   EufyWebSocketClient,
   PanTiltDirection,
   getDeviceCapabilities,
-} from "eufy-security-client";
+} from "@caplaz/eufy-security-client";
 import { DebugLogger } from "../../src/utils/debug-logger";
 
 // Mock the ScryptedDeviceBase
@@ -27,7 +27,7 @@ jest.mock("@scrypted/sdk", () => ({
 }));
 
 // Mock the StreamServer
-jest.mock("eufy-stream-server", () => ({
+jest.mock("@caplaz/eufy-stream-server", () => ({
   StreamServer: jest.fn().mockImplementation(() => ({
     start: jest.fn().mockResolvedValue(undefined),
     stop: jest.fn().mockResolvedValue(undefined),
