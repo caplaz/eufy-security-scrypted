@@ -1,0 +1,40 @@
+module.exports = {
+  preset: "ts-jest",
+  testEnvironment: "node",
+  roots: ["<rootDir>/src", "<rootDir>/tests"],
+  testMatch: ["**/__tests__/**/*.ts", "**/?(*.)+(spec|test).ts"],
+  transform: {
+    "^.+\\.ts$": "ts-jest",
+  },
+  collectCoverageFrom: [
+    "src/**/*.ts",
+    "!src/**/*.d.ts",
+    "!src/**/*.test.ts",
+    "!src/**/*.spec.ts",
+  ],
+  coverageDirectory: "coverage",
+  coverageReporters: [
+    "text",
+    "text-summary",
+    "lcov",
+    "html",
+    "clover",
+    "cobertura",
+  ],
+  setupFilesAfterEnv: ["<rootDir>/tests/setup.ts"],
+  testTimeout: 15000,
+  verbose: true,
+  bail: 0, // Don't stop on first failure
+  maxWorkers: "50%",
+  clearMocks: true,
+  restoreMocks: true,
+  testPathIgnorePatterns: ["/node_modules/", "/dist/"],
+  collectCoverageFrom: [
+    "src/**/*.{ts,tsx}",
+    "!src/**/*.d.ts",
+    "!src/**/*.test.{ts,tsx}",
+    "!src/**/*.spec.{ts,tsx}",
+    "!src/**/__tests__/**",
+    "!src/**/__mocks__/**",
+  ],
+};
