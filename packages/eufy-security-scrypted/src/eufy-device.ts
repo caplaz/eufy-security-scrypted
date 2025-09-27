@@ -67,6 +67,7 @@ import {
   PanTiltDirection,
   StorageType,
   VideoQuality,
+  getDeviceCapabilities,
 } from "eufy-security-client";
 
 import { VideoMetadata } from "eufy-security-client";
@@ -168,6 +169,7 @@ export class EufyDevice
     try {
       this.latestProperties = (await this.api.getProperties()).properties;
       this.updateStateFromProperties(this.latestProperties);
+      this.updatePtzCapabilities(); // Update PTZ capabilities based on device type
     } catch (e) {
       this.logger.w(`Failed to load initial properties: ${e}`);
     }
@@ -335,20 +337,26 @@ export class EufyDevice
 
   // =================== PAN/TILT/ZOOM INTERFACE ===================
 
-  ptzCapabilities = {
-    pan: true,
-    tilt: true,
-    zoom: false, // Assuming no zoom capability for now
-  };
+  private updatePtzCapabilities() {
+    const capabilities = getDeviceCapabilities(
+      this.latestProperties?.type || 0
+    );
+    // Update the inherited ptzCapabilities property
+    (this as any).ptzCapabilities = {
+      pan: capabilities.panTilt,
+      tilt: capabilities.panTilt,
+      zoom: false, // No Eufy cameras currently support zoom
+    };
+  }
 
   ptzCommand(command: PanTiltZoomCommand): Promise<void> {
     if (command.tilt !== undefined) {
       return command.tilt > 0
         ? this.api.panAndTilt({ direction: PanTiltDirection.UP }).then(() => {
-            this.logger.i(`Panned camera up`);
+            this.logger.i(`Tilted camera up`);
           })
         : this.api.panAndTilt({ direction: PanTiltDirection.DOWN }).then(() => {
-            this.logger.i(`Panned camera down`);
+            this.logger.i(`Tilted camera down`);
           });
     }
 
@@ -471,6 +479,7 @@ export class EufyDevice
       try {
         this.latestProperties = (await this.api.getProperties()).properties;
         this.updateStateFromProperties(this.latestProperties);
+        this.updatePtzCapabilities(); // Ensure PTZ capabilities are up to date
       } catch (error) {
         this.logger.w(
           `Failed to get device properties: ${error}, user initiated: ${userInitiated}`
