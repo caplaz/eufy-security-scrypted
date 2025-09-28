@@ -126,7 +126,9 @@ export class EufySecurityProvider
       : "✅ No captcha required";
 
     return [
+      // WebSocket Server Connection Settings
       {
+        group: "WebSocket Server Connection",
         key: "wsUrl",
         title: "WebSocket URL",
         description: "URL of the eufy-security-ws container",
@@ -134,6 +136,7 @@ export class EufySecurityProvider
         placeholder: "ws://localhost:3000",
       },
       {
+        group: "WebSocket Server Connection",
         key: "debugLogging",
         title: "Debug Logging",
         description: "Enable verbose logging for troubleshooting",
@@ -162,12 +165,12 @@ export class EufySecurityProvider
         value: parseInt(this.storage.getItem("memoryThresholdMB") || "120"),
       },
 
-      // Driver Management
+      // Eufy Cloud Account Settings
       {
-        group: "Driver Management",
+        group: "Eufy Cloud Account",
         key: "driverConnectionStatus",
-        title: "Driver Connection Status",
-        description: "Current Eufy cloud driver connection state",
+        title: "Account Connection Status",
+        description: "Current Eufy cloud account connection state",
         value: clientState?.driverConnected
           ? "🟢 Connected"
           : "🔴 Disconnected",
@@ -175,7 +178,7 @@ export class EufySecurityProvider
         readonly: true,
       },
       {
-        group: "Driver Management",
+        group: "Eufy Cloud Account",
         key: "captchaStatus",
         title: "Authentication Status",
         description: "Current authentication/captcha status",
@@ -187,26 +190,26 @@ export class EufySecurityProvider
       ...(clientState?.driverConnected
         ? [
             {
-              group: "Driver Management",
+              group: "Eufy Cloud Account",
               key: "disconnectDriver",
               title: "Disconnect from Eufy Cloud",
               description: "Disconnect from Eufy cloud services",
-              value: "Disconnect Driver",
+              value: "Disconnect Account",
               type: "button" as const,
             },
           ]
         : [
             {
-              group: "Driver Management",
+              group: "Eufy Cloud Account",
               key: "connectDriver",
               title: "Connect to Eufy Cloud",
               description: "Establish connection to Eufy cloud services",
-              value: "Connect Driver",
+              value: "Connect Account",
               type: "button" as const,
             },
           ]),
       {
-        group: "Driver Management",
+        group: "Eufy Cloud Account",
         key: "captchaInput",
         title: "Captcha Code",
         description: "Enter captcha code when prompted during login",
@@ -218,7 +221,7 @@ export class EufySecurityProvider
       ...(this.storage.getItem("currentCaptchaImage")
         ? [
             {
-              group: "Driver Management",
+              group: "Eufy Cloud Account",
               key: "captchaImageDisplay",
               title: "Current Captcha",
               description: "Visual captcha challenge",
@@ -236,7 +239,7 @@ export class EufySecurityProvider
           ]
         : []),
       {
-        group: "Driver Management",
+        group: "Eufy Cloud Account",
         key: "submitCaptcha",
         title: "Submit Captcha",
         description: "Submit the entered captcha code",
@@ -246,7 +249,7 @@ export class EufySecurityProvider
         ...(this.storage.getItem("currentCaptchaId") ? {} : { readonly: true }),
       },
       {
-        group: "Driver Management",
+        group: "Eufy Cloud Account",
         key: "verifyCodeInput",
         title: "2FA Verification Code",
         description: "Enter 2FA verification code when prompted",
@@ -255,7 +258,7 @@ export class EufySecurityProvider
         type: "string" as const,
       },
       {
-        group: "Driver Management",
+        group: "Eufy Cloud Account",
         key: "submitVerifyCode",
         title: "Submit 2FA Code",
         description: "Submit the entered 2FA verification code",
@@ -263,9 +266,9 @@ export class EufySecurityProvider
         type: "button" as const,
       },
 
-      // Client Status Monitoring (Read-only) - Complete ClientState interface data
+      // WebSocket Server Status Monitoring (Read-only) - Complete ClientState interface data
       {
-        group: "Client Status",
+        group: "WebSocket Server Status",
         key: "connectionState",
         title: "Connection State",
         description: "Current connection lifecycle state",
@@ -276,7 +279,7 @@ export class EufySecurityProvider
         readonly: true,
       },
       {
-        group: "Client Status",
+        group: "WebSocket Server Status",
         key: "wsConnected",
         title: "WebSocket Connected",
         description: "Whether WebSocket connection is established",
@@ -285,7 +288,7 @@ export class EufySecurityProvider
         readonly: true,
       },
       {
-        group: "Client Status",
+        group: "WebSocket Server Status",
         key: "schemaSetupComplete",
         title: "Schema Setup Complete",
         description: "Whether API schema negotiation is complete",
@@ -294,18 +297,7 @@ export class EufySecurityProvider
         readonly: true,
       },
       {
-        group: "Client Status",
-        key: "driverConnected",
-        title: "Driver Connected",
-        description: "Whether Eufy driver is connected and ready",
-        value: clientState?.driverConnected
-          ? "🟢 Connected"
-          : "🔴 Disconnected",
-        type: "string" as const,
-        readonly: true,
-      },
-      {
-        group: "Client Status",
+        group: "WebSocket Server Status",
         key: "schemaInfo",
         title: "Schema Negotiation",
         description: "API version compatibility and negotiation results",
@@ -318,7 +310,7 @@ export class EufySecurityProvider
         readonly: true,
       },
       {
-        group: "Client Status",
+        group: "WebSocket Server Status",
         key: "lastError",
         title: "Last Error",
         description: "Most recent error that occurred, if any",
@@ -329,7 +321,7 @@ export class EufySecurityProvider
         readonly: true,
       },
       {
-        group: "Client Status",
+        group: "WebSocket Server Status",
         key: "reconnectAttempts",
         title: "Reconnect Attempts",
         description: "Number of reconnection attempts made",
@@ -338,7 +330,7 @@ export class EufySecurityProvider
         readonly: true,
       },
       {
-        group: "Client Status",
+        group: "WebSocket Server Status",
         key: "eventListenerCount",
         title: "Event Listeners",
         description: "Number of registered event listeners",
