@@ -24,7 +24,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@caplaz/eufy-security-client": "^1.0.0",
+    "@caplaz/eufy-security-client": "^0.1.0",
     "tslog": "^4.9.2"
   },
   "devDependencies": {
