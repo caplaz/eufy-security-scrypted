@@ -170,6 +170,9 @@ export class ClientStateManager {
         this.state.schemaSetupComplete = false;
         this.state.driverConnected = false;
         this.state.connection = ConnectionState.DISCONNECTED;
+      } else {
+        // Check if we should transition to READY when reconnecting
+        this.updateConnectionStateFromConditions();
       }
       this.notifyStateChange();
     }
@@ -187,9 +190,7 @@ export class ClientStateManager {
   setSchemaSetupComplete(complete: boolean): void {
     if (this.state.schemaSetupComplete !== complete) {
       this.state.schemaSetupComplete = complete;
-      if (complete && this.state.wsConnected) {
-        this.state.connection = ConnectionState.READY;
-      }
+      this.updateConnectionStateFromConditions();
       this.notifyStateChange();
     }
   }
@@ -262,6 +263,20 @@ export class ClientStateManager {
   setEventListenerCount(count: number): void {
     this.state.eventListenerCount = count;
     this.notifyStateChange();
+  }
+
+  /**
+   * Update connection state based on current conditions
+   *
+   * Determines the appropriate connection state based on WebSocket and schema status.
+   * Ensures the connection state accurately reflects the current readiness level.
+   *
+   * @private
+   */
+  private updateConnectionStateFromConditions(): void {
+    if (this.state.wsConnected && this.state.schemaSetupComplete) {
+      this.state.connection = ConnectionState.READY;
+    }
   }
 
   /**
