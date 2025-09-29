@@ -66,6 +66,8 @@ export class EufySecurityProvider
   private debugLogging: boolean = false;
   private logger = createDebugLogger("Provider");
   private wsLogger: Logger<any>;
+  private pushConnected: boolean = false;
+  private mqttConnected: boolean = false;
 
   /**
    * Construct a new EufySecurityProvider.
@@ -123,7 +125,9 @@ export class EufySecurityProvider
     const hasPendingCaptcha = !!this.storage.getItem("currentCaptchaId");
     const captchaStatus = hasPendingCaptcha
       ? "🔐 Captcha required - check settings below"
-      : "✅ No captcha required";
+      : clientState?.driverConnected
+        ? "✅ No captcha required"
+        : "⚠️ Authentication needed - check server logs for details";
 
     return [
       // WebSocket Server Connection Settings
@@ -179,6 +183,24 @@ export class EufySecurityProvider
       },
       {
         group: "Eufy Cloud Account",
+        key: "pushConnectionStatus",
+        title: "Push Notifications",
+        description: "Push notification connection status",
+        value: this.pushConnected ? "🟢 Connected" : "🔴 Disconnected",
+        type: "string",
+        readonly: true,
+      },
+      {
+        group: "Eufy Cloud Account",
+        key: "mqttConnectionStatus",
+        title: "MQTT Connection",
+        description: "MQTT connection status for real-time updates",
+        value: this.mqttConnected ? "🟢 Connected" : "🔴 Disconnected",
+        type: "string",
+        readonly: true,
+      },
+      {
+        group: "Eufy Cloud Account",
         key: "captchaStatus",
         title: "Authentication Status",
         description: "Current authentication/captcha status",
@@ -208,16 +230,7 @@ export class EufySecurityProvider
               type: "button" as const,
             },
           ]),
-      {
-        group: "Eufy Cloud Account",
-        key: "captchaInput",
-        title: "Captcha Code",
-        description: "Enter captcha code when prompted during login",
-        value: this.storage.getItem("pendingCaptcha") || "",
-        placeholder: "Enter captcha code...",
-        type: "string" as const,
-      },
-      // Enhanced captcha display with HTML type for image rendering
+      // Enhanced captcha display and input controls (only show when a captcha is present)
       ...(this.storage.getItem("currentCaptchaImage")
         ? [
             {
@@ -225,46 +238,72 @@ export class EufySecurityProvider
               key: "captchaImageDisplay",
               title: "Current Captcha",
               description: "Visual captcha challenge",
-              value: `<div style="text-align: center; margin: 10px 0;">
-            <img src="data:image/png;base64,${this.storage.getItem("currentCaptchaImage")}" 
+              value: (() => {
+                const captchaData = this.storage.getItem(
+                  "currentCaptchaImage"
+                )!;
+                const version =
+                  this.storage.getItem("currentCaptchaImageVersion") || "";
+                const imageSrc = captchaData.startsWith("data:")
+                  ? captchaData
+                  : `data:image/png;base64,${captchaData}`;
+                return `<div style="text-align: center; margin: 10px 0;">
+            <img src="${imageSrc}" 
                  style="max-width: 300px; border: 2px solid #ddd; border-radius: 8px; background: white;" 
                  alt="Captcha Image" />
             <div style="margin-top: 8px; font-size: 12px; color: #666;">
-              Enter the characters shown above in the "Captcha Code" field
+              Enter the characters shown above in the \"Captcha Code\" field
             </div>
-          </div>`,
+            <div style="display:none" data-captcha-version="${version}"></div>
+          </div>`;
+              })(),
               type: "html" as const,
               readonly: true,
             },
+            {
+              group: "Eufy Cloud Account",
+              key: "captchaInput",
+              title: "Captcha Code",
+              description: "Enter captcha code when prompted during login",
+              value: this.storage.getItem("pendingCaptcha") || "",
+              placeholder: "Enter captcha code...",
+              type: "string" as const,
+              immediate: true,
+            },
+            {
+              group: "Eufy Cloud Account",
+              key: "submitCaptcha",
+              title: "Submit Captcha",
+              description: "Submit the entered captcha code",
+              value: "Submit Captcha",
+              type: "button" as const,
+            },
           ]
         : []),
-      {
-        group: "Eufy Cloud Account",
-        key: "submitCaptcha",
-        title: "Submit Captcha",
-        description: "Submit the entered captcha code",
-        value: "Submit Captcha",
-        type: "button" as const,
-        // Only show submit button if we have a captcha
-        ...(this.storage.getItem("currentCaptchaId") ? {} : { readonly: true }),
-      },
-      {
-        group: "Eufy Cloud Account",
-        key: "verifyCodeInput",
-        title: "2FA Verification Code",
-        description: "Enter 2FA verification code when prompted",
-        value: this.storage.getItem("pendingVerifyCode") || "",
-        placeholder: "Enter 6-digit code...",
-        type: "string" as const,
-      },
-      {
-        group: "Eufy Cloud Account",
-        key: "submitVerifyCode",
-        title: "Submit 2FA Code",
-        description: "Submit the entered 2FA verification code",
-        value: "Submit 2FA Code",
-        type: "button" as const,
-      },
+      // Show 2FA controls only when MFA is pending
+      ...(this.storage.getItem("mfaPending") ||
+      this.storage.getItem("currentCaptchaId")
+        ? [
+            {
+              group: "Eufy Cloud Account",
+              key: "verifyCodeInput",
+              title: "2FA Verification Code",
+              description: "Enter 2FA verification code when prompted",
+              value: this.storage.getItem("pendingVerifyCode") || "",
+              placeholder: "Enter 6-digit code...",
+              type: "string" as const,
+              immediate: true,
+            },
+            {
+              group: "Eufy Cloud Account",
+              key: "submitVerifyCode",
+              title: "Submit 2FA Code",
+              description: "Submit the entered 2FA verification code",
+              value: "Submit 2FA Code",
+              type: "button" as const,
+            },
+          ]
+        : []),
 
       // WebSocket Server Status Monitoring (Read-only) - Complete ClientState interface data
       {
@@ -361,43 +400,177 @@ export class EufySecurityProvider
       const beforeState = this.wsClient.getState();
       this.logger.i("📊 Client state before connect:", beforeState);
 
+      let client;
+
       try {
-        this.logger.i("📡 Sending driver.connect() command...");
-        const response = await this.wsClient.commands.driver().connect();
-        this.logger.i("📄 Driver connect response:", response);
+        this.logger.i("🔗 Connecting to Eufy Security driver...");
 
-        // Wait a bit for events to be triggered (captcha requests, etc.)
+        // Use the existing WebSocket client for auth operations instead of creating a new one
+        const client = this.wsClient;
+
+        // Check if WebSocket is connected
+        const isWebSocketConnected = client.isConnected();
+
+        if (!isWebSocketConnected) {
+          this.displayConnectResult(false, false);
+          return;
+        }
+
+        // Start listening to get the real driver authentication state
+        this.logger.i("🔍 Checking driver authentication status...");
+        const listeningResult = await client.startListening();
+        const isDriverConnected = listeningResult.state.driver.connected;
+
+        // Get additional connection status information
+        this.logger.d("🔍 Checking detailed connection status...");
+        const pushResponse = await client.commands.driver().isPushConnected();
+        const mqttResponse = await client.commands.driver().isMqttConnected();
+
+        // Store the connection status for settings display
+        this.pushConnected = pushResponse.connected;
+        this.mqttConnected = mqttResponse.connected;
+
         this.logger.i(
-          "⏳ Waiting for authentication events (captcha, etc.)..."
+          `📊 Connection status: Driver=${isDriverConnected}, Push=${this.pushConnected}, MQTT=${this.mqttConnected}`
         );
-        await new Promise((resolve) => setTimeout(resolve, 3000)); // Wait 3 seconds
 
-        // Check client state after waiting
-        const afterState = this.wsClient.getState();
-        this.logger.i("📊 Client state after connect + wait:", afterState);
+        // Check if CAPTCHA or MFA was requested during startListening
+        const pendingCaptcha = client.getPendingCaptcha();
+        const pendingMfa = client.getPendingMfa();
 
-        if (afterState.driverConnected) {
-          this.logger.i("✅ Driver is now connected!");
-        } else {
-          this.logger.w(
-            "⚠️ Driver not connected - likely needs authentication (captcha/2FA)"
+        this.logger.d(
+          `🔍 After startListening - Captcha: ${!!pendingCaptcha}, MFA: ${!!pendingMfa}`
+        );
+
+        if (pendingCaptcha) {
+          // CAPTCHA was requested during startListening
+          this.logger.i("🔐 CAPTCHA detected after startListening");
+          await this.displayCaptchaRequired(
+            pendingCaptcha.captchaId,
+            pendingCaptcha.captcha
           );
+          client.clearPendingCaptcha();
+          return;
+        }
+
+        if (pendingMfa) {
+          // MFA was requested during startListening
+          // Mark MFA pending so settings will show the verification controls
+          this.storage.setItem("mfaPending", "true");
+          this.displayMfaRequired(pendingMfa.methods);
+          client.clearPendingMfa();
+          return;
+        }
+
+        if (isDriverConnected) {
+          // Driver is already fully authenticated
+          this.displayConnectResult(true, true);
+          return;
+        }
+
+        // Driver needs authentication - try to connect driver to trigger 2FA
+        this.logger.i(
+          "🔐 Attempting to connect driver to trigger 2FA process..."
+        );
+
+        try {
+          // Try to connect the driver - this should trigger 2FA if needed
+          await client.commands.driver().connect();
+          this.logger.i("🔐 Driver connect command sent");
+
+          // Wait a moment for any immediate state changes
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+
+          // Check again for any CAPTCHA/MFA that was triggered by connectDriver
+          const captchaAfterConnect = client.getPendingCaptcha();
+          const mfaAfterConnect = client.getPendingMfa();
+
+          this.logger.d(
+            `🔍 After connect - Captcha: ${!!captchaAfterConnect}, MFA: ${!!mfaAfterConnect}`
+          );
+
+          if (captchaAfterConnect) {
+            this.logger.i("🔐 CAPTCHA detected after connect command");
+            await this.displayCaptchaRequired(
+              captchaAfterConnect.captchaId,
+              captchaAfterConnect.captcha
+            );
+            client.clearPendingCaptcha();
+            return;
+          }
+
+          if (mfaAfterConnect) {
+            this.storage.setItem("mfaPending", "true");
+            this.displayMfaRequired(mfaAfterConnect.methods);
+            client.clearPendingMfa();
+            return;
+          }
+
+          // Start listening again to check if authentication completed
+          const finalListeningResult = await client.startListening();
+          const finalDriverState = finalListeningResult.state.driver.connected;
+
+          if (finalDriverState) {
+            // Driver connected successfully
+            this.displayConnectResult(true, true);
+            return;
+          }
+        } catch (connectError) {
+          // Check if this is a CAPTCHA or MFA exception (legacy handling)
+          if (connectError instanceof Error) {
+            const error = connectError as any;
+            if (error.type === "CAPTCHA_REQUIRED") {
+              // CAPTCHA authentication required
+              await this.displayCaptchaRequired(error.captchaId, error.captcha);
+              return;
+            } else if (error.type === "MFA_REQUIRED") {
+              // MFA verification required
+              this.displayMfaRequired(error.methods);
+              return;
+            }
+          }
+
           this.logger.i(
-            "💡 Check the settings page for captcha image or authentication prompts"
+            "🔐 Driver connection attempt failed - authentication likely required"
           );
         }
 
-        this.logger.i("✅ Driver connection process completed");
-
-        // Refresh the settings UI to show updated connection state
-        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+        // If we get here, authentication is needed
+        this.displayConnectResult(true, false);
+        this.logger.i("💡 To complete authentication:");
+        this.logger.i("   1. Check the settings page for CAPTCHA requirements");
+        this.logger.i("   2. Use the CAPTCHA input field if prompted");
+        this.logger.i("   3. Use the 2FA verification code field");
+        this.logger.i("   4. Check status with the connection status display");
+        this.logger.i(
+          "   5. If no CAPTCHA appears, the account may need different authentication"
+        );
+        this.logger.i(
+          "      Try checking the eufy-security-ws server logs for more details"
+        );
       } catch (error) {
-        this.logger.e("❌ Failed to connect driver:", error);
+        if (error instanceof Error && error.message.startsWith("❌")) {
+          // Re-throw our custom error messages as-is
+          this.logger.e(error.message);
+          throw error;
+        }
 
-        // Refresh the settings UI even on error to show any state changes
-        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
-        throw error;
+        this.logger.e(
+          "❌ Failed to connect to driver:",
+          error instanceof Error ? error.message : String(error)
+        );
+        throw new Error(
+          `❌ Failed to connect to driver: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      } finally {
+        // Clean up connection - only if we created a separate client (not using existing wsClient)
+        // Since we're now using the existing wsClient, no cleanup needed here
       }
+
+      // Refresh the settings UI to show updated connection state
+      this.onDeviceEvent(ScryptedInterface.Settings, undefined);
       return;
     }
 
@@ -413,6 +586,132 @@ export class EufySecurityProvider
         this.logger.e("❌ Failed to disconnect driver:", error);
 
         // Refresh the settings UI even on error to show any state changes
+        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+        throw error;
+      }
+      return;
+    }
+
+    // Buttons may send a null value; handle submit actions here before the
+    // generic null/undefined early-return below so button clicks are processed.
+    if (key === "submitCaptcha") {
+      // It's common for the input field update to arrive slightly after the
+      // button click (race). Poll briefly for the stored pending captcha so
+      // the submit works even if the input putSetting arrives just after.
+      let captchaCode = this.storage.getItem("pendingCaptcha");
+      const captchaId = this.storage.getItem("currentCaptchaId");
+
+      if (!captchaCode) {
+        // Wait up to 500ms, checking every 50ms
+        for (let i = 0; i < 10 && !captchaCode; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          captchaCode = this.storage.getItem("pendingCaptcha");
+        }
+      }
+
+      if (!captchaCode || !captchaId) {
+        this.logger.w("⚠️ No captcha code or captcha ID available");
+        throw new Error(
+          "Please enter a captcha code first, or no captcha was requested"
+        );
+      }
+
+      this.logger.i("📝 Submitting captcha code...");
+      try {
+        await this.wsClient.commands.driver().setCaptcha({
+          captchaId,
+          captcha: captchaCode,
+        });
+        this.logger.i("✅ Captcha submitted successfully");
+        // Clear stored captcha data
+        this.storage.removeItem("pendingCaptcha");
+        this.storage.removeItem("currentCaptchaId");
+        this.storage.removeItem("currentCaptchaImage");
+        // Clear MFA pending flag as the flow progresses
+        this.storage.removeItem("mfaPending");
+        // Clear version/token so settings HTML will update to removed state
+        this.storage.removeItem("currentCaptchaImageVersion");
+
+        // Refresh the settings UI to remove captcha display
+        this.logger.d("ℹ️ Triggering settings refresh after captcha submit");
+        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+
+        // Some Scrypted UI instances may miss a single event during rapid
+        // state changes; trigger a second refresh shortly after to be sure.
+        setTimeout(() => {
+          this.logger.d(
+            "ℹ️ Triggering delayed settings refresh (post-captcha)"
+          );
+          try {
+            this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+          } catch (e) {
+            this.logger.w("⚠️ Delayed settings refresh failed:", e);
+          }
+        }, 200);
+      } catch (error) {
+        this.logger.e("❌ Failed to submit captcha:", error);
+
+        // Refresh the settings UI even on error
+        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+        throw error;
+      }
+      return;
+    }
+
+    if (key === "submitVerifyCode") {
+      // Allow a short window for the verification input to be stored if the
+      // button click races the input update (same poll approach as captcha)
+      let verifyCode = this.storage.getItem("pendingVerifyCode");
+      if (!verifyCode) {
+        for (let i = 0; i < 10 && !verifyCode; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          verifyCode = this.storage.getItem("pendingVerifyCode");
+        }
+      }
+
+      if (!verifyCode) {
+        this.logger.w("⚠️ No verification code available");
+        throw new Error("Please enter a 2FA verification code first");
+      }
+
+      this.logger.i("🔐 Submitting 2FA verification code...");
+      try {
+        const captchaId = this.storage.getItem("currentCaptchaId");
+        if (!captchaId) {
+          throw new Error(
+            "No captcha ID available - captcha may be required first"
+          );
+        }
+
+        await this.wsClient.commands.driver().setVerifyCode({
+          captchaId,
+          verifyCode,
+        });
+        this.logger.i("✅ 2FA verification code submitted successfully");
+        // Clear stored verification code
+        this.storage.removeItem("pendingVerifyCode");
+        // Clear MFA pending flag on successful verification
+        this.storage.removeItem("mfaPending");
+
+        // Refresh the settings UI
+        this.logger.d(
+          "ℹ️ Triggering settings refresh after verify-code submit"
+        );
+        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+
+        // Delayed refresh as well to ensure UI picks up the change
+        setTimeout(() => {
+          this.logger.d("ℹ️ Triggering delayed settings refresh (post-verify)");
+          try {
+            this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+          } catch (e) {
+            this.logger.w("⚠️ Delayed settings refresh failed:", e);
+          }
+        }, 200);
+      } catch (error) {
+        this.logger.e("❌ Failed to submit 2FA verification code:", error);
+
+        // Refresh the settings UI even on error
         this.onDeviceEvent(ScryptedInterface.Settings, undefined);
         throw error;
       }
@@ -480,75 +779,59 @@ export class EufySecurityProvider
       // Store the captcha input for later submission
       this.storage.setItem("pendingCaptcha", value as string);
       this.logger.d("✅ Captcha input stored");
-    } else if (key === "submitCaptcha") {
-      const captchaCode = this.storage.getItem("pendingCaptcha");
-      const captchaId = this.storage.getItem("currentCaptchaId");
-
-      if (!captchaCode || !captchaId) {
-        this.logger.w("⚠️ No captcha code or captcha ID available");
-        throw new Error(
-          "Please enter a captcha code first, or no captcha was requested"
-        );
-      }
-
-      this.logger.i("📝 Submitting captcha code...");
-      try {
-        await this.wsClient.commands.driver().setCaptcha({
-          captchaId,
-          captcha: captchaCode,
-        });
-        this.logger.i("✅ Captcha submitted successfully");
-        // Clear stored captcha data
-        this.storage.removeItem("pendingCaptcha");
-        this.storage.removeItem("currentCaptchaId");
-        this.storage.removeItem("currentCaptchaImage");
-
-        // Refresh the settings UI to remove captcha display
-        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
-      } catch (error) {
-        this.logger.e("❌ Failed to submit captcha:", error);
-
-        // Refresh the settings UI even on error
-        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
-        throw error;
-      }
     } else if (key === "verifyCodeInput") {
       // Store the verification code input for later submission
-      this.storage.setItem("pendingVerifyCode", value as string);
-      this.logger.d("✅ 2FA verification code input stored");
-    } else if (key === "submitVerifyCode") {
-      const verifyCode = this.storage.getItem("pendingVerifyCode");
+      const verifyValue = (value as string) || "";
+      this.storage.setItem("pendingVerifyCode", verifyValue);
+      this.logger.d("✅ 2FA verification code input stored", verifyValue);
 
-      if (!verifyCode) {
-        this.logger.w("⚠️ No verification code available");
-        throw new Error("Please enter a 2FA verification code first");
-      }
+      // If the user entered a full 2FA code (commonly 6 digits), auto-submit
+      // to avoid the extra button click and any racing issues.
+      if (verifyValue.trim().length >= 6) {
+        this.logger.i("🔎 Auto-submitting 2FA verification code (length>=6)");
+        try {
+          const captchaId = this.storage.getItem("currentCaptchaId");
+          if (!captchaId) {
+            throw new Error(
+              "No captcha ID available - captcha may be required first"
+            );
+          }
 
-      this.logger.i("🔐 Submitting 2FA verification code...");
-      try {
-        const captchaId = this.storage.getItem("currentCaptchaId");
-        if (!captchaId) {
-          throw new Error(
-            "No captcha ID available - captcha may be required first"
+          await this.wsClient.commands.driver().setVerifyCode({
+            captchaId,
+            verifyCode: verifyValue,
+          });
+
+          this.logger.i(
+            "✅ 2FA verification code submitted successfully (auto)"
           );
+          // Clear stored verification code
+          this.storage.removeItem("pendingVerifyCode");
+
+          // Refresh the settings UI and schedule a delayed refresh too
+          this.logger.d(
+            "ℹ️ Triggering settings refresh after auto-verify submit"
+          );
+          this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+          setTimeout(() => {
+            this.logger.d(
+              "ℹ️ Triggering delayed settings refresh (post-auto-verify)"
+            );
+            try {
+              this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+            } catch (e) {
+              this.logger.w("⚠️ Delayed settings refresh failed:", e);
+            }
+          }, 200);
+        } catch (error) {
+          this.logger.e(
+            "❌ Failed to auto-submit 2FA verification code:",
+            error
+          );
+          // Trigger a settings refresh even on error
+          this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+          throw error;
         }
-
-        await this.wsClient.commands.driver().setVerifyCode({
-          captchaId,
-          verifyCode,
-        });
-        this.logger.i("✅ 2FA verification code submitted successfully");
-        // Clear stored verification code
-        this.storage.removeItem("pendingVerifyCode");
-
-        // Refresh the settings UI
-        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
-      } catch (error) {
-        this.logger.e("❌ Failed to submit 2FA verification code:", error);
-
-        // Refresh the settings UI even on error
-        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
-        throw error;
       }
     } else {
       // Unknown setting key - this is not necessarily an error
@@ -596,6 +879,15 @@ export class EufySecurityProvider
   async getDevice(nativeId: ScryptedNativeId): Promise<any> {
     // Wait for client to be ready on restore (schema negotiation, etc.)
     await this.waitForClientReady();
+
+    // Check if driver is connected before creating devices
+    const clientState = this.wsClient.getState();
+    if (!clientState.driverConnected) {
+      this.logger.w(
+        `⚠️ Driver not connected, cannot create device ${nativeId}`
+      );
+      return undefined;
+    }
 
     if (nativeId && nativeId.startsWith("station_")) {
       this.logger.d(`Getting station ${nativeId}`);
@@ -648,10 +940,15 @@ export class EufySecurityProvider
       JSON.stringify(serverState, null, 2)
     );
 
-    // Register stations and devices from server state
-    // IMPORTANT: Register stations first so they exist as parents for devices
-    await this.registerStationsFromServerState(serverState);
-    await this.registerDevicesFromServerState(serverState);
+    // Only register stations and devices if the driver is connected
+    if (serverState.state.driver.connected) {
+      // Register stations and devices from server state
+      // IMPORTANT: Register stations first so they exist as parents for devices
+      await this.registerStationsFromServerState(serverState);
+      await this.registerDevicesFromServerState(serverState);
+    } else {
+      this.logger.w("⚠️ Driver not connected, skipping device registration");
+    }
   }
 
   /**
@@ -785,6 +1082,11 @@ export class EufySecurityProvider
         // Store captcha image data for display (base64 encoded)
         this.storage.setItem("currentCaptchaImage", event.captcha);
 
+        // Store a version/timestamp to force settings UI to detect a change
+        const version = Date.now().toString();
+        this.storage.setItem("currentCaptchaImageVersion", version);
+        this.logger.d(`✅ Stored captcha image version: ${version}`);
+
         this.logger.i(
           "💡 Please check the Driver Management settings to enter the captcha code"
         );
@@ -808,7 +1110,7 @@ export class EufySecurityProvider
     this.wsClient.addEventListener(
       "disconnected",
       (event) => {
-        this.logger.i("� Driver disconnected event received:", event);
+        this.logger.i("🔌 Driver disconnected event received:", event);
       },
       { source: "driver" }
     );
@@ -846,5 +1148,125 @@ export class EufySecurityProvider
   dispose(): void {
     this.wsClient.disconnect();
     this.stations.clear();
+  }
+
+  /**
+   * Execute a promise with a timeout
+   */
+  private async withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    timeoutMessage: string
+  ): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error(timeoutMessage));
+      }, timeoutMs);
+
+      promise
+        .then((result) => {
+          clearTimeout(timeoutId);
+          resolve(result);
+        })
+        .catch((error) => {
+          clearTimeout(timeoutId);
+          reject(error);
+        });
+    });
+  }
+
+  /**
+   * Display the result of a connection attempt
+   */
+  private displayConnectResult(
+    isWebSocketConnected: boolean,
+    isDriverConnected: boolean
+  ): void {
+    if (!isWebSocketConnected) {
+      this.logger.e("❌ Connection Failed: WEBSOCKET DISCONNECTED");
+      this.logger.e("   Cannot connect to the eufy-security-ws server.");
+      this.logger.e("   This may indicate:");
+      this.logger.e("   • The eufy-security-ws server is not running");
+      this.logger.e("   • Network connectivity issues");
+      this.logger.e("   • Incorrect WebSocket host/port configuration");
+      this.logger.e("   • Server configuration issues");
+      throw new Error("❌ WebSocket connection failed");
+    } else if (!isDriverConnected) {
+      this.logger.w("⚠️  Connection Established: DRIVER NEEDS AUTHENTICATION");
+      this.logger.w(
+        "   WebSocket connection established, but Eufy driver is not authenticated."
+      );
+      this.logger.w("   This typically means:");
+      this.logger.w(
+        "   • 2FA authentication is required (captcha/verification code)"
+      );
+      this.logger.w("   • Eufy account credentials need verification");
+      this.logger.w("   • Check the settings page for authentication prompts");
+    } else {
+      this.logger.i("✅ Connection Successful: FULLY CONNECTED");
+      this.logger.i(
+        "   WebSocket connection established and Eufy driver is authenticated."
+      );
+      this.logger.i(
+        "   You can now use other Scrypted features to interact with your devices."
+      );
+    }
+  }
+
+  /**
+   * Display CAPTCHA authentication requirements
+   */
+  private async displayCaptchaRequired(
+    captchaId: string,
+    captcha: string
+  ): Promise<void> {
+    this.logger.i("🔐 CAPTCHA authentication is required to complete login.");
+    this.logger.i(`   CAPTCHA ID: ${captchaId}`);
+
+    // Store captcha ID for later use
+    this.storage.setItem("currentCaptchaId", captchaId);
+    // Store captcha image data for display (base64 encoded)
+    this.storage.setItem("currentCaptchaImage", captcha);
+
+    // Also store a version to force the settings HTML to change even if the
+    // image data is identical (some UIs may not refresh if the value is
+    // byte-for-byte identical). Embedding this in the HTML forces an update.
+    const version = Date.now().toString();
+    this.storage.setItem("currentCaptchaImageVersion", version);
+    this.logger.d(
+      `✅ displayCaptchaRequired stored captcha version: ${version}`
+    );
+
+    this.logger.i("💡 To complete authentication:");
+    this.logger.i("   1. Check the settings page for the CAPTCHA image");
+    this.logger.i("   2. Solve the CAPTCHA challenge shown in settings");
+    this.logger.i("   3. Enter the code in the 'Captcha Code' field");
+    this.logger.i("   4. Click 'Submit Captcha'");
+    this.logger.i("   5. Then enter 2FA verification code if prompted");
+
+    // Refresh the settings UI to show the captcha image
+    this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+  }
+
+  /**
+   * Display MFA authentication requirements
+   */
+  private displayMfaRequired(methods: string[]): void {
+    this.logger.i(
+      "🔐 Multi-factor authentication is required to complete login."
+    );
+    this.logger.i("   Please check your email/SMS for the verification code.");
+    this.logger.i("   Available Methods:");
+    methods.forEach((method, index) => {
+      this.logger.i(`   ${index + 1}. ${method}`);
+    });
+    this.logger.i("💡 To complete authentication:");
+    this.logger.i("   1. Check your email or SMS for the verification code");
+    this.logger.i("   2. Enter the code in the '2FA Verification Code' field");
+    this.logger.i("   3. Click 'Submit 2FA Code'");
+    this.logger.i("   4. Check the connection status for completion");
+
+    // Refresh the settings UI to show the MFA prompt
+    this.onDeviceEvent(ScryptedInterface.Settings, undefined);
   }
 }
