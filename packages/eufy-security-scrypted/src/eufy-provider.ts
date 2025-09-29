@@ -302,6 +302,14 @@ export class EufySecurityProvider
               value: "Submit 2FA Code",
               type: "button" as const,
             },
+            {
+              group: "Eufy Cloud Account",
+              key: "requestVerifyCode",
+              title: "Request New 2FA Code",
+              description: "Request a new 2FA verification code to be sent",
+              value: "Request New Code",
+              type: "button" as const,
+            },
           ]
         : []),
 
@@ -457,7 +465,7 @@ export class EufySecurityProvider
           // MFA was requested during startListening
           // Mark MFA pending so settings will show the verification controls
           this.storage.setItem("mfaPending", "true");
-          this.displayMfaRequired(pendingMfa.methods);
+          this.displayMfaRequired(pendingMfa);
           client.clearPendingMfa();
           return;
         }
@@ -501,7 +509,7 @@ export class EufySecurityProvider
 
           if (mfaAfterConnect) {
             this.storage.setItem("mfaPending", "true");
-            this.displayMfaRequired(mfaAfterConnect.methods);
+            this.displayMfaRequired(mfaAfterConnect);
             client.clearPendingMfa();
             return;
           }
@@ -525,7 +533,7 @@ export class EufySecurityProvider
               return;
             } else if (error.type === "MFA_REQUIRED") {
               // MFA verification required
-              this.displayMfaRequired(error.methods);
+              this.displayMfaRequired({ methods: error.methods });
               return;
             }
           }
@@ -632,6 +640,32 @@ export class EufySecurityProvider
         // Clear version/token so settings HTML will update to removed state
         this.storage.removeItem("currentCaptchaImageVersion");
 
+        // After successful captcha submission, check if MFA is now required or if driver connected
+        this.logger.d(
+          "🔍 Checking authentication status after captcha submission..."
+        );
+        const postCaptchaMfa = this.wsClient.getPendingMfa();
+        if (postCaptchaMfa) {
+          this.logger.i("🔐 MFA required after captcha submission");
+          this.storage.setItem("mfaPending", "true");
+          this.displayMfaRequired(postCaptchaMfa);
+          this.wsClient.clearPendingMfa();
+          return; // Don't refresh UI yet, displayMfaRequired will do it
+        }
+
+        // Check if driver is now connected after captcha
+        const listeningResult = await this.wsClient.startListening();
+        if (listeningResult.state.driver.connected) {
+          this.logger.i("✅ Driver connected successfully after captcha");
+          this.displayConnectResult(true, true);
+          return; // Don't refresh UI, displayConnectResult handles it
+        }
+
+        // If we get here, authentication may still be incomplete
+        this.logger.w(
+          "⚠️ Captcha submitted but authentication not complete - may need MFA or additional steps"
+        );
+
         // Refresh the settings UI to remove captcha display
         this.logger.d("ℹ️ Triggering settings refresh after captcha submit");
         this.onDeviceEvent(ScryptedInterface.Settings, undefined);
@@ -650,6 +684,33 @@ export class EufySecurityProvider
         }, 200);
       } catch (error) {
         this.logger.e("❌ Failed to submit captcha:", error);
+
+        // Refresh the settings UI even on error
+        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+        throw error;
+      }
+      return;
+    }
+
+    if (key === "requestVerifyCode") {
+      this.logger.i("🔄 Button clicked: Request new 2FA verification code");
+      try {
+        // Try to re-trigger the MFA process by calling connect again
+        // This may cause the server to send a new verification code
+        await this.wsClient.commands.driver().connect();
+        this.logger.i("✅ Requested new 2FA verification code");
+
+        // Check if new MFA info is available
+        const newMfa = this.wsClient.getPendingMfa();
+        if (newMfa) {
+          this.displayMfaRequired(newMfa);
+          this.wsClient.clearPendingMfa();
+        }
+
+        // Refresh the settings UI
+        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+      } catch (error) {
+        this.logger.e("❌ Failed to request new 2FA code:", error);
 
         // Refresh the settings UI even on error
         this.onDeviceEvent(ScryptedInterface.Settings, undefined);
@@ -677,14 +738,17 @@ export class EufySecurityProvider
       this.logger.i("🔐 Submitting 2FA verification code...");
       try {
         const captchaId = this.storage.getItem("currentCaptchaId");
+        this.logger.i(`🔍 Using captchaId: ${captchaId} for 2FA submission`);
         if (!captchaId) {
-          throw new Error(
-            "No captcha ID available - captcha may be required first"
+          this.logger.w(
+            "⚠️ No captchaId available for 2FA - this may be expected for MFA-only flows"
           );
+          // For MFA-only flows, we might not have a captchaId
+          // Let's try without it or see if we can get it from the client
         }
 
         await this.wsClient.commands.driver().setVerifyCode({
-          captchaId,
+          captchaId: captchaId || "",
           verifyCode,
         });
         this.logger.i("✅ 2FA verification code submitted successfully");
@@ -710,7 +774,7 @@ export class EufySecurityProvider
         }, 200);
       } catch (error) {
         this.logger.e("❌ Failed to submit 2FA verification code:", error);
-
+        this.logger.e("❌ Error details:", JSON.stringify(error, null, 2));
         // Refresh the settings UI even on error
         this.onDeviceEvent(ScryptedInterface.Settings, undefined);
         throw error;
@@ -784,55 +848,6 @@ export class EufySecurityProvider
       const verifyValue = (value as string) || "";
       this.storage.setItem("pendingVerifyCode", verifyValue);
       this.logger.d("✅ 2FA verification code input stored", verifyValue);
-
-      // If the user entered a full 2FA code (commonly 6 digits), auto-submit
-      // to avoid the extra button click and any racing issues.
-      if (verifyValue.trim().length >= 6) {
-        this.logger.i("🔎 Auto-submitting 2FA verification code (length>=6)");
-        try {
-          const captchaId = this.storage.getItem("currentCaptchaId");
-          if (!captchaId) {
-            throw new Error(
-              "No captcha ID available - captcha may be required first"
-            );
-          }
-
-          await this.wsClient.commands.driver().setVerifyCode({
-            captchaId,
-            verifyCode: verifyValue,
-          });
-
-          this.logger.i(
-            "✅ 2FA verification code submitted successfully (auto)"
-          );
-          // Clear stored verification code
-          this.storage.removeItem("pendingVerifyCode");
-
-          // Refresh the settings UI and schedule a delayed refresh too
-          this.logger.d(
-            "ℹ️ Triggering settings refresh after auto-verify submit"
-          );
-          this.onDeviceEvent(ScryptedInterface.Settings, undefined);
-          setTimeout(() => {
-            this.logger.d(
-              "ℹ️ Triggering delayed settings refresh (post-auto-verify)"
-            );
-            try {
-              this.onDeviceEvent(ScryptedInterface.Settings, undefined);
-            } catch (e) {
-              this.logger.w("⚠️ Delayed settings refresh failed:", e);
-            }
-          }, 200);
-        } catch (error) {
-          this.logger.e(
-            "❌ Failed to auto-submit 2FA verification code:",
-            error
-          );
-          // Trigger a settings refresh even on error
-          this.onDeviceEvent(ScryptedInterface.Settings, undefined);
-          throw error;
-        }
-      }
     } else {
       // Unknown setting key - this is not necessarily an error
       this.logger.d(`ℹ️ Setting updated: ${key} = ${value}`);
@@ -1074,7 +1089,9 @@ export class EufySecurityProvider
       (event) => {
         this.logger.i("🔐 Captcha requested for driver authentication");
         this.logger.i(`Captcha ID: ${event.captchaId}`);
-        this.logger.i(`Captcha Image: ${event.captcha}`);
+        this.logger.i(
+          `Captcha Image: received (${event.captcha.length} chars)`
+        );
 
         // Store captcha ID for later use
         this.storage.setItem("currentCaptchaId", event.captchaId);
@@ -1251,15 +1268,41 @@ export class EufySecurityProvider
   /**
    * Display MFA authentication requirements
    */
-  private displayMfaRequired(methods: string[]): void {
+  private displayMfaRequired(mfaData: {
+    methods: string[];
+    captchaId?: string;
+  }): void {
     this.logger.i(
       "🔐 Multi-factor authentication is required to complete login."
     );
-    this.logger.i("   Please check your email/SMS for the verification code.");
-    this.logger.i("   Available Methods:");
-    methods.forEach((method, index) => {
-      this.logger.i(`   ${index + 1}. ${method}`);
-    });
+    this.logger.i(`   Methods received: ${mfaData.methods.length} methods`);
+    if (mfaData.methods.length === 0) {
+      this.logger.w(
+        "⚠️ No MFA methods provided - this may indicate an issue with the MFA request"
+      );
+      this.logger.w(
+        "   Please check the eufy-security-ws server logs for more details"
+      );
+      this.logger.w("   You may need to restart the authentication process");
+    } else {
+      this.logger.i(
+        "   Please check your email/SMS for the verification code."
+      );
+      this.logger.i("   Available Methods:");
+      mfaData.methods.forEach((method, index) => {
+        this.logger.i(`   ${index + 1}. ${method}`);
+      });
+    }
+
+    // Store the captchaId if provided for MFA verification
+    if (mfaData.captchaId) {
+      this.storage.setItem("currentCaptchaId", mfaData.captchaId);
+      this.logger.i(`🔑 Stored MFA captchaId: ${mfaData.captchaId}`);
+    }
+
+    // Clear any previously stored verification code to ensure the input field starts empty
+    this.storage.removeItem("pendingVerifyCode");
+
     this.logger.i("💡 To complete authentication:");
     this.logger.i("   1. Check your email or SMS for the verification code");
     this.logger.i("   2. Enter the code in the '2FA Verification Code' field");
