@@ -24,7 +24,7 @@
     "clean": "rm -rf dist out .scrypted .tsbuildinfo tsconfig.tsbuildinfo coverage",
     "typecheck": "tsc --noEmit --skipLibCheck",
     "dev": "scrypted-webpack --watch",
-    "lint": "eslint src/**/*.ts --max-warnings 0 --cache",
+    "lint": "npx eslint src/**/*.ts --max-warnings 0 --config ../../.eslintrc.js",
     "lint:fix": "eslint src/**/*.ts --fix --cache"
   },
   "keywords": [

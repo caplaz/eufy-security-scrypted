@@ -88,11 +88,11 @@ export class EufyStation
       }).bind(this)
     );
 
-    this.addEventListener(STATION_EVENTS.GUARD_MODE_CHANGED, (event) => {
+    this.addEventListener(STATION_EVENTS.GUARD_MODE_CHANGED, (_event) => {
       // this.handlePropertyChangedEvent(event);
     });
 
-    this.addEventListener(STATION_EVENTS.CURRENT_MODE_CHANGED, (event) => {
+    this.addEventListener(STATION_EVENTS.CURRENT_MODE_CHANGED, (_event) => {
       this.handlePropertyChangedEvent.bind(this);
     });
 

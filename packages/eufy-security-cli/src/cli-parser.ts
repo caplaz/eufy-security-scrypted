@@ -157,7 +157,7 @@ export class CLIParser {
           break;
 
         case "--port":
-        case "-p":
+        case "-p": {
           if (!nextArg || nextArg.startsWith("-")) {
             throw new Error("Port number is required after --port");
           }
@@ -170,6 +170,7 @@ export class CLIParser {
           result.port = port;
           i++; // Skip next argument as it's the value
           break;
+        }
 
         case "--verbose":
         case "-v":
@@ -401,7 +402,7 @@ NOTES:
     }
 
     // Extract hostname and port manually to validate before URL constructor
-    const match = url.match(/^wss?:\/\/([^:\/]+)(?::(\d+))?/);
+    const match = url.match(/^wss?:\/\/([^:/]+)(?::(\d+))?/);
     if (!match) {
       throw new Error(
         `❌ Invalid WebSocket host format: ${wsHost}\n\n` +

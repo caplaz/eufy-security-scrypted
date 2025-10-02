@@ -68,7 +68,7 @@ export class CLIApplication {
   async run(args: string[]): Promise<void> {
     try {
       // Parse command-line arguments
-      const parsedArgs = CLIParser.parse(args);
+      const parsedArgs: ParsedArgs = CLIParser.parse(args);
 
       // Show help if requested
       if (parsedArgs.help) {

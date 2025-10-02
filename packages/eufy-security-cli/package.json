@@ -22,7 +22,7 @@
     "typecheck": "tsc --noEmit --skipLibCheck",
     "start": "node dist/main.js",
     "dev": "tsc --build --watch",
-    "lint": "eslint src/**/*.ts --max-warnings 0 --cache",
+    "lint": "npx eslint src/**/*.ts --max-warnings 0 --cache --config ../../.eslintrc.js",
     "lint:fix": "eslint src/**/*.ts --fix --cache",
     "format": "prettier --write src/**/*.ts --cache",
     "format:check": "prettier --check src/**/*.ts --cache",

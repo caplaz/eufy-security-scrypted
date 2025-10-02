@@ -2,7 +2,7 @@
  * WebSocket Client for Eufy Security WebSocket API
  *
  * Provides a robust WebSocket connection with automatic reconnection, state management,
- * and proper message handling for the eufy-security-ws container. This client handles:
+ * and proper message handling. This client handles:
  * - Connection lifecycle management (connect, disconnect, reconnect)
  * - Message queuing and timeout handling
  * - Event-driven architecture for version negotiation and event streaming
@@ -24,17 +24,17 @@
  * @since 1.0.0
  */
 
-import WebSocket from 'ws';
+import WebSocket from "ws";
 import {
   MESSAGE_TYPES,
   WebSocketCommand,
   WebSocketEventMessage,
   WebSocketMessage,
   WebSocketVersionMessage,
-} from './websocket-types';
-import { ConnectionState, ClientStateManager } from './client-state';
-import { Logger, ILogObj } from 'tslog';
-import { WebSocketMessageProcessor } from './utils/websocket-message-processor';
+} from "./websocket-types";
+import { ConnectionState, ClientStateManager } from "./client-state";
+import { Logger, ILogObj } from "tslog";
+import { WebSocketMessageProcessor } from "./utils/websocket-message-processor";
 
 /**
  * Represents a message that is pending a response.
@@ -104,7 +104,11 @@ export class WebSocketClient {
    * const client = new WebSocketClient("ws://localhost:3000", stateManager, logger);
    * ```
    */
-  constructor(wsUrl: string, stateManager: ClientStateManager, logger: Logger<ILogObj>) {
+  constructor(
+    wsUrl: string,
+    stateManager: ClientStateManager,
+    logger: Logger<ILogObj>
+  ) {
     this.wsUrl = wsUrl;
     this.stateManager = stateManager;
     this.logger = logger;
@@ -171,18 +175,6 @@ export class WebSocketClient {
   }
 
   /**
-   * Legacy method for debug logging compatibility
-   *
-   * @deprecated This method is kept for backward compatibility but does nothing.
-   * Logging is now handled via the logger instance passed to the constructor.
-   *
-   * @param enabled - Debug logging state (ignored)
-   */
-  setDebugLogging(enabled: boolean): void {
-    // Kept for compatibility - logging is handled via logger instance
-  }
-
-  /**
    * Establish WebSocket connection to the server
    *
    * Initiates connection to the configured WebSocket URL and sets up all event handlers.
@@ -198,7 +190,7 @@ export class WebSocketClient {
       try {
         this.ws = new WebSocket(this.wsUrl);
 
-        this.ws.on('open', () => {
+        this.ws.on("open", () => {
           this.stateManager.setWebSocketConnected(true);
           this.stateManager.setConnectionState(ConnectionState.CONNECTED);
           this.stateManager.setReconnectAttempts(0);
@@ -207,7 +199,7 @@ export class WebSocketClient {
           resolve();
         });
 
-        this.ws.on('message', (data: WebSocket.Data) => {
+        this.ws.on("message", (data: WebSocket.Data) => {
           // Use message processor for validation and parsing
           const result = this.messageProcessor.processMessage(data);
 
@@ -221,13 +213,13 @@ export class WebSocketClient {
             this.handleMessage(result.message as WebSocketMessage);
           } catch (error) {
             const err = error as Error;
-            this.logger.error('Error handling processed message:', err);
+            this.logger.error("Error handling processed message:", err);
             this.stateManager.setError(err);
             this.onErrorHandler?.(err);
           }
         });
 
-        this.ws.on('close', (code: number, reason: string) => {
+        this.ws.on("close", (code: number, _reason: string) => {
           this.stateManager.setWebSocketConnected(false);
           this.clearPendingMessages();
           this.onDisconnectedHandler?.();
@@ -238,7 +230,7 @@ export class WebSocketClient {
           }
         });
 
-        this.ws.on('error', (error: Error) => {
+        this.ws.on("error", (error: Error) => {
           this.stateManager.setError(error);
           this.onErrorHandler?.(error);
           if (!this.isConnected()) {
@@ -266,7 +258,7 @@ export class WebSocketClient {
     }
 
     if (this.ws) {
-      this.ws.close(1000, 'Normal closure');
+      this.ws.close(1000, "Normal closure");
       this.ws = null;
     }
 
@@ -280,7 +272,10 @@ export class WebSocketClient {
    * @returns true if WebSocket is connected and ready to send/receive messages
    */
   isConnected(): boolean {
-    return this.stateManager.getState().wsConnected && this.ws?.readyState === WebSocket.OPEN;
+    return (
+      this.stateManager.getState().wsConnected &&
+      this.ws?.readyState === WebSocket.OPEN
+    );
   }
 
   /**
@@ -296,7 +291,7 @@ export class WebSocketClient {
   async sendMessage<T = any>(message: WebSocketCommand): Promise<T> {
     return new Promise((resolve, reject) => {
       if (!this.isConnected()) {
-        reject(new Error('WebSocket is not connected'));
+        reject(new Error("WebSocket is not connected"));
         return;
       }
 
@@ -362,7 +357,7 @@ export class WebSocketClient {
 
       const success = message.success;
       if (success === false) {
-        const errorCode = message.errorCode || 'Unknown error';
+        const errorCode = message.errorCode || "Unknown error";
         pending.reject(new Error(`Command failed: ${errorCode}`));
       } else {
         const result = message.result || message;
@@ -373,7 +368,7 @@ export class WebSocketClient {
 
     // Log unhandled messages only if logging is enabled
     if (this.logger) {
-      this.logger.info('Unhandled message type:', messageType);
+      this.logger.info("Unhandled message type:", messageType);
     }
   }
 
@@ -391,12 +386,18 @@ export class WebSocketClient {
   private scheduleReconnect(): void {
     const state = this.stateManager.getState();
 
-    if (this.reconnectTimeout || state.reconnectAttempts >= this.maxReconnectAttempts) {
+    if (
+      this.reconnectTimeout ||
+      state.reconnectAttempts >= this.maxReconnectAttempts
+    ) {
       return;
     }
 
     // Exponential backoff with jitter to prevent thundering herd
-    const baseDelay = Math.min(1000 * Math.pow(2, state.reconnectAttempts), 30000);
+    const baseDelay = Math.min(
+      1000 * Math.pow(2, state.reconnectAttempts),
+      30000
+    );
     const jitter = Math.random() * 0.1 * baseDelay; // 10% jitter
     const delay = baseDelay + jitter;
 
@@ -416,7 +417,7 @@ export class WebSocketClient {
         await this.connect();
       } catch (error) {
         if (this.logger) {
-          this.logger.info('Reconnection attempt failed:', error);
+          this.logger.info("Reconnection attempt failed:", error);
         }
         // Will trigger another reconnect attempt if under limit
       }
@@ -435,7 +436,7 @@ export class WebSocketClient {
   private clearPendingMessages(): void {
     for (const pending of this.pendingMessages.values()) {
       clearTimeout(pending.timeout);
-      pending.reject(new Error('Connection closed'));
+      pending.reject(new Error("Connection closed"));
     }
     this.pendingMessages.clear();
   }

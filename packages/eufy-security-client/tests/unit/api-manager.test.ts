@@ -38,7 +38,6 @@ describe("ApiManager", () => {
       onVersionMessage: jest.fn(),
       onEventMessage: jest.fn(),
       onError: jest.fn(),
-      setDebugLogging: jest.fn(),
     } as any;
 
     MockWebSocketClient.mockImplementation(() => mockWebSocketClient);

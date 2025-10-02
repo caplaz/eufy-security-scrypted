@@ -9,7 +9,7 @@
     "dev": "tsc --watch",
     "test": "jest",
     "test:watch": "jest --watch",
-    "lint": "eslint src/**/*.ts",
+    "lint": "npx eslint src/**/*.ts --config ../../.eslintrc.js",
     "lint:fix": "eslint src/**/*.ts --fix",
     "example": "npm run build && node dist/examples/basic-server.js"
   },

@@ -7,7 +7,7 @@
  */
 
 import { ApiManager } from "./api-manager";
-import { DEVICE_COMMANDS, DEVICE_EVENTS } from "./device/constants";
+import { DEVICE_EVENTS } from "./device/constants";
 import { getDeviceTypeName } from "./utils/device-detection";
 import { Logger, ILogObj } from "tslog";
 import { EventEmitter } from "events";

@@ -73,8 +73,6 @@ import {
   getDeviceCapabilities,
 } from "@caplaz/eufy-security-client";
 
-import { VideoMetadata } from "@caplaz/eufy-security-client";
-
 import {
   ConsoleLogger,
   createConsoleLogger,
@@ -631,7 +629,7 @@ export class EufyDevice
 
       // Wait for the database query local event with the actual data
       // The command is async and returns via event
-      const databaseRecords = await new Promise<any[]>((resolve, reject) => {
+      const databaseRecords = await new Promise<any[]>((resolve, _reject) => {
         const timeout = setTimeout(() => {
           this.logger.warn("Station database query timed out after 10 seconds");
           resolve([]);
@@ -1083,7 +1081,7 @@ export class EufyDevice
    */
   async getVideoClipThumbnail(
     thumbnailId: string,
-    options?: VideoClipThumbnailOptions
+    _options?: VideoClipThumbnailOptions
   ): Promise<MediaObject> {
     try {
       this.logger.debug(`Fetching thumbnail: ${thumbnailId}`);
@@ -1308,7 +1306,7 @@ export class EufyDevice
    */
   private async createOptimizedMediaObject(
     port: number,
-    options?: RequestMediaStreamOptions
+    _options?: RequestMediaStreamOptions
   ): Promise<MediaObject> {
     // Use quality-based dimensions as fallback (metadata will be available when stream actually starts)
     const { width, height } = this.getVideoDimensions();
@@ -1343,14 +1341,14 @@ export class EufyDevice
         `tcp://127.0.0.1:${port}`, // TCP input source
       ],
       mediaStreamOptions: {
-        id: options?.id || "main",
-        name: options?.name || "Eufy Camera Stream",
-        container: options?.container,
+        id: _options?.id || "main",
+        name: _options?.name || "Eufy Camera Stream",
+        container: _options?.container,
         video: {
           codec: "h264",
           width,
           height,
-          ...options?.video, // Use provided video options
+          ..._options?.video, // Use provided video options
         },
         // Audio support can be added later when needed
       },

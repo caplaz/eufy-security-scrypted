@@ -469,12 +469,8 @@ export class ApiManager {
       throw new Error("Client not ready. Cannot connect driver.");
     }
 
-    try {
-      await this.sendCommand(DRIVER_COMMANDS.CONNECT);
-      this.stateManager.setDriverConnected(true);
-    } catch (error) {
-      throw error;
-    }
+    await this.sendCommand(DRIVER_COMMANDS.CONNECT);
+    this.stateManager.setDriverConnected(true);
   }
 
   /**
