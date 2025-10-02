@@ -76,10 +76,10 @@ import {
 import { VideoMetadata } from "@caplaz/eufy-security-client";
 
 import {
-  DebugLogger,
-  createDebugLogger,
+  ConsoleLogger,
+  createConsoleLogger,
   isDebugEnabled,
-} from "./utils/debug-logger";
+} from "./utils/console-logger";
 import { DeviceUtils } from "./utils/device-utils";
 import { StreamServer } from "@caplaz/eufy-stream-server";
 import sdk from "@scrypted/sdk";
@@ -104,7 +104,7 @@ export class EufyDevice
     Refresh
 {
   private wsClient: EufyWebSocketClient;
-  private logger: DebugLogger;
+  private logger: ConsoleLogger;
 
   // Device info and state
   private latestProperties?: DeviceProperties;
@@ -149,8 +149,8 @@ export class EufyDevice
   constructor(nativeId: string, wsClient: EufyWebSocketClient) {
     super(nativeId);
     this.wsClient = wsClient;
-    this.logger = createDebugLogger(this.name);
-    this.logger.i(`Created EufyDevice for ${nativeId}`);
+    this.logger = createConsoleLogger(this.name);
+    this.logger.info(`Created EufyDevice for ${nativeId}`);
 
     this.createStreamServer();
 
@@ -169,7 +169,7 @@ export class EufyDevice
     this.wsClient.addEventListener(
       DEVICE_EVENTS.LIVESTREAM_STARTED,
       () => {
-        this.logger.i("Stream started");
+        this.logger.info("Stream started");
       },
       {
         serialNumber: this.info?.serialNumber,
@@ -178,7 +178,7 @@ export class EufyDevice
     this.wsClient.addEventListener(
       DEVICE_EVENTS.LIVESTREAM_STOPPED,
       () => {
-        this.logger.d("📻 WebSocket livestream stopped event received");
+        this.logger.debug("📻 WebSocket livestream stopped event received");
       },
       {
         serialNumber: this.info?.serialNumber,
@@ -194,7 +194,7 @@ export class EufyDevice
       this.updateStateFromProperties(this.latestProperties);
       this.updatePtzCapabilities(); // Update PTZ capabilities based on device type
     } catch (e) {
-      this.logger.w(`Failed to load initial properties: ${e}`);
+      this.logger.warn(`Failed to load initial properties: ${e}`);
     }
   }
 
@@ -278,7 +278,7 @@ export class EufyDevice
         this.onDeviceEvent(ScryptedInterface.Sensors, this.sensors);
         break;
       default:
-        this.logger.i(`Property changed: ${name} = ${value}`);
+        this.logger.info(`Property changed: ${name} = ${value}`);
     }
   }
 
@@ -324,7 +324,7 @@ export class EufyDevice
         this.info?.metadata[propertyName]
       );
 
-      this.logger.i(`Updating property ${propertyName}`);
+      this.logger.info(`Updating property ${propertyName}`);
 
       return this.api
         .setProperty(propertyName, propertyValue)
@@ -336,7 +336,7 @@ export class EufyDevice
           };
         })
         .catch((error) => {
-          this.logger.w(`Failed to set property ${propertyName}: ${error}`);
+          this.logger.warn(`Failed to set property ${propertyName}: ${error}`);
         });
     }
 
@@ -350,7 +350,7 @@ export class EufyDevice
         return; // Add explicit return
 
       default:
-        this.logger.w(`Unknown setting: ${key}`);
+        this.logger.warn(`Unknown setting: ${key}`);
         throw new Error(`Unknown setting: ${key}`);
     }
 
@@ -376,10 +376,10 @@ export class EufyDevice
     if (command.tilt !== undefined) {
       return command.tilt > 0
         ? this.api.panAndTilt({ direction: PanTiltDirection.UP }).then(() => {
-            this.logger.i(`Tilted camera up`);
+            this.logger.info(`Tilted camera up`);
           })
         : this.api.panAndTilt({ direction: PanTiltDirection.DOWN }).then(() => {
-            this.logger.i(`Tilted camera down`);
+            this.logger.info(`Tilted camera down`);
           });
     }
 
@@ -388,10 +388,10 @@ export class EufyDevice
         ? this.api
             .panAndTilt({ direction: PanTiltDirection.RIGHT })
             .then(() => {
-              this.logger.i(`Panned camera right`);
+              this.logger.info(`Panned camera right`);
             })
         : this.api.panAndTilt({ direction: PanTiltDirection.LEFT }).then(() => {
-            this.logger.i(`Panned camera left`);
+            this.logger.info(`Panned camera left`);
           });
     }
 
@@ -466,22 +466,22 @@ export class EufyDevice
   async getVideoStream(
     options?: RequestMediaStreamOptions
   ): Promise<MediaObject> {
-    this.logger.i("getVideoStream called, starting stream server if needed");
+    this.logger.info("getVideoStream called, starting stream server if needed");
     if (!this.streamServerStarted) {
-      this.logger.i("Starting stream server...");
+      this.logger.info("Starting stream server...");
       await this.streamServer.start();
       this.streamServerStarted = true;
-      this.logger.i("Stream server started");
+      this.logger.info("Stream server started");
     }
     const port = this.streamServer.getPort();
     if (!port) {
       throw new Error("Failed to get stream server port");
     }
-    this.logger.i(`Stream server is listening on port ${port}`);
+    this.logger.info(`Stream server is listening on port ${port}`);
 
     // For now, create MediaObject with fallback dimensions
     // The actual metadata will be used when the stream starts
-    this.logger.i(
+    this.logger.info(
       "Creating MediaObject with fallback dimensions (metadata will be updated when stream starts)"
     );
     return this.createOptimizedMediaObject(port, options);
@@ -509,26 +509,26 @@ export class EufyDevice
   }
 
   async takePicture(options?: RequestPictureOptions): Promise<MediaObject> {
-    this.logger.i("📸 takePicture called - capturing snapshot from stream");
+    this.logger.info("📸 takePicture called - capturing snapshot from stream");
 
     try {
       // Use timeout from options or default to 15 seconds
       const timeout = options?.timeout || 15000;
 
-      this.logger.i(`Using timeout: ${timeout}ms for snapshot capture`);
+      this.logger.info(`Using timeout: ${timeout}ms for snapshot capture`);
 
       // The stream server instance handles starting/stopping the camera stream automatically
       // It starts the camera stream, waits for a keyframe, captures it, then stops the camera stream
       const h264Keyframe = await this.streamServer.captureSnapshot(timeout);
 
-      this.logger.i(
+      this.logger.info(
         `Captured H.264 keyframe: ${h264Keyframe.length} bytes - converting to JPEG`
       );
 
       // Convert H.264 keyframe to JPEG using FFmpeg
       const jpegBuffer = await DeviceUtils.convertH264ToJPEG(h264Keyframe);
 
-      this.logger.i(
+      this.logger.info(
         `✅ Snapshot converted to JPEG: ${jpegBuffer.length} bytes`
       );
 
@@ -537,7 +537,7 @@ export class EufyDevice
         sourceId: this.serialNumber,
       });
     } catch (error) {
-      this.logger.e(`Failed to capture snapshot: ${error}`);
+      this.logger.error(`Failed to capture snapshot: ${error}`);
       throw error;
     }
   }
@@ -559,7 +559,7 @@ export class EufyDevice
         this.updateStateFromProperties(this.latestProperties);
         this.updatePtzCapabilities(); // Ensure PTZ capabilities are up to date
       } catch (error) {
-        this.logger.w(
+        this.logger.warn(
           `Failed to get device properties: ${error}, user initiated: ${userInitiated}`
         );
       }
@@ -579,11 +579,11 @@ export class EufyDevice
 
       const stationSN = this.latestProperties?.stationSerialNumber;
       if (!stationSN) {
-        this.logger.e("Station serial number not available");
+        this.logger.error("Station serial number not available");
         return [];
       }
 
-      this.logger.d(
+      this.logger.debug(
         `Fetching video clips from station database for device ${this.serialNumber} on station ${stationSN}`
       );
 
@@ -591,7 +591,7 @@ export class EufyDevice
         options?.startTime || Date.now() - 7 * 24 * 60 * 60 * 1000; // Default to last 7 days
       const endTime = options?.endTime || Date.now();
 
-      this.logger.d(
+      this.logger.debug(
         `Time range: ${new Date(startTime).toISOString()} to ${new Date(endTime).toISOString()}`
       );
 
@@ -615,7 +615,7 @@ export class EufyDevice
         storageType: 1, // 1 = local storage (has storage_path)
       };
 
-      this.logger.d(
+      this.logger.debug(
         `Querying station database with params:`,
         JSON.stringify(queryParams, null, 2)
       );
@@ -624,7 +624,7 @@ export class EufyDevice
         .station(stationSN)
         .databaseQueryLocal(queryParams);
 
-      this.logger.d(
+      this.logger.debug(
         `Received response from station.databaseQueryLocal for station ${stationSN}:`,
         JSON.stringify(response, null, 2)
       );
@@ -633,14 +633,14 @@ export class EufyDevice
       // The command is async and returns via event
       const databaseRecords = await new Promise<any[]>((resolve, reject) => {
         const timeout = setTimeout(() => {
-          this.logger.w("Station database query timed out after 10 seconds");
+          this.logger.warn("Station database query timed out after 10 seconds");
           resolve([]);
         }, 10000);
 
         const removeListener = this.wsClient.addEventListener(
           "database query local" as any,
           (event: any) => {
-            this.logger.d(`Received database query local event:`, {
+            this.logger.debug(`Received database query local event:`, {
               eventSerialNumber: event.serialNumber,
               expectedStationSN: stationSN,
               matches: event.serialNumber === stationSN,
@@ -653,7 +653,7 @@ export class EufyDevice
               clearTimeout(timeout);
               removeListener();
 
-              this.logger.d(
+              this.logger.debug(
                 `Received ${event.data?.length || 0} records from station database`
               );
 
@@ -661,7 +661,7 @@ export class EufyDevice
               if (Array.isArray(event.data)) {
                 resolve(event.data);
               } else {
-                this.logger.e(
+                this.logger.error(
                   `Unexpected data format from station database query. Data:`,
                   JSON.stringify(event.data, null, 2)
                 );
@@ -674,7 +674,7 @@ export class EufyDevice
       });
 
       if (databaseRecords.length === 0) {
-        this.logger.w(
+        this.logger.warn(
           `No local recordings found in station database. This may indicate:
           1. No recordings exist in the specified time range
           2. Local storage (SD card) not available or not enabled
@@ -683,7 +683,7 @@ export class EufyDevice
         );
 
         // Try querying with different storage type (0 = all, 2 = cloud, 3 = both)
-        this.logger.d(
+        this.logger.debug(
           `Attempting query with storageType: 0 (all storage types)`
         );
         try {
@@ -692,7 +692,7 @@ export class EufyDevice
             storageType: 0, // Try all storage types
           };
 
-          this.logger.d(
+          this.logger.debug(
             `Retry query params:`,
             JSON.stringify(retryParams, null, 2)
           );
@@ -701,15 +701,15 @@ export class EufyDevice
             .station(stationSN)
             .databaseQueryLocal(retryParams);
 
-          this.logger.d(
+          this.logger.debug(
             `Retry response:`,
             JSON.stringify(retryResponse, null, 2)
           );
         } catch (retryError) {
-          this.logger.e(`Retry query failed:`, retryError);
+          this.logger.error(`Retry query failed:`, retryError);
         }
       } else {
-        this.logger.d(`First record sample:`, {
+        this.logger.debug(`First record sample:`, {
           device_sn: databaseRecords[0].device_sn,
           start_time: databaseRecords[0].start_time,
           end_time: databaseRecords[0].end_time,
@@ -772,30 +772,32 @@ export class EufyDevice
         return videoClip;
       });
 
-      this.logger.d(
+      this.logger.debug(
         `Returning ${videoClips.length} video clips from station database`
       );
 
       // If no local recordings found, fallback to cloud API
       if (videoClips.length === 0) {
-        this.logger.d(`No local recordings found, falling back to cloud API`);
+        this.logger.debug(
+          `No local recordings found, falling back to cloud API`
+        );
         return this.getVideoClipsFromCloudAPI(startTime, endTime);
       }
 
       return videoClips;
     } catch (error) {
-      this.logger.e(
+      this.logger.error(
         `Error fetching video clips from station database: ${error}`
       );
       // Fallback to cloud API on error
-      this.logger.d(`Attempting cloud API fallback due to error`);
+      this.logger.debug(`Attempting cloud API fallback due to error`);
       try {
         const startTime =
           options?.startTime || Date.now() - 7 * 24 * 60 * 60 * 1000;
         const endTime = options?.endTime || Date.now();
         return this.getVideoClipsFromCloudAPI(startTime, endTime);
       } catch (fallbackError) {
-        this.logger.e(`Cloud API fallback also failed: ${fallbackError}`);
+        this.logger.error(`Cloud API fallback also failed: ${fallbackError}`);
         return [];
       }
     }
@@ -811,13 +813,13 @@ export class EufyDevice
     endTime: number
   ): Promise<VideoClip[]> {
     try {
-      this.logger.d(
+      this.logger.debug(
         `Fetching video clips from cloud API for time range: ${new Date(startTime).toISOString()} to ${new Date(endTime).toISOString()}`
       );
 
       const stationSN = this.latestProperties?.stationSerialNumber;
       if (!stationSN) {
-        this.logger.e("Station serial number not available");
+        this.logger.error("Station serial number not available");
         return [];
       }
 
@@ -833,19 +835,19 @@ export class EufyDevice
           },
         });
 
-      this.logger.d(`Received ${events.length} events from cloud API`);
+      this.logger.debug(`Received ${events.length} events from cloud API`);
 
       // Filter events to only include this device
       const deviceEvents = events.filter(
         (event) => event.stationSN === stationSN
       );
 
-      this.logger.d(
+      this.logger.debug(
         `Filtered to ${deviceEvents.length} events for this device`
       );
 
       if (deviceEvents.length === 0) {
-        this.logger.w(`No recordings found in cloud API for this device`);
+        this.logger.warn(`No recordings found in cloud API for this device`);
         return [];
       }
 
@@ -856,13 +858,13 @@ export class EufyDevice
         .map(async (event) => {
           const clipId = `cloud-${this.serialNumber}-${event.startTime}-${event.eventType}`;
           try {
-            this.logger.d(`Pre-downloading thumbnail for ${clipId}`);
+            this.logger.debug(`Pre-downloading thumbnail for ${clipId}`);
             const thumbnailBuffer = await this.downloadCloudThumbnail(
               event.thumbnailUrl!
             );
             return { clipId, thumbnailBuffer };
           } catch (error) {
-            this.logger.w(
+            this.logger.warn(
               `Failed to pre-download thumbnail for ${clipId}: ${error}`
             );
             return { clipId, thumbnailBuffer: null };
@@ -878,7 +880,7 @@ export class EufyDevice
         }
       });
 
-      this.logger.d(
+      this.logger.debug(
         `Successfully downloaded ${thumbnailCache.size} thumbnails out of ${thumbnailPromises.length}`
       );
 
@@ -918,12 +920,12 @@ export class EufyDevice
         return videoClip;
       });
 
-      this.logger.d(
+      this.logger.debug(
         `Returning ${videoClips.length} video clips from cloud API`
       );
       return videoClips;
     } catch (error) {
-      this.logger.e(`Error fetching video clips from cloud API: ${error}`);
+      this.logger.error(`Error fetching video clips from cloud API: ${error}`);
       return [];
     }
   }
@@ -941,7 +943,9 @@ export class EufyDevice
       const arrayBuffer = await response.arrayBuffer();
       return Buffer.from(arrayBuffer);
     } catch (error) {
-      this.logger.e(`Failed to download cloud thumbnail from ${url}: ${error}`);
+      this.logger.error(
+        `Failed to download cloud thumbnail from ${url}: ${error}`
+      );
       throw error;
     }
   }
@@ -952,7 +956,7 @@ export class EufyDevice
    */
   async getVideoClip(videoId: string): Promise<MediaObject> {
     try {
-      this.logger.d(`Fetching video clip: ${videoId}`);
+      this.logger.debug(`Fetching video clip: ${videoId}`);
 
       // Retrieve metadata from cache
       const metadata = this.videoClipMetadata.get(videoId);
@@ -963,13 +967,13 @@ export class EufyDevice
 
       // Check if we have storage path and cipher for P2P download
       if (!metadata.storage_path || metadata.cipher_id === undefined) {
-        this.logger.w(
+        this.logger.warn(
           `No storage_path or cipher_id available for ${videoId}, attempting cloud fallback`
         );
 
         // Fallback to cloud path if available
         if (metadata.cloud_path) {
-          this.logger.d(`Using cloud path: ${metadata.cloud_path}`);
+          this.logger.debug(`Using cloud path: ${metadata.cloud_path}`);
           return sdk.mediaManager.createMediaObject(
             Buffer.from(metadata.cloud_path),
             "text/plain",
@@ -984,7 +988,7 @@ export class EufyDevice
         );
       }
 
-      this.logger.d(`Starting P2P download for video clip`, {
+      this.logger.debug(`Starting P2P download for video clip`, {
         storage_path: metadata.storage_path,
         cipher_id: metadata.cipher_id,
       });
@@ -1001,7 +1005,7 @@ export class EufyDevice
 
       return new Promise<MediaObject>((resolve, reject) => {
         const timeout = setTimeout(() => {
-          this.logger.e(`Video download timed out after 60 seconds`);
+          this.logger.error(`Video download timed out after 60 seconds`);
           removeDownloadListeners();
           reject(new Error(`Video download timed out for ${videoId}`));
         }, 60000); // 60 second timeout
@@ -1017,7 +1021,7 @@ export class EufyDevice
                 : Buffer.from(event.buffer as string, "base64");
 
               videoChunks.push(buffer);
-              this.logger.d(
+              this.logger.debug(
                 `Received video chunk: ${buffer.length} bytes (total: ${videoChunks.reduce((sum, b) => sum + b.length, 0)} bytes)`
               );
             }
@@ -1034,7 +1038,7 @@ export class EufyDevice
               clearTimeout(timeout);
               removeDownloadListeners();
 
-              this.logger.d(
+              this.logger.debug(
                 `Video download complete: ${videoChunks.length} chunks, ${videoChunks.reduce((sum, b) => sum + b.length, 0)} total bytes`
               );
 
@@ -1067,7 +1071,7 @@ export class EufyDevice
         };
       });
     } catch (error) {
-      this.logger.e(`Error fetching video clip ${videoId}: ${error}`);
+      this.logger.error(`Error fetching video clip ${videoId}: ${error}`);
       throw error;
     }
   }
@@ -1082,7 +1086,7 @@ export class EufyDevice
     options?: VideoClipThumbnailOptions
   ): Promise<MediaObject> {
     try {
-      this.logger.d(`Fetching thumbnail: ${thumbnailId}`);
+      this.logger.debug(`Fetching thumbnail: ${thumbnailId}`);
 
       // Retrieve metadata from cache
       const metadata = this.videoClipMetadata.get(thumbnailId);
@@ -1093,7 +1097,7 @@ export class EufyDevice
 
       // Check if we have a pre-downloaded cached thumbnail (from cloud API)
       if (metadata.cached_thumbnail) {
-        this.logger.d(
+        this.logger.debug(
           `Using pre-downloaded cached thumbnail for ${thumbnailId}`
         );
         return sdk.mediaManager.createMediaObject(
@@ -1107,13 +1111,13 @@ export class EufyDevice
 
       // Check if we have thumbnail path and cipher for P2P download
       if (!metadata.thumb_path || metadata.cipher_id === undefined) {
-        this.logger.w(
+        this.logger.warn(
           `No thumb_path or cipher_id available for ${thumbnailId}, checking for cloud thumbnail`
         );
 
         // Fallback to cloud thumbnail URL if available (may be expired)
         if (metadata.cloud_thumbnail) {
-          this.logger.d(
+          this.logger.debug(
             `Attempting to download cloud thumbnail from URL: ${metadata.cloud_thumbnail}`
           );
           try {
@@ -1128,7 +1132,7 @@ export class EufyDevice
               }
             );
           } catch (error) {
-            this.logger.e(`Failed to download cloud thumbnail: ${error}`);
+            this.logger.error(`Failed to download cloud thumbnail: ${error}`);
             throw new Error(
               `Cloud thumbnail URL expired or inaccessible for: ${thumbnailId}`
             );
@@ -1140,7 +1144,7 @@ export class EufyDevice
         );
       }
 
-      this.logger.d(`Starting P2P download for thumbnail`, {
+      this.logger.debug(`Starting P2P download for thumbnail`, {
         thumb_path: metadata.thumb_path,
         cipher_id: metadata.cipher_id,
       });
@@ -1157,7 +1161,7 @@ export class EufyDevice
 
       return new Promise<MediaObject>((resolve, reject) => {
         const timeout = setTimeout(() => {
-          this.logger.e(`Thumbnail download timed out after 30 seconds`);
+          this.logger.error(`Thumbnail download timed out after 30 seconds`);
           removeDownloadListeners();
           reject(new Error(`Thumbnail download timed out for ${thumbnailId}`));
         }, 30000); // 30 second timeout
@@ -1173,7 +1177,9 @@ export class EufyDevice
                 : Buffer.from(event.buffer as string, "base64");
 
               thumbnailChunks.push(buffer);
-              this.logger.d(`Received thumbnail chunk: ${buffer.length} bytes`);
+              this.logger.debug(
+                `Received thumbnail chunk: ${buffer.length} bytes`
+              );
             }
           },
           { source: "device" as any }
@@ -1188,7 +1194,7 @@ export class EufyDevice
               clearTimeout(timeout);
               removeDownloadListeners();
 
-              this.logger.d(
+              this.logger.debug(
                 `Thumbnail download complete: ${thumbnailChunks.length} chunks, ${thumbnailChunks.reduce((sum, b) => sum + b.length, 0)} total bytes`
               );
 
@@ -1223,7 +1229,7 @@ export class EufyDevice
         };
       });
     } catch (error) {
-      this.logger.e(`Error fetching thumbnail ${thumbnailId}: ${error}`);
+      this.logger.error(`Error fetching thumbnail ${thumbnailId}: ${error}`);
       throw error;
     }
   }
@@ -1233,7 +1239,7 @@ export class EufyDevice
    * Note: This may not be supported by all Eufy devices or require specific permissions.
    */
   async removeVideoClips(...videoClipIds: string[]): Promise<void> {
-    this.logger.w(
+    this.logger.warn(
       `Video clip deletion not currently supported by Eufy API: ${videoClipIds.join(", ")}`
     );
     throw new Error(
@@ -1363,11 +1369,14 @@ export class EufyDevice
       port: 0, // Let the system assign a free port
       host: "127.0.0.1", // Only allow connections from localhost
       debug: isDebugEnabled(), // Respect global debug logging setting
+      logger: this.logger, // Pass the ConsoleLogger instance for consistent logging
       wsClient: this.wsClient,
       serialNumber: this.serialNumber,
     });
 
-    this.logger.d("Stream server created with WebSocket client integration");
+    this.logger.debug(
+      "Stream server created with WebSocket client integration"
+    );
   }
 
   dispose(): void {
@@ -1375,7 +1384,7 @@ export class EufyDevice
       this.streamServer
         .stop()
         .catch((e: unknown) =>
-          this.logger.w(`Error stopping stream server: ${e}`)
+          this.logger.warn(`Error stopping stream server: ${e}`)
         );
     }
 
@@ -1386,6 +1395,8 @@ export class EufyDevice
       EVENT_SOURCES.DEVICE
     );
 
-    this.logger.d(`Removed ${removedCount} event listeners during disposal`);
+    this.logger.debug(
+      `Removed ${removedCount} event listeners during disposal`
+    );
   }
 }

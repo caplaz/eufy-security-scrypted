@@ -89,7 +89,7 @@ export abstract class BaseCommand implements CommandHandler {
       // Create the actual Eufy Security client
       const client = new EufySecurityClient({
         wsUrl,
-        logger: this.logger,
+        logger: this.tsLogger,
       });
 
       // Connect to the WebSocket server with timeout

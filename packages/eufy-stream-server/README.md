@@ -31,6 +31,7 @@ const server = new StreamServer({
   host: "0.0.0.0",
   maxConnections: 10,
   debug: true,
+  logger: myLogger, // Optional - external logger instance for consistent logging
   wsClient: eufyWebSocketClient, // Required - WebSocket client for Eufy camera
   serialNumber: "device123", // Required - Eufy camera serial number
 });
@@ -131,6 +132,7 @@ if (metadata) {
 - `host?: string` - Server host (default: '0.0.0.0')
 - `maxConnections?: number` - Maximum concurrent connections (default: 10)
 - `debug?: boolean` - Enable debug logging (default: false)
+- `logger?: Logger<ILogObj>` - Optional external logger instance compatible with tslog's Logger interface for consistent logging across packages. Any logger implementing tslog-compatible methods (`trace`, `debug`, `info`, `warn`, `error`, `fatal`) can be used. If not provided, the server will use its internal tslog logger.
 - `wsClient: EufyWebSocketClient` - WebSocket client for receiving video data events (required for Eufy cameras)
 - `serialNumber: string` - Device serial number to filter events (required for Eufy cameras)
 
@@ -154,6 +156,41 @@ if (metadata) {
 - `clientDisconnected(connectionId)` - Client disconnected
 - `videoStreamed(streamData)` - Video data streamed
 - `error(error)` - Server error occurred
+
+### Logger Compatibility
+
+StreamServer accepts any logger compatible with tslog's `Logger<ILogObj>` interface. This allows for consistent logging across packages:
+
+```typescript
+import { Logger } from "tslog";
+import { StreamServer } from "eufy-stream-server";
+
+// Option 1: Use tslog directly
+const tslogLogger = new Logger({
+  name: "StreamServer",
+  minLevel: 2, // 2=debug, 3=info
+});
+
+const server = new StreamServer({
+  port: 8080,
+  logger: tslogLogger,
+  wsClient: eufyWebSocketClient,
+  serialNumber: "device123",
+});
+
+// Option 2: Use any tslog-compatible logger
+// Example: DebugLogger from eufy-security-scrypted package
+// implements tslog-compatible methods (trace, debug, info, warn, error, fatal)
+import { createDebugLogger } from "@caplaz/eufy-security-scrypted";
+
+const debugLogger = createDebugLogger("StreamServer");
+const server2 = new StreamServer({
+  port: 8080,
+  logger: debugLogger as any, // Cast to Logger<ILogObj> if needed
+  wsClient: eufyWebSocketClient,
+  serialNumber: "device123",
+});
+```
 
 ### H264Parser
 

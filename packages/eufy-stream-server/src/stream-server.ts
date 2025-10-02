@@ -31,6 +31,8 @@ export interface StreamServerOptions {
   maxConnections?: number;
   /** Enable debug logging (default: false) */
   debug?: boolean;
+  /** Optional external logger instance compatible with tslog Logger<ILogObj> (if not provided, uses internal tslog Logger) */
+  logger?: Logger<ILogObj>;
   /** WebSocket client for receiving video data events (required for Eufy cameras) */
   wsClient: EufyWebSocketClient;
   /** Device serial number to filter events (required for Eufy cameras) */
@@ -60,7 +62,9 @@ export interface StreamServerOptions {
  */
 export class StreamServer extends EventEmitter {
   private logger: Logger<ILogObj>;
-  private options: Required<StreamServerOptions>;
+  private options: Required<Omit<StreamServerOptions, "logger">> & {
+    logger?: Logger<ILogObj>;
+  };
   private server?: net.Server;
   private connectionManager: ConnectionManager;
   private h264Parser: H264Parser;
@@ -104,14 +108,18 @@ export class StreamServer extends EventEmitter {
       host: options.host ?? "0.0.0.0",
       maxConnections: options.maxConnections ?? 10,
       debug: options.debug ?? false,
+      logger: options.logger,
       wsClient: options.wsClient,
       serialNumber: options.serialNumber,
     };
 
-    this.logger = new Logger({
-      name: "StreamServer",
-      minLevel: this.options.debug ? 2 : 3, // 2=debug, 3=info
-    });
+    // Use external logger if provided, otherwise create internal tslog Logger
+    this.logger =
+      options.logger ??
+      new Logger({
+        name: "StreamServer",
+        minLevel: this.options.debug ? 2 : 3, // 2=debug, 3=info
+      });
 
     this.connectionManager = new ConnectionManager(this.logger);
     this.h264Parser = new H264Parser(this.logger);

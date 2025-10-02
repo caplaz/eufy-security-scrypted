@@ -31,7 +31,7 @@ import {
   StationPropertyChangedEventPayload,
 } from "@caplaz/eufy-security-client";
 
-import { createDebugLogger, DebugLogger } from "./utils/debug-logger";
+import { createConsoleLogger, ConsoleLogger } from "./utils/console-logger";
 import { EufyDevice } from "./eufy-device";
 import {
   alarmModeMap,
@@ -48,7 +48,7 @@ export class EufyStation
 {
   private wsClient: EufyWebSocketClient;
   private childDevices = new Map<string, EufyDevice>();
-  private logger: DebugLogger;
+  private logger: ConsoleLogger;
 
   // Device info and state
   private latestProperties?: StationProperties;
@@ -78,8 +78,8 @@ export class EufyStation
   constructor(nativeId: string, wsClient: EufyWebSocketClient) {
     super(nativeId);
     this.wsClient = wsClient;
-    this.logger = createDebugLogger(this.name);
-    this.logger.i(`Created EufyStation for ${nativeId}`);
+    this.logger = createConsoleLogger(this.name);
+    this.logger.info(`Created EufyStation for ${nativeId}`);
 
     this.addEventListener(
       STATION_EVENTS.PROPERTY_CHANGED,
@@ -105,7 +105,7 @@ export class EufyStation
       this.latestProperties = (await this.api.getProperties()).properties;
       this.updateStateFromProperties(this.latestProperties);
     } catch (e) {
-      this.logger.w(`Failed to load initial properties: ${e}`);
+      this.logger.warn(`Failed to load initial properties: ${e}`);
     }
   }
 
@@ -146,7 +146,7 @@ export class EufyStation
         this.onDeviceEvent(ScryptedInterface.Settings, undefined);
         break;
       default:
-        this.logger.i(`Property changed: ${name} = ${value}`);
+        this.logger.info(`Property changed: ${name} = ${value}`);
     }
   }
 
@@ -159,14 +159,14 @@ export class EufyStation
    */
   async getDevice(nativeId: ScryptedNativeId): Promise<any> {
     if (nativeId && nativeId.startsWith("device_")) {
-      this.logger.d(`Getting device ${nativeId}`);
+      this.logger.debug(`Getting device ${nativeId}`);
 
       // Return existing device or create new EufyDevice
       let device = this.childDevices.get(nativeId);
       if (!device) {
         device = new EufyDevice(nativeId, this.wsClient);
         this.childDevices.set(nativeId, device);
-        this.logger.i(`Created new device ${nativeId}`);
+        this.logger.info(`Created new device ${nativeId}`);
       }
       return device;
     }
@@ -181,7 +181,7 @@ export class EufyStation
    */
   async releaseDevice(id: string, nativeId: ScryptedNativeId): Promise<void> {
     const deviceId = nativeId || "";
-    this.logger.d(`Releasing device ${deviceId}`);
+    this.logger.debug(`Releasing device ${deviceId}`);
     this.childDevices.delete(deviceId);
   }
 
@@ -244,7 +244,7 @@ export class EufyStation
    * @returns {Promise<void>}
    */
   async putSetting(key: string, value: SettingValue): Promise<void> {
-    this.logger.d(`Setting ${key} = ${value}`);
+    this.logger.debug(`Setting ${key} = ${value}`);
 
     switch (key) {
       case "scryptedName":
@@ -260,11 +260,11 @@ export class EufyStation
             )
           )
           .catch((error) => {
-            this.logger.w(`Failed to set guardMode: ${error}`);
+            this.logger.warn(`Failed to set guardMode: ${error}`);
           });
         break;
       default:
-        this.logger.w(`Unknown setting: ${key}`);
+        this.logger.warn(`Unknown setting: ${key}`);
     }
   }
 
@@ -289,9 +289,9 @@ export class EufyStation
    */
   async armSecuritySystem(mode: SecuritySystemMode): Promise<void> {
     if (mode === SecuritySystemMode.Disarmed) {
-      this.logger.d(`Disarming`);
+      this.logger.debug(`Disarming`);
     } else {
-      this.logger.d(`Arming to mode ${mode}`);
+      this.logger.debug(`Arming to mode ${mode}`);
     }
 
     if (this.securitySystemState) {
@@ -329,7 +329,7 @@ export class EufyStation
         this.latestProperties = (await this.api.getProperties()).properties;
         this.updateStateFromProperties(this.latestProperties);
       } catch (error) {
-        this.logger.w(
+        this.logger.warn(
           `Failed to get station properties: ${error}, user initiated: ${userInitiated}`
         );
       }
@@ -343,7 +343,7 @@ export class EufyStation
    * @returns {Promise<void>}
    */
   async reboot(): Promise<void> {
-    this.logger.i("Rebooting");
+    this.logger.info("Rebooting");
     await this.api.reboot();
   }
 
@@ -357,6 +357,6 @@ export class EufyStation
       device.dispose();
     });
     this.childDevices.clear();
-    this.logger.d(`Disposed`);
+    this.logger.debug(`Disposed`);
   }
 }

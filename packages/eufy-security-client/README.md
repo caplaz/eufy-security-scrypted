@@ -63,7 +63,7 @@ new EufySecurityClient(config: EufySecurityClientConfig)
 **Parameters:**
 
 - `config.wsUrl` (string): WebSocket URL for the eufy-security-ws server
-- `config.logger` (optional): Custom logger implementation
+- `config.logger` (optional): Custom logger instance compatible with tslog's `Logger<ILogObj>` interface. If not provided, an internal tslog logger will be created. This allows for consistent logging across packages by passing a custom logger implementation (e.g., DebugLogger from @caplaz/eufy-security-scrypted).
 
 #### Methods
 

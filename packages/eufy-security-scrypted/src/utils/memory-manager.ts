@@ -15,18 +15,18 @@
  * 4. Components handle their own cleanup logic based on the requested level
  */
 
-import { DebugLogger } from './debug-logger';
+import { ConsoleLogger } from "./console-logger";
 
 /**
  * Memory cleanup severity levels for progressive cleanup strategies
  */
 export enum CleanupLevel {
   /** Gentle cleanup - trim buffers moderately */
-  GENTLE = 'gentle',
+  GENTLE = "gentle",
   /** Aggressive cleanup - keep only essential data */
-  AGGRESSIVE = 'aggressive',
+  AGGRESSIVE = "aggressive",
   /** Emergency cleanup - minimal data retention */
-  EMERGENCY = 'emergency',
+  EMERGENCY = "emergency",
 }
 
 /**
@@ -80,7 +80,7 @@ interface CleanupRegistration {
 export class MemoryManager {
   private static instance?: MemoryManager;
 
-  private readonly logger: DebugLogger;
+  private readonly logger: ConsoleLogger;
   private readonly config: MemoryManagerConfig;
   private readonly cleanupCallbacks = new Map<string, CleanupRegistration>();
   private monitorInterval?: ReturnType<typeof setTimeout>;
@@ -88,7 +88,10 @@ export class MemoryManager {
   private lastCleanupTime = 0;
   private lastCleanupLevel?: CleanupLevel;
 
-  private constructor(logger: DebugLogger, config: Partial<MemoryManagerConfig> = {}) {
+  private constructor(
+    logger: ConsoleLogger,
+    config: Partial<MemoryManagerConfig> = {}
+  ) {
     this.logger = logger;
     this.config = {
       baseThresholdMB: 120,
@@ -106,7 +109,10 @@ export class MemoryManager {
    * @param config Optional configuration overrides
    * @returns The singleton MemoryManager instance
    */
-  static getInstance(logger: DebugLogger, config?: Partial<MemoryManagerConfig>): MemoryManager {
+  static getInstance(
+    logger: ConsoleLogger,
+    config?: Partial<MemoryManagerConfig>
+  ): MemoryManager {
     if (!MemoryManager.instance) {
       MemoryManager.instance = new MemoryManager(logger, config);
     }
@@ -130,7 +136,7 @@ export class MemoryManager {
    * @param thresholdMB New threshold in MB
    * @param logger Optional logger for creating instance if needed
    */
-  static setMemoryThreshold(thresholdMB: number, logger?: DebugLogger): void {
+  static setMemoryThreshold(thresholdMB: number, logger?: ConsoleLogger): void {
     if (MemoryManager.instance) {
       MemoryManager.instance.updateThreshold(thresholdMB);
     } else if (logger) {
@@ -149,10 +155,14 @@ export class MemoryManager {
    * @param callback Function to call when cleanup is needed
    * @param description Optional description for logging
    */
-  registerCleanupCallback(id: string, callback: MemoryCleanupCallback, description?: string): void {
+  registerCleanupCallback(
+    id: string,
+    callback: MemoryCleanupCallback,
+    description?: string
+  ): void {
     this.cleanupCallbacks.set(id, { id, callback, description });
-    this.logger.d(
-      `🧩 Registered memory cleanup callback: ${id}${description ? ` (${description})` : ''}`
+    this.logger.debug(
+      `🧩 Registered memory cleanup callback: ${id}${description ? ` (${description})` : ""}`
     );
 
     // Start monitoring when first callback is registered
@@ -169,7 +179,7 @@ export class MemoryManager {
   unregisterCleanupCallback(id: string): void {
     const removed = this.cleanupCallbacks.delete(id);
     if (removed) {
-      this.logger.d(`🗑️ Unregistered memory cleanup callback: ${id}`);
+      this.logger.debug(`🗑️ Unregistered memory cleanup callback: ${id}`);
     }
 
     // Stop monitoring when no callbacks remain
@@ -221,7 +231,7 @@ export class MemoryManager {
         timeSinceLastCleanup < this.config.cleanupCooldownMs;
 
       if (needsCooldown) {
-        this.logger.d(
+        this.logger.debug(
           `⏱️ Cleanup cooldown active: ${Math.round(
             timeSinceLastCleanup / 1000
           )}s / ${Math.round(this.config.cleanupCooldownMs / 1000)}s`
@@ -237,7 +247,9 @@ export class MemoryManager {
         timeSinceLastCleanup < this.config.cleanupCooldownMs * 2 &&
         timeSinceLastCleanup > this.config.cleanupCooldownMs * 0.5
       ) {
-        this.logger.w(`🔄 Escalating to aggressive cleanup - gentle cleanup wasn't sufficient`);
+        this.logger.warn(
+          `🔄 Escalating to aggressive cleanup - gentle cleanup wasn't sufficient`
+        );
         cleanupLevel = CleanupLevel.AGGRESSIVE;
         threshold = aggressiveThreshold;
       }
@@ -261,7 +273,9 @@ export class MemoryManager {
    */
   updateThreshold(thresholdMB: number): void {
     this.config.baseThresholdMB = Math.max(50, thresholdMB);
-    this.logger.d(`🎯 Updated memory threshold to ${this.config.baseThresholdMB}MB`);
+    this.logger.debug(
+      `🎯 Updated memory threshold to ${this.config.baseThresholdMB}MB`
+    );
   }
 
   /**
@@ -295,7 +309,7 @@ export class MemoryManager {
     }
 
     this.isMonitoring = true;
-    this.logger.d(
+    this.logger.debug(
       `🔍 Starting memory monitoring (threshold: ${this.config.baseThresholdMB}MB, interval: ${this.config.monitorIntervalMs}ms)`
     );
 
@@ -314,7 +328,7 @@ export class MemoryManager {
     }
 
     this.isMonitoring = false;
-    this.logger.d('🛑 Stopped memory monitoring');
+    this.logger.debug("🛑 Stopped memory monitoring");
   }
 
   /**
@@ -333,7 +347,7 @@ export class MemoryManager {
 
     // Log detailed memory info if enabled (performance: conditional string building)
     if (this.config.enableDetailedLogging) {
-      this.logger.d(
+      this.logger.debug(
         `📊 Memory check: ${rssMB}MB RSS, ${heapMB}MB heap, ` +
           `${this.cleanupCallbacks.size} registered callbacks`
       );
@@ -357,12 +371,12 @@ export class MemoryManager {
 
     // Log cleanup trigger
     const levelIcon = {
-      [CleanupLevel.GENTLE]: '⚠️',
-      [CleanupLevel.AGGRESSIVE]: '🚨',
-      [CleanupLevel.EMERGENCY]: '💥',
+      [CleanupLevel.GENTLE]: "⚠️",
+      [CleanupLevel.AGGRESSIVE]: "🚨",
+      [CleanupLevel.EMERGENCY]: "💥",
     }[level];
 
-    this.logger.w(
+    this.logger.warn(
       `${levelIcon} ${level.toUpperCase()} memory cleanup triggered: ${rssMB}MB > ${threshold}MB`
     );
 
@@ -373,16 +387,18 @@ export class MemoryManager {
         registration.callback(memoryInfo);
         callbacksExecuted++;
       } catch (error) {
-        this.logger.e(`❌ Error in cleanup callback ${registration.id}: ${error}`);
+        this.logger.error(
+          `❌ Error in cleanup callback ${registration.id}: ${error}`
+        );
       }
     }
 
-    this.logger.d(`🧹 Executed ${callbacksExecuted} cleanup callbacks`);
+    this.logger.debug(`🧹 Executed ${callbacksExecuted} cleanup callbacks`);
 
     // Force garbage collection if available
     if (global.gc) {
       global.gc();
-      this.logger.d('🗑️ Forced garbage collection');
+      this.logger.debug("🗑️ Forced garbage collection");
     }
   }
 
@@ -394,7 +410,7 @@ export class MemoryManager {
     this.stopMonitoring();
     this.cleanupCallbacks.clear();
     MemoryManager.instance = undefined;
-    this.logger.d('🗑️ MemoryManager disposed');
+    this.logger.debug("🗑️ MemoryManager disposed");
   }
 }
 
@@ -406,7 +422,7 @@ export class MemoryManager {
  * @returns The MemoryManager singleton
  */
 export function getMemoryManager(
-  logger: DebugLogger,
+  logger: ConsoleLogger,
   config?: Partial<MemoryManagerConfig>
 ): MemoryManager {
   return MemoryManager.getInstance(logger, config);

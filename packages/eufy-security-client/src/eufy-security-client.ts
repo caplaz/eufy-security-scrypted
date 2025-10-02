@@ -36,25 +36,13 @@ export interface DeviceInfo {
 }
 
 /**
- * Configuration interface for EufySecurityClient initialization
- *
- * @interface EufySecurityClientConfig
- * @public
+ * Configuration options for EufySecurityClient
  */
 export interface EufySecurityClientConfig {
-  /** WebSocket URL for the eufy-security-ws server */
+  /** WebSocket server URL (e.g., 'ws://localhost:3000') */
   wsUrl: string;
-  /** Optional custom logger implementation (defaults to tslog if not provided) */
-  logger?: {
-    /** Log informational messages */
-    info(message: string, ...args: any[]): void;
-    /** Log warning messages */
-    warn(message: string, ...args: any[]): void;
-    /** Log error messages */
-    error(message: string, ...args: any[]): void;
-    /** Log debug messages */
-    debug(message: string, ...args: any[]): void;
-  };
+  /** Optional external logger instance compatible with tslog (e.g., ConsoleLogger from @caplaz/eufy-security-scrypted) */
+  logger?: Logger<ILogObj>;
 }
 
 /**
@@ -87,11 +75,13 @@ export class EufySecurityClient extends EventEmitter {
   constructor(config: EufySecurityClientConfig) {
     super();
 
-    // Create a tslog logger
-    this.logger = new Logger<ILogObj>({
-      name: "EufySecurityClient",
-      minLevel: 3, // Info level
-    });
+    // Use external logger if provided, otherwise create internal tslog logger
+    this.logger =
+      config.logger ??
+      new Logger<ILogObj>({
+        name: "EufySecurityClient",
+        minLevel: 3, // Info level
+      });
 
     // Create the API manager
     this.apiManager = new ApiManager(config.wsUrl, this.logger);
