@@ -39,9 +39,18 @@ EUFY_PASSWORD=your-password           # Maps to PASSWORD
 PORT=3000                             # Server port (default: 3000)
 LOG_LEVEL=info                        # Logging level: error, warn, info, debug
 TRUSTED_DEVICE_NAME=eufy-security-ws  # Device name for Eufy server identification
+
+# OPTIONAL: MQTT Integration (for Home Assistant, etc.)
+MQTT_BROKER_URL=mqtt://192.168.1.50:1883  # MQTT broker connection URL
+MQTT_USERNAME=your-mqtt-username           # MQTT authentication username
+MQTT_PASSWORD=your-mqtt-password           # MQTT authentication password
+MQTT_CLIENT_ID=eufy-security-ws            # MQTT client identifier
+MQTT_PREFIX=eufy_security                  # Topic prefix for published messages
 ```
 
 **Note:** The Docker image internally uses `USERNAME` and `PASSWORD` environment variables. This setup automatically maps your `EUFY_EMAIL` and `EUFY_PASSWORD` to these required variables.
+
+**MQTT Note:** MQTT integration is completely optional. The WebSocket connection already provides real-time events for Scrypted. Only configure MQTT if you need to publish events to an MQTT broker (e.g., for Home Assistant integration alongside Scrypted).
 
 ### Available Services
 
