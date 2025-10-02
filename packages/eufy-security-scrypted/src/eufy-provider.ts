@@ -65,6 +65,7 @@ export class EufySecurityProvider
   // Core dependencies
   wsClient: EufyWebSocketClient;
   wsLogger: Logger<ILogObj>;
+  private rootLogger: ConsoleLogger;
   private logger: ConsoleLogger;
 
   // Device management
@@ -97,13 +98,15 @@ export class EufySecurityProvider
     this.debugLogging = this.storage.getItem("debugLogging") === "true";
     initializeConsoleLogger(this.console, this.debugLogging);
 
-    // Create logger instance for this provider
-    this.logger = createConsoleLogger("EufySecurityProvider");
+    // Create hierarchical root logger
+    // Create hierarchical root logger
+    // Create root logger using createConsoleLogger
+    this.rootLogger = createConsoleLogger("EufySecurity");
+    // Create provider-specific logger
+    this.logger = createConsoleLogger("EufySecurity-Provider");
 
     // Create a logger for the WebSocket client using ConsoleLogger for consistent formatting
-    // ConsoleLogger extends Logger<ILogObj> so no casting needed
-    this.wsLogger = createConsoleLogger("EufyWebSocketClient");
-
+    this.wsLogger = createConsoleLogger("EufySecurity-WebSocketClient");
     this.wsClient = new EufyWebSocketClient(
       this.storage.getItem("wsUrl") || "ws://localhost:3000",
       this.wsLogger
@@ -734,7 +737,7 @@ export class EufySecurityProvider
       // Return existing station or create new EufyStation
       let station = this.stations.get(nativeId);
       if (!station) {
-        station = new EufyStation(nativeId, this.wsClient);
+        station = new EufyStation(nativeId, this.wsClient, this.rootLogger);
         this.stations.set(nativeId, station);
         this.logger.info(`Created new station ${nativeId}`);
       }

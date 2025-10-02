@@ -8,11 +8,11 @@
  * - Global debug toggle that can be controlled from the UI
  * - Works with Scrypted's console interface (log, warn, error methods)
  * - Immediate propagation of debug setting changes
- * - Full tslog Logger interface compatibility
+ * - Full tslog Logger interface compatibility with hierarchical logging
  * - Memory efficient - no string formatting when debug is disabled
  */
 
-import { Logger, ILogObj, ILogObjMeta } from "tslog";
+import { Logger, ILogObj, ILogObjMeta, ISettingsParam } from "tslog";
 
 // Re-export tslog types for use in other packages
 export type { Logger, ILogObj };
@@ -58,27 +58,36 @@ export function isDebugEnabled(): boolean {
 /**
  * ConsoleLogger extends tslog's Logger class to provide custom console-based logging
  * with centralized debug toggle control for Scrypted's console interface.
+ *
+ * Uses tslog's built-in hierarchy (getSubLogger) for automatic prefix management.
  */
 export class ConsoleLogger extends Logger<ILogObj> {
-  private readonly prefix: string;
-
-  constructor(prefix: string = "") {
-    // Initialize parent Logger with minimal settings - we'll override the logging methods
+  constructor(settings?: ISettingsParam<ILogObj>) {
     super({
-      name: prefix,
       type: "hidden", // Don't use tslog's built-in formatters
+      ...settings,
     });
-    this.prefix = prefix;
   }
 
   /**
-   * Helper method to format log messages with prefix and arguments
+   * Helper method to extract hierarchical name from tslog's settings
+   * tslog automatically builds hierarchical names like "Eufy:Station-001:Camera"
+   */
+  private getHierarchicalPrefix(): string {
+    // Access tslog's internal settings to get the hierarchical name
+    const name = (this.settings as any).name;
+    return name || "";
+  }
+
+  /**
+   * Helper method to format log messages using tslog's built-in hierarchical prefix
    */
   private formatMessage(...args: unknown[]): string {
     if (args.length === 0) return "";
 
+    const prefix = this.getHierarchicalPrefix();
     const message = String(args[0]);
-    const msg = this.prefix ? `[${this.prefix}] ${message}` : message;
+    const msg = prefix ? `[${prefix}] ${message}` : message;
 
     if (args.length === 1) return msg;
 
@@ -104,12 +113,12 @@ export class ConsoleLogger extends Logger<ILogObj> {
   }
 
   /**
-   * Trace level logging - very detailed information
-   * Only logs when debug is enabled
+   * Trace level logging - very detailed debugging information
    */
   trace(...args: unknown[]): (ILogObj & ILogObjMeta) | undefined {
     if (globalConfig?.debugEnabled) {
-      const emoji = this.prefix ? "" : "🔍 ";
+      const prefix = this.getHierarchicalPrefix();
+      const emoji = prefix ? "" : "🔍 ";
       const msg = this.formatMessage(...args);
       globalConfig.console.log(`${emoji}${msg}`);
     }
@@ -122,7 +131,8 @@ export class ConsoleLogger extends Logger<ILogObj> {
    */
   debug(...args: unknown[]): (ILogObj & ILogObjMeta) | undefined {
     if (globalConfig?.debugEnabled) {
-      const emoji = this.prefix ? "" : "🐛 ";
+      const prefix = this.getHierarchicalPrefix();
+      const emoji = prefix ? "" : "🐛 ";
       const msg = this.formatMessage(...args);
       globalConfig.console.log(`${emoji}${msg}`);
     }
@@ -167,18 +177,30 @@ export class ConsoleLogger extends Logger<ILogObj> {
    */
   fatal(...args: unknown[]): (ILogObj & ILogObjMeta) | undefined {
     if (globalConfig) {
-      const emoji = this.prefix ? "🚨 " : "🚨 ";
+      const prefix = this.getHierarchicalPrefix();
+      const emoji = prefix ? "🚨 " : "🚨 ";
       const msg = this.formatMessage(...args);
       globalConfig.console.error(`${emoji}${msg}`);
     }
     return undefined;
   }
+
+  /**
+   * Override getSubLogger to return ConsoleLogger type (instead of base Logger)
+   * This maintains type consistency throughout the hierarchy
+   */
+  getSubLogger(settings?: ISettingsParam<ILogObj>): ConsoleLogger {
+    const subLogger = super.getSubLogger(settings) as any;
+    // Set the prototype to ConsoleLogger to ensure proper method behavior
+    Object.setPrototypeOf(subLogger, ConsoleLogger.prototype);
+    return subLogger as ConsoleLogger;
+  }
 }
 
 /**
- * Create a new ConsoleLogger instance with an optional prefix
- * The prefix will be added to all log messages from this instance
+ * Create the root logger for the Eufy provider
+ * All stations and devices will be sub-loggers of this root logger
  */
-export function createConsoleLogger(prefix?: string): ConsoleLogger {
-  return new ConsoleLogger(prefix);
+export function createConsoleLogger(name: string = "Eufy"): ConsoleLogger {
+  return new ConsoleLogger({ name });
 }

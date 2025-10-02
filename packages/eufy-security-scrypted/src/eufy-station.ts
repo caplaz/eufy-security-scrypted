@@ -74,11 +74,21 @@ export class EufyStation
    * Construct a new EufyStation.
    * @param nativeId - Scrypted nativeId for this station.
    * @param wsClient - EufyWebSocketClient instance for API access.
+   * @param parentLogger - Parent logger for hierarchical logging.
    */
-  constructor(nativeId: string, wsClient: EufyWebSocketClient) {
+  constructor(
+    nativeId: string,
+    wsClient: EufyWebSocketClient,
+    parentLogger?: ConsoleLogger
+  ) {
     super(nativeId);
     this.wsClient = wsClient;
-    this.logger = createConsoleLogger(this.name);
+
+    // Create hierarchical sub-logger if parent provided, otherwise create standalone logger
+    this.logger = parentLogger
+      ? parentLogger.getSubLogger({ name: nativeId })
+      : createConsoleLogger(this.name);
+
     this.logger.info(`Created EufyStation for ${nativeId}`);
 
     this.addEventListener(
@@ -164,7 +174,7 @@ export class EufyStation
       // Return existing device or create new EufyDevice
       let device = this.childDevices.get(nativeId);
       if (!device) {
-        device = new EufyDevice(nativeId, this.wsClient);
+        device = new EufyDevice(nativeId, this.wsClient, this.logger);
         this.childDevices.set(nativeId, device);
         this.logger.info(`Created new device ${nativeId}`);
       }

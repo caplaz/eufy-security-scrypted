@@ -144,10 +144,19 @@ export class EufyDevice
     return this.wsClient.commands.device(this.serialNumber);
   }
 
-  constructor(nativeId: string, wsClient: EufyWebSocketClient) {
+  constructor(
+    nativeId: string,
+    wsClient: EufyWebSocketClient,
+    parentLogger?: ConsoleLogger
+  ) {
     super(nativeId);
     this.wsClient = wsClient;
-    this.logger = createConsoleLogger(this.name);
+
+    // Create hierarchical sub-logger if parent provided, otherwise create standalone logger
+    this.logger = parentLogger
+      ? parentLogger.getSubLogger({ name: nativeId })
+      : createConsoleLogger(this.name);
+
     this.logger.info(`Created EufyDevice for ${nativeId}`);
 
     this.createStreamServer();
