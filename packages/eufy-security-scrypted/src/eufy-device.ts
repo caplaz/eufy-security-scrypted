@@ -29,6 +29,7 @@
 import {
   Battery,
   Brightness,
+  Camera,
   ChargeState,
   Charger,
   FFmpegInput,
@@ -39,7 +40,9 @@ import {
   PanTiltZoomCommand,
   Refresh,
   RequestMediaStreamOptions,
+  RequestPictureOptions,
   ResponseMediaStreamOptions,
+  ResponsePictureOptions,
   ScryptedDeviceBase,
   ScryptedInterface,
   Sensors,
@@ -89,6 +92,7 @@ export class EufyDevice
   implements
     VideoCamera,
     VideoClips,
+    Camera,
     MotionSensor,
     Battery,
     Charger,
@@ -481,6 +485,61 @@ export class EufyDevice
       "Creating MediaObject with fallback dimensions (metadata will be updated when stream starts)"
     );
     return this.createOptimizedMediaObject(port, options);
+  }
+
+  // =================== CAMERA INTERFACE ===================
+
+  async getPictureOptions(): Promise<ResponsePictureOptions[]> {
+    await this.propertiesLoaded;
+
+    // Get video dimensions based on device properties
+    const { width, height } = this.getVideoDimensions();
+
+    return [
+      {
+        id: "snapshot",
+        name: "Snapshot",
+        picture: {
+          width,
+          height,
+          // JPEG will be created by converting the H.264 keyframe
+        },
+      },
+    ];
+  }
+
+  async takePicture(options?: RequestPictureOptions): Promise<MediaObject> {
+    this.logger.i("📸 takePicture called - capturing snapshot from stream");
+
+    try {
+      // Use timeout from options or default to 15 seconds
+      const timeout = options?.timeout || 15000;
+
+      this.logger.i(`Using timeout: ${timeout}ms for snapshot capture`);
+
+      // The stream server instance handles starting/stopping the camera stream automatically
+      // It starts the camera stream, waits for a keyframe, captures it, then stops the camera stream
+      const h264Keyframe = await this.streamServer.captureSnapshot(timeout);
+
+      this.logger.i(
+        `Captured H.264 keyframe: ${h264Keyframe.length} bytes - converting to JPEG`
+      );
+
+      // Convert H.264 keyframe to JPEG using FFmpeg
+      const jpegBuffer = await DeviceUtils.convertH264ToJPEG(h264Keyframe);
+
+      this.logger.i(
+        `✅ Snapshot converted to JPEG: ${jpegBuffer.length} bytes`
+      );
+
+      // Create MediaObject with JPEG image
+      return sdk.mediaManager.createMediaObject(jpegBuffer, "image/jpeg", {
+        sourceId: this.serialNumber,
+      });
+    } catch (error) {
+      this.logger.e(`Failed to capture snapshot: ${error}`);
+      throw error;
+    }
   }
 
   // =================== REFRESH INTERFACE ===================

@@ -277,6 +277,7 @@ export class DeviceUtils {
 
     // Base interfaces that all camera devices should have
     const interfaces = [
+      ScryptedInterface.Camera,
       ScryptedInterface.VideoCamera,
       // ScryptedInterface.VideoClips,
       ScryptedInterface.MotionSensor,
@@ -333,5 +334,97 @@ export class DeviceUtils {
         ? `station_${properties.stationSerialNumber}`
         : undefined,
     };
+  }
+
+  /**
+   * Converts H.264 video data to JPEG image using FFmpeg.
+   * This is a synchronous operation that pipes H.264 data to FFmpeg and captures the JPEG output.
+   *
+   * @param h264Data - Buffer containing H.264 encoded video data (typically a keyframe)
+   * @param quality - JPEG quality setting (1-31, lower is better quality, default: 2)
+   * @returns Promise resolving to Buffer containing JPEG image data
+   * @throws Error if FFmpeg fails or returns invalid output
+   */
+  static async convertH264ToJPEG(
+    h264Data: Buffer,
+    quality: number = 2
+  ): Promise<Buffer> {
+    const child_process = await import("child_process");
+
+    return new Promise<Buffer>((resolve, reject) => {
+      // Use FFmpeg to decode H.264 and encode as JPEG
+      const ffmpeg = child_process.spawn("ffmpeg", [
+        "-f",
+        "h264", // Input format
+        "-i",
+        "pipe:0", // Read from stdin
+        "-frames:v",
+        "1", // Extract only the first frame
+        "-f",
+        "image2", // Output format
+        "-c:v",
+        "mjpeg", // JPEG codec
+        "-q:v",
+        quality.toString(), // Quality setting (1-31, lower is better)
+        "pipe:1", // Write to stdout
+      ]);
+
+      const chunks: Buffer[] = [];
+      const errorChunks: Buffer[] = [];
+
+      ffmpeg.stdout.on("data", (chunk) => {
+        chunks.push(chunk);
+      });
+
+      ffmpeg.stderr.on("data", (chunk) => {
+        errorChunks.push(chunk);
+      });
+
+      ffmpeg.on("close", (code) => {
+        if (code === 0 && chunks.length > 0) {
+          const jpegBuffer = Buffer.concat(chunks);
+          resolve(jpegBuffer);
+        } else {
+          const errorOutput = Buffer.concat(errorChunks).toString();
+          const errorMessage = `FFmpeg conversion failed with code ${code}: ${
+            errorOutput || "Unknown error"
+          }`;
+
+          // Provide more specific error messages based on common FFmpeg errors
+          if (
+            errorOutput.includes("Invalid data found when processing input")
+          ) {
+            reject(new Error(`Invalid H.264 data provided: ${errorOutput}`));
+          } else if (errorOutput.includes("No such file or directory")) {
+            reject(
+              new Error(
+                "FFmpeg executable not found. Please ensure FFmpeg is installed."
+              )
+            );
+          } else if (errorOutput.includes("Permission denied")) {
+            reject(new Error("Permission denied accessing FFmpeg executable."));
+          } else {
+            reject(new Error(errorMessage));
+          }
+        }
+      });
+
+      ffmpeg.on("error", (error) => {
+        const errnoError = error as NodeJS.ErrnoException;
+        if (errnoError.code === "ENOENT") {
+          reject(
+            new Error(
+              "FFmpeg executable not found. Please ensure FFmpeg is installed and available in PATH."
+            )
+          );
+        } else {
+          reject(new Error(`Failed to spawn FFmpeg: ${error.message}`));
+        }
+      });
+
+      // Write H.264 data to FFmpeg stdin
+      ffmpeg.stdin.write(h264Data);
+      ffmpeg.stdin.end();
+    });
   }
 }

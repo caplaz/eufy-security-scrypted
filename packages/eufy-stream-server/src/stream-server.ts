@@ -89,6 +89,13 @@ export class StreamServer extends EventEmitter {
     lastFrameTime: null as Date | null,
   };
 
+  // Snapshot capture state
+  private snapshotResolvers: Array<{
+    resolve: (buffer: Buffer) => void;
+    reject: (error: Error) => void;
+    timestamp: number;
+  }> = [];
+
   constructor(options: StreamServerOptions) {
     super();
 
@@ -362,10 +369,12 @@ export class StreamServer extends EventEmitter {
             this.logger.info("✅ Livestream stop command sent successfully");
             this.livestreamActualState = false;
           } catch (error: any) {
-            // Ignore LivestreamNotRunningError - it's not really an error
+            // Ignore "livestream not running" errors - it's not really an error
+            // Error can be in format: "Command failed: device_livestream_not_running"
             if (
               error.message &&
-              error.message.includes("LivestreamNotRunningError")
+              (error.message.includes("livestream_not_running") ||
+                error.message.includes("LivestreamNotRunningError"))
             ) {
               this.logger.debug(
                 "Livestream was already stopped (not an error)"
@@ -528,6 +537,16 @@ export class StreamServer extends EventEmitter {
         );
       }
 
+      // Resolve any pending snapshot requests with keyframe data
+      if (isKeyFrame && this.snapshotResolvers.length > 0) {
+        this.logger.debug(
+          `Resolving ${this.snapshotResolvers.length} snapshot request(s) with keyframe data`
+        );
+        const resolvers = [...this.snapshotResolvers];
+        this.snapshotResolvers = [];
+        resolvers.forEach(({ resolve }) => resolve(data));
+      }
+
       // Broadcast to all connected clients
       const success = this.connectionManager.broadcast(data);
 
@@ -667,5 +686,80 @@ export class StreamServer extends EventEmitter {
       bytesTransferred: 0,
       lastFrameTime: null,
     };
+  }
+
+  /**
+   * Capture a single snapshot frame from the stream.
+   * Starts the livestream if not already running, waits for a keyframe,
+   * captures the frame, and stops the stream.
+   *
+   * @param timeoutMs - Maximum time to wait for a snapshot (default: 15000ms)
+   * @returns Promise<Buffer> - Raw H.264 keyframe data
+   */
+  async captureSnapshot(timeoutMs: number = 15000): Promise<Buffer> {
+    this.logger.info("📸 Capturing snapshot...");
+
+    const wasStreamRunning = this.livestreamActualState;
+
+    try {
+      // Start livestream if not already running
+      if (!this.livestreamActualState) {
+        this.logger.debug("Starting livestream for snapshot capture");
+        this.livestreamIntendedState = true;
+        await this.ensureLivestreamState();
+      }
+
+      // Wait for a keyframe
+      const snapshotBuffer = await new Promise<Buffer>((resolve, reject) => {
+        const timeoutHandle = setTimeout(() => {
+          // Remove this resolver from the list
+          this.snapshotResolvers = this.snapshotResolvers.filter(
+            (r) => r.resolve !== resolve
+          );
+          reject(
+            new Error(
+              `Snapshot capture timed out after ${timeoutMs}ms - no keyframe received`
+            )
+          );
+        }, timeoutMs);
+
+        // Add resolver to the queue
+        this.snapshotResolvers.push({
+          resolve: (buffer: Buffer) => {
+            clearTimeout(timeoutHandle);
+            resolve(buffer);
+          },
+          reject: (error: Error) => {
+            clearTimeout(timeoutHandle);
+            reject(error);
+          },
+          timestamp: Date.now(),
+        });
+
+        this.logger.debug(
+          `Waiting for next keyframe (timeout: ${timeoutMs}ms)...`
+        );
+      });
+
+      this.logger.info(
+        `✅ Snapshot captured: ${snapshotBuffer.length} bytes (keyframe)`
+      );
+
+      return snapshotBuffer;
+    } finally {
+      // Stop livestream if it wasn't running before
+      if (!wasStreamRunning) {
+        this.logger.debug(
+          "Stopping livestream after snapshot capture (was not running before)"
+        );
+        this.livestreamIntendedState = false;
+        // Don't await here to avoid blocking the snapshot return
+        this.ensureLivestreamState().catch((error) => {
+          this.logger.warn(
+            `Failed to stop livestream after snapshot: ${error}`
+          );
+        });
+      }
+    }
   }
 }

@@ -220,6 +220,145 @@ describe("StreamServer", () => {
     });
   });
 
+  describe("snapshot capture", () => {
+    it("should capture snapshot from stream", async () => {
+      const mockWsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: {
+          device: jest.fn().mockReturnValue({
+            startLivestream: jest.fn().mockResolvedValue({}),
+            stopLivestream: jest.fn().mockResolvedValue({}),
+          }),
+        },
+      };
+
+      const serverWithWs = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+      });
+
+      await serverWithWs.start();
+
+      // Get the event handler that was registered
+      const eventHandler = mockWsClient.addEventListener.mock.calls[0][1];
+
+      // Start snapshot capture in background
+      const snapshotPromise = serverWithWs.captureSnapshot(5000);
+
+      // Wait a bit for the snapshot request to be registered
+      await wait(100);
+
+      // Simulate receiving a keyframe event
+      const testH264Keyframe = createTestH264Data();
+      eventHandler({
+        serialNumber: "TEST123",
+        buffer: { data: testH264Keyframe },
+        metadata: {
+          videoCodec: "h264",
+          videoFPS: 30,
+          videoWidth: 1920,
+          videoHeight: 1080,
+        },
+      });
+
+      // Wait for snapshot to resolve
+      const snapshot = await snapshotPromise;
+
+      expect(snapshot).toEqual(testH264Keyframe);
+      expect(snapshot.length).toBeGreaterThan(0);
+
+      await serverWithWs.stop();
+    });
+
+    it("should timeout if no keyframe received", async () => {
+      const mockWsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: {
+          device: jest.fn().mockReturnValue({
+            startLivestream: jest.fn().mockResolvedValue({}),
+            stopLivestream: jest.fn().mockResolvedValue({}),
+          }),
+        },
+      };
+
+      const serverWithWs = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+      });
+
+      await serverWithWs.start();
+
+      // Try to capture snapshot with short timeout and no keyframe
+      await expect(serverWithWs.captureSnapshot(100)).rejects.toThrow(
+        /Snapshot capture timed out/
+      );
+
+      await serverWithWs.stop();
+    });
+
+    it("should handle multiple simultaneous snapshot requests", async () => {
+      const mockWsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: {
+          device: jest.fn().mockReturnValue({
+            startLivestream: jest.fn().mockResolvedValue({}),
+            stopLivestream: jest.fn().mockResolvedValue({}),
+          }),
+        },
+      };
+
+      const serverWithWs = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+      });
+
+      await serverWithWs.start();
+
+      // Get the event handler that was registered
+      const eventHandler = mockWsClient.addEventListener.mock.calls[0][1];
+
+      // Start multiple snapshot captures
+      const snapshot1Promise = serverWithWs.captureSnapshot(5000);
+      const snapshot2Promise = serverWithWs.captureSnapshot(5000);
+
+      // Wait a bit for the snapshot requests to be registered
+      await wait(100);
+
+      // Simulate receiving a keyframe event
+      const testH264Keyframe = createTestH264Data();
+      eventHandler({
+        serialNumber: "TEST123",
+        buffer: { data: testH264Keyframe },
+        metadata: {
+          videoCodec: "h264",
+          videoFPS: 30,
+          videoWidth: 1920,
+          videoHeight: 1080,
+        },
+      });
+
+      // Wait for both snapshots to resolve
+      const [snapshot1, snapshot2] = await Promise.all([
+        snapshot1Promise,
+        snapshot2Promise,
+      ]);
+
+      expect(snapshot1).toEqual(testH264Keyframe);
+      expect(snapshot2).toEqual(testH264Keyframe);
+
+      await serverWithWs.stop();
+    });
+  });
+
   describe("WebSocket integration", () => {
     it("should setup WebSocket listener when wsClient and serialNumber provided", () => {
       const mockWsClient = {

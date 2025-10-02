@@ -52,6 +52,22 @@ console.log("Frames processed:", stats.streaming.framesProcessed);
 await server.stop();
 ```
 
+### Snapshot Capture
+
+```typescript
+// Capture a single snapshot frame
+// This will start the stream, wait for a keyframe, and stop the stream automatically
+try {
+  const h264Keyframe = await server.captureSnapshot(15000); // 15 second timeout
+  console.log(`Captured snapshot: ${h264Keyframe.length} bytes`);
+
+  // Convert to JPEG or PNG using FFmpeg or other tools
+  // The returned buffer is a raw H.264 keyframe
+} catch (error) {
+  console.error("Failed to capture snapshot:", error);
+}
+```
+
 ### Event Handling
 
 ```typescript
@@ -123,9 +139,12 @@ if (metadata) {
 - `start(): Promise<void>` - Start the TCP server
 - `stop(): Promise<void>` - Stop the TCP server
 - `streamVideo(data: Buffer, timestamp?: number, isKeyFrame?: boolean): Promise<boolean>` - Stream H.264 data
+- `captureSnapshot(timeoutMs?: number): Promise<Buffer>` - Capture a single snapshot frame from the stream (starts stream if needed, captures keyframe, stops stream)
 - `getStats(): ServerStats` - Get server statistics
 - `getActiveConnectionCount(): number` - Get number of active connections
 - `isRunning(): boolean` - Check if server is running
+- `getVideoMetadata(): VideoMetadata | null` - Get video metadata from first received frame
+- `waitForVideoMetadata(timeoutMs?: number): Promise<VideoMetadata>` - Wait for video metadata to be received
 
 #### Events
 
