@@ -341,9 +341,14 @@ export class EufyDevice
             ...this.latestProperties,
             [propertyName]: propertyValue,
           };
+          // Notify UI that settings have been saved
+          this.onDeviceEvent(ScryptedInterface.Settings, undefined);
         })
         .catch((error) => {
           this.logger.warn(`Failed to set property ${propertyName}: ${error}`);
+          // Still notify UI even on error to reset button state
+          this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+          throw error;
         });
     }
 
@@ -351,9 +356,8 @@ export class EufyDevice
     switch (key) {
       case "scryptedName":
         this.name = value as string;
-        return; // Add explicit return
-      case "debugLogging":
-        this.storage.setItem("debugLogging", (!!value).toString());
+        // Notify UI that settings have been saved
+        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
         return; // Add explicit return
 
       default:
