@@ -14,6 +14,8 @@ src/
 │   ├── authentication/       # Authentication services
 │   │   └── authentication-service.ts
 │   ├── device/               # Device management services
+│   │   ├── device-property-service.ts
+│   │   └── snapshot-service.ts
 │   ├── video/                # Video streaming and clips
 │   │   └── video-clips-service.ts
 │   ├── settings/             # Settings management
@@ -131,6 +133,63 @@ const clips = await videoService.getClips({
 
 // Download clip
 const videoData = await videoService.downloadClip(clipId, serialNumber);
+```
+
+### Device Property Service
+
+**Location**: `services/device/device-property-service.ts`
+
+Manages device property retrieval, updates, and synchronization:
+
+- Load and cache device properties
+- Subscribe to property change events
+- Update properties via API
+- Provide property accessors
+
+**Usage**:
+
+```typescript
+const propertyService = new DevicePropertyService(
+  wsClient,
+  serialNumber,
+  logger
+);
+
+// Wait for properties to load
+const properties = await propertyService.waitForProperties();
+
+// Get specific property
+const name = propertyService.getProperty("name");
+
+// Update property
+await propertyService.updateProperty("enabled", false);
+
+// Subscribe to changes
+const unsubscribe = propertyService.onPropertyChange((update) => {
+  console.log(`Property ${update.name} changed to ${update.value}`);
+});
+```
+
+### Snapshot Service
+
+**Location**: `services/device/snapshot-service.ts`
+
+Handles camera snapshot/picture capture operations:
+
+- Capture H.264 keyframes from stream
+- Convert to JPEG using FFmpeg
+- Rate limiting and error handling
+
+**Usage**:
+
+```typescript
+const snapshotService = new SnapshotService(serialNumber, streamServer, logger);
+
+// Get picture options
+const options = snapshotService.getPictureOptions();
+
+// Take picture
+const mediaObject = await snapshotService.takePicture({ timeout: 15000 });
 ```
 
 ### Interface Handlers
@@ -400,22 +459,33 @@ export class AuthenticationService {
 - ✅ Maintainable
 - ✅ Reusable services
 
+## ✅ Phase 2 Complete (Current)
+
+Added device management services:
+
+- ✅ **DevicePropertyService**: Property management and synchronization (20 tests)
+- ✅ **SnapshotService**: Camera snapshot operations (9 tests)
+- ✅ Comprehensive unit tests (61 total tests passing)
+- ✅ Updated documentation
+
 ## 🔜 Next Steps
 
-1. **Complete Service Extraction**
-   - Extract remaining functionality from eufy-device.ts
-   - Create StreamService for video streaming
-   - Create DevicePropertyService for property management
+1. **Complete Service Extraction (Phase 3)**
+   - Extract streaming logic into StreamService
+   - Extract settings management from provider
+   - Create DeviceStateManager for state coordination
 
 2. **Add More Tests**
    - VideoClipsService tests
    - Integration tests
    - E2E tests
+   - Increase coverage to 80%+
 
 3. **Documentation**
    - API documentation
    - Usage examples
    - Troubleshooting guide
+   - Migration guide for existing code
 
 4. **Performance**
    - Add caching strategies
