@@ -96,7 +96,7 @@ export class DeviceUtils {
     return Object.values(metadata)
       .filter((meta) => meta.writeable)
       .filter((meta) => !/test/i.test(meta.name))
-      .filter((meta) => meta.name !== "statusLed")
+      .filter((meta) => meta.name !== "light")
       .map((meta) =>
         DeviceUtils.settingFromMetadata(
           meta,
@@ -204,11 +204,6 @@ export class DeviceUtils {
         description: `Value must be between ${metadata.min}${
           metadata.unit || ""
         } and ${metadata.max}${metadata.unit || ""}`,
-      };
-    } else if (metadata.type === "boolean" && metadata.name === "light") {
-      setting = {
-        ...setting,
-        immediate: true, // Apply immediately without restart
       };
     }
 
