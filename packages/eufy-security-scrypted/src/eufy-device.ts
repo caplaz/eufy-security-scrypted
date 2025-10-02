@@ -82,6 +82,14 @@ import { DeviceUtils } from "./utils/device-utils";
 import { StreamServer } from "@caplaz/eufy-stream-server";
 import sdk from "@scrypted/sdk";
 
+// Phase 4 Services
+import {
+  DeviceSettingsService,
+  DeviceStateService,
+  RefreshService,
+} from "./services/device";
+import { PropertyMapper } from "./utils/property-mapper";
+
 /**
  * EufyDevice - TCP server implementation for VideoCamera
  */
@@ -107,6 +115,11 @@ export class EufyDevice
   // Device info and state
   private latestProperties?: DeviceProperties;
   private propertiesLoaded: Promise<void>;
+
+  // Phase 4 Services
+  private settingsService!: DeviceSettingsService;
+  private stateService!: DeviceStateService;
+  private refreshService!: RefreshService;
 
   private streamServer!: StreamServer;
   private streamServerStarted = false;
@@ -160,6 +173,7 @@ export class EufyDevice
     this.logger.info(`Created EufyDevice for ${nativeId}`);
 
     this.createStreamServer();
+    this.initializeServices();
 
     // Properties changed event listener
     this.addEventListener(
@@ -195,6 +209,49 @@ export class EufyDevice
     this.propertiesLoaded = this.loadInitialProperties();
   }
 
+  /**
+   * Initialize Phase 4 services for settings, state, and refresh management
+   */
+  private initializeServices() {
+    // Initialize device API interface for services
+    const deviceApi = {
+      setProperty: async (propertyName: keyof DeviceProperties, value: any) => {
+        await this.api.setProperty(propertyName, value);
+      },
+      getProperties: () => this.api.getProperties(),
+    };
+
+    // Initialize services
+    this.settingsService = new DeviceSettingsService(deviceApi, this.logger);
+    this.stateService = new DeviceStateService(this.logger);
+    this.refreshService = new RefreshService(deviceApi, this.logger);
+
+    // Subscribe to state changes from the state service
+    this.stateService.onStateChange((change) => {
+      this.logger.debug(`State changed: ${change.interface} = ${change.value}`);
+      this.onDeviceEvent(change.interface, change.value);
+    });
+
+    // Subscribe to refresh completion
+    this.refreshService.onRefreshComplete((properties) => {
+      this.logger.debug("Refresh completed successfully");
+      this.latestProperties = properties;
+      this.stateService.updateFromProperties(properties);
+      this.updatePtzCapabilities();
+    });
+
+    // Subscribe to refresh errors
+    this.refreshService.onRefreshError((error) => {
+      this.logger.warn(`Refresh failed: ${error.message}`);
+    });
+
+    // Subscribe to settings changes
+    this.settingsService.onSettingsChange(() => {
+      this.logger.debug("Settings changed, notifying Scrypted");
+      this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+    });
+  }
+
   private async loadInitialProperties() {
     try {
       this.latestProperties = (await this.api.getProperties()).properties;
@@ -205,36 +262,24 @@ export class EufyDevice
     }
   }
 
+  /**
+   * Update device state from properties using DeviceStateService
+   * This delegates to the state service which manages state conversion and notifications
+   */
   private updateStateFromProperties(properties?: DeviceProperties) {
     if (!properties) return;
-    this.motionDetected = properties.motionDetected || false;
-
-    // Light settings
-    this.brightness = properties.lightSettingsBrightnessManual || 100; // Default to 100% if not set
-    this.on = properties.light || false;
-
-    // update battery and charging state
-    this.batteryLevel = properties.battery || 100; // Default to 100% if not set
-    switch (properties.chargingStatus) {
-      case ChargingStatus.NOT_CHARGING:
-        this.chargeState = ChargeState.NotCharging;
-        break;
-      case ChargingStatus.CHARGING:
-        this.chargeState = ChargeState.Charging;
-        break;
-      default:
-        this.chargeState = undefined;
-        break;
-    }
-
-    // wifi
-    this.sensors = {
-      wifiRssi: {
-        name: "wifiRssi",
-        value: properties.wifiRssi,
-        unit: "dBm",
-      },
-    };
+    
+    // Delegate to state service for conversion and notifications
+    this.stateService.updateFromProperties(properties);
+    
+    // Sync state back to device properties (for backward compatibility)
+    const state = this.stateService.getState();
+    if (state.motionDetected !== undefined) this.motionDetected = state.motionDetected;
+    if (state.brightness !== undefined) this.brightness = state.brightness;
+    if (state.on !== undefined) this.on = state.on;
+    if (state.batteryLevel !== undefined) this.batteryLevel = state.batteryLevel;
+    if (state.chargeState !== undefined) this.chargeState = state.chargeState;
+    if (state.sensors) this.sensors = state.sensors as any;
   }
   // =================== EVENTs ===================
 
@@ -248,45 +293,32 @@ export class EufyDevice
     });
   }
 
+  /**
+   * Handle property changed events using DeviceStateService
+   * The state service handles state conversion and notifications
+   */
   private handlePropertyChangedEvent({
     name,
     value,
   }: DevicePropertyChangedEventPayload) {
+    // Update cached properties
     this.latestProperties = this.latestProperties && {
       ...this.latestProperties,
       [name]: value,
     };
 
-    switch (name) {
-      case "light":
-        this.on = value as boolean;
-        this.onDeviceEvent(ScryptedInterface.OnOff, this.on);
-        break;
-      case "battery":
-        this.batteryLevel = value as number;
-        this.onDeviceEvent(ScryptedInterface.Battery, this.batteryLevel);
-        break;
-      case "chargingStatus":
-        this.chargeState =
-          (value as ChargingStatus) === ChargingStatus.CHARGING
-            ? ChargeState.Charging
-            : ChargeState.NotCharging;
-        this.onDeviceEvent(ScryptedInterface.Charger, this.chargeState);
-        break;
-      case "wifiRssi":
-        this.sensors = {
-          ...this.sensors,
-          wifiRssi: {
-            name,
-            value: value as number,
-            unit: "dBm",
-          },
-        };
-        this.onDeviceEvent(ScryptedInterface.Sensors, this.sensors);
-        break;
-      default:
-        this.logger.info(`Property changed: ${name} = ${value}`);
-    }
+    // Delegate to state service for state updates and notifications
+    // The state service will call onDeviceEvent via our subscription
+    this.stateService.updateProperty(name, value);
+    
+    // Sync state back to device properties (for backward compatibility)
+    const state = this.stateService.getState();
+    if (state.motionDetected !== undefined) this.motionDetected = state.motionDetected;
+    if (state.brightness !== undefined) this.brightness = state.brightness;
+    if (state.on !== undefined) this.on = state.on;
+    if (state.batteryLevel !== undefined) this.batteryLevel = state.batteryLevel;
+    if (state.chargeState !== undefined) this.chargeState = state.chargeState;
+    if (state.sensors) this.sensors = state.sensors as any;
   }
 
   private handleMotionDetectedEvent(event: DeviceMotionDetectedEventPayload) {
@@ -296,77 +328,58 @@ export class EufyDevice
 
   // =================== SETTINGS INTERFACE ===================
 
+  /**
+   * Get device settings using DeviceSettingsService
+   * Delegates to the settings service for UI generation
+   */
   async getSettings(): Promise<Setting[]> {
     await this.propertiesLoaded;
 
-    const { info } = this;
-    const { metadata } = info || {};
-
-    return [
-      {
-        key: "scryptedName",
-        title: "Device Name",
-        description: "Name shown in Scrypted (can be customized)",
-        value: this.name,
-        type: "string",
-        readonly: false,
-      },
-
-      // generic info about this device
-      ...DeviceUtils.genericDeviceInformation(info!, metadata),
-
-      ...DeviceUtils.allWriteableDeviceProperties(
-        this.latestProperties!,
-        metadata
-      ),
-    ];
+    // Delegate to settings service
+    return this.settingsService.getSettings(
+      this.info! as any,
+      this.latestProperties!,
+      this.name || "Unknown Device"
+    );
   }
 
+  /**
+   * Update device settings using DeviceSettingsService
+   * Delegates to the settings service for property updates and custom settings
+   */
   async putSetting(key: string, value: SettingValue): Promise<void> {
-    // Handle device properties first
-    if (key in this.latestProperties!) {
-      const propertyName = key as keyof DeviceProperties;
-      const propertyValue = DeviceUtils.valueAdjustedWithMetadata(
-        value,
-        this.info?.metadata[propertyName]
-      );
+    // Callback to handle successful property updates
+    const onSuccess = (settingKey: string, settingValue: SettingValue) => {
+      // Update local properties if it's a device property
+      if (settingKey in this.latestProperties!) {
+        const propertyName = settingKey as keyof DeviceProperties;
+        const metadata = this.info?.metadata?.[propertyName];
+        const adjustedValue = metadata
+          ? PropertyMapper.adjustValueForAPI(settingValue, metadata)
+          : settingValue;
+        
+        this.latestProperties = this.latestProperties && {
+          ...this.latestProperties,
+          [propertyName]: adjustedValue,
+        };
+      }
 
-      this.logger.info(`Updating property ${propertyName}`);
+      // Handle custom settings locally
+      if (settingKey === "scryptedName") {
+        this.name = settingValue as string;
+      }
+    };
 
-      return this.api
-        .setProperty(propertyName, propertyValue)
-        .then(() => {
-          // Update local state
-          this.latestProperties = this.latestProperties && {
-            ...this.latestProperties,
-            [propertyName]: propertyValue,
-          };
-          // Notify UI that settings have been saved
-          this.onDeviceEvent(ScryptedInterface.Settings, undefined);
-        })
-        .catch((error) => {
-          this.logger.warn(`Failed to set property ${propertyName}: ${error}`);
-          // Still notify UI even on error to reset button state
-          this.onDeviceEvent(ScryptedInterface.Settings, undefined);
-          throw error;
-        });
-    }
-
-    // Handle custom settings
-    switch (key) {
-      case "scryptedName":
-        this.name = value as string;
-        // Notify UI that settings have been saved
-        this.onDeviceEvent(ScryptedInterface.Settings, undefined);
-        return; // Add explicit return
-
-      default:
-        this.logger.warn(`Unknown setting: ${key}`);
-        throw new Error(`Unknown setting: ${key}`);
-    }
-
-    // Remove this line - it should never be reached
-    // return;
+    // Delegate to settings service
+    await this.settingsService.putSetting(
+      key,
+      value,
+      this.latestProperties!,
+      this.info?.metadata || {},
+      onSuccess
+    );
+    
+    // Settings service will notify via onSettingsChange callback
   }
 
   // =================== PAN/TILT/ZOOM INTERFACE ===================
@@ -555,26 +568,24 @@ export class EufyDevice
 
   // =================== REFRESH INTERFACE ===================
 
+  /**
+   * Get refresh frequency using RefreshService
+   */
   async getRefreshFrequency(): Promise<number> {
-    return 600; // 10 minutes
+    return this.refreshService.getRefreshFrequency();
   }
 
+  /**
+   * Refresh device properties using RefreshService
+   * Delegates to the refresh service which handles API calls and notifications
+   */
   async refresh(
     refreshInterface?: string,
     userInitiated?: boolean
   ): Promise<void> {
-    // since I don't have a way to get a single property, we just refresh everything
-    if (!refreshInterface) {
-      try {
-        this.latestProperties = (await this.api.getProperties()).properties;
-        this.updateStateFromProperties(this.latestProperties);
-        this.updatePtzCapabilities(); // Ensure PTZ capabilities are up to date
-      } catch (error) {
-        this.logger.warn(
-          `Failed to get device properties: ${error}, user initiated: ${userInitiated}`
-        );
-      }
-    }
+    // Delegate to refresh service
+    // The service will call our subscribed callbacks on success/error
+    await this.refreshService.refresh(refreshInterface, userInitiated);
   }
 
   // =================== VIDEO CLIPS ===================

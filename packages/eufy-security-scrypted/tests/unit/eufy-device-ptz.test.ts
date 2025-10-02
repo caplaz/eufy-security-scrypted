@@ -15,6 +15,25 @@ jest.mock("@scrypted/sdk", () => ({
   ScryptedDeviceBase: class {
     ptzCapabilities = { pan: false, tilt: false, zoom: false };
   },
+  ScryptedInterface: {
+    MotionSensor: "MotionSensor",
+    Brightness: "Brightness",
+    OnOff: "OnOff",
+    Battery: "Battery",
+    Charger: "Charger",
+    Sensors: "Sensors",
+    Settings: "Settings",
+  },
+  SecuritySystemMode: {
+    AwayArmed: "AwayArmed",
+    HomeArmed: "HomeArmed",
+    Disarmed: "Disarmed",
+    NightArmed: "NightArmed",
+  },
+  ChargeState: {
+    Charging: "Charging",
+    NotCharging: "NotCharging",
+  },
   deviceManager: {
     onDevicesChanged: jest.fn(),
   },
