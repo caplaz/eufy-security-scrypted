@@ -91,7 +91,11 @@ describe("EufySecurityClient", () => {
         warn: jest.fn(),
         error: jest.fn(),
         debug: jest.fn(),
-      };
+        log: jest.fn(),
+        silly: jest.fn(),
+        trace: jest.fn(),
+        fatal: jest.fn(),
+      } as any;
 
       const clientWithLogger = new EufySecurityClient({
         ...config,

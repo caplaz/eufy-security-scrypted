@@ -9,7 +9,6 @@ import {
   PanTiltDirection,
   getDeviceCapabilities,
 } from "@caplaz/eufy-security-client";
-import { DebugLogger } from "../../src/utils/debug-logger";
 
 // Mock the ScryptedDeviceBase
 jest.mock("@scrypted/sdk", () => ({
@@ -35,21 +34,8 @@ jest.mock("@caplaz/eufy-stream-server", () => ({
   })),
 }));
 
-// Mock the debug logger
-jest.mock("../../src/utils/debug-logger", () => ({
-  createDebugLogger: jest.fn(),
-  DebugLogger: jest.fn().mockImplementation(() => ({
-    i: jest.fn(),
-    d: jest.fn(),
-    w: jest.fn(),
-    e: jest.fn(),
-  })),
-  isDebugEnabled: jest.fn().mockReturnValue(false),
-}));
-
 describe("EufyDevice PTZ Functionality", () => {
   let mockWsClient: jest.Mocked<EufyWebSocketClient>;
-  let mockLogger: jest.Mocked<DebugLogger>;
   let device: EufyDevice;
   let mockDeviceCommands: any;
 
@@ -74,18 +60,6 @@ describe("EufyDevice PTZ Functionality", () => {
       addEventListener: jest.fn(),
       removeEventListenersBySerialNumber: jest.fn(),
     } as any;
-
-    mockLogger = {
-      i: jest.fn(),
-      d: jest.fn(),
-      w: jest.fn(),
-      e: jest.fn(),
-    } as any;
-
-    // Mock the createDebugLogger function
-    (
-      require("../../src/utils/debug-logger").createDebugLogger as jest.Mock
-    ).mockReturnValue(mockLogger);
 
     // Create device instance
     device = new EufyDevice("test-device", mockWsClient);
