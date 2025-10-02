@@ -399,14 +399,18 @@ export class EufySecurityProvider
       this.console.log("🔗 Button clicked: Connect to Eufy cloud");
 
       try {
-        // Try to connect to driver (this may trigger CAPTCHA/MFA)
+        // Send connect command to the driver
         await this.wsClient.commands.driver().connect();
         this.console.log("✅ Driver connect command sent");
 
-        // Start listening (this may trigger CAPTCHA/MFA)
+        // Wait a moment for the server to process the connect command
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        // Check current state and pending authentication
         const result = await this.wsClient.startListening();
 
         if (result.state.driver.connected) {
+          // Successfully connected
           this.console.log(
             "✅ Driver fully connected - authentication complete"
           );
@@ -419,11 +423,59 @@ export class EufySecurityProvider
           await this.registerDevicesFromServerState(result);
           this.console.log("✅ Device discovery complete");
         } else {
+          // Not connected - check for pending authentication
           this.console.log(
-            "⚠️ Driver connected but authentication may be pending"
+            "⚠️ Driver not connected - checking for authentication challenges"
           );
-          // Check for pending auth
           await this.checkPendingAuth();
+
+          // If no pending auth was found, the connection might just need more time
+          if (this.authState === "none") {
+            this.console.log(
+              "💡 No authentication challenges detected. The connection may be in progress."
+            );
+            this.console.log(
+              "💡 If you have 2FA enabled, you may need to check your email or app."
+            );
+            this.console.log("");
+            this.console.log("🔍 Troubleshooting tips:");
+            this.console.log(
+              "   1. Check the eufy-security-ws container logs for errors"
+            );
+            this.console.log(
+              "   2. Verify your Eufy account credentials in the container config"
+            );
+            this.console.log(
+              "   3. Ensure the container has internet access to connect to Eufy cloud"
+            );
+            this.console.log(
+              "   4. Try restarting the eufy-security-ws container"
+            );
+            this.console.log("");
+            this.console.log("   Container logs command:");
+            this.console.log("   docker logs eufy-security-ws");
+
+            // Set up a listener for when connection succeeds
+            const removeListener = this.wsClient.addEventListener(
+              "connected",
+              async () => {
+                removeListener();
+                this.console.log("✅ Driver connected event received");
+                this.authState = "none";
+
+                // Get updated state and register devices
+                const updatedResult = await this.wsClient.startListening();
+                if (updatedResult.state.driver.connected) {
+                  this.displayConnectResult(true, true);
+                  await this.registerStationsFromServerState(updatedResult);
+                  await this.registerDevicesFromServerState(updatedResult);
+                  this.console.log("✅ Device discovery complete");
+                }
+                this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+              },
+              { source: "driver" }
+            );
+          }
         }
       } catch (error) {
         this.console.error("❌ Connection failed:", error);
