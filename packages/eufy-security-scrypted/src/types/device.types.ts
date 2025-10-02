@@ -67,19 +67,3 @@ export interface DeviceCapabilities {
     height: number;
   };
 }
-
-/**
- * Snapshot/picture options
- */
-export interface SnapshotOptions {
-  /** Image width in pixels */
-  width?: number;
-  /** Image height in pixels */
-  height?: number;
-  /** Image quality (0-100) */
-  quality?: number;
-  /** Reason for snapshot (for logging) */
-  reason?: string;
-  /** Timeout in milliseconds */
-  timeout?: number;
-}

@@ -2,10 +2,8 @@
  * Snapshot Service Tests
  */
 
-import {
-  SnapshotService,
-  IStreamServer,
-} from "../../../src/services/device/snapshot-service";
+import { SnapshotService } from "../../../src/services/device/snapshot-service";
+import { IStreamServer } from "../../../src/services/device/types";
 import { ConsoleLogger } from "../../../src/utils/console-logger";
 import { FFmpegUtils } from "../../../src/utils/ffmpeg-utils";
 import { MediaObject } from "@scrypted/sdk";

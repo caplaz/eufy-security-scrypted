@@ -11,13 +11,7 @@ import { MediaObject, RequestPictureOptions } from "@scrypted/sdk";
 import sdk from "@scrypted/sdk";
 import { ConsoleLogger } from "../../utils/console-logger";
 import { FFmpegUtils } from "../../utils/ffmpeg-utils";
-
-/**
- * StreamServer interface (from @eufy-security/stream-server)
- */
-export interface IStreamServer {
-  captureSnapshot(timeout?: number): Promise<Buffer>;
-}
+import { IStreamServer } from "./types";
 
 /**
  * SnapshotService handles camera snapshot and picture operations

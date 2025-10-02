@@ -14,8 +14,10 @@ src/
 │   ├── authentication/       # Authentication services
 │   │   └── authentication-service.ts
 │   ├── device/               # Device management services
+│   │   ├── types.ts          # Shared device service types
 │   │   ├── device-property-service.ts
-│   │   └── snapshot-service.ts
+│   │   ├── snapshot-service.ts
+│   │   └── stream-service.ts
 │   ├── video/                # Video streaming and clips
 │   │   └── video-clips-service.ts
 │   ├── settings/             # Settings management
@@ -178,7 +180,7 @@ Handles camera snapshot/picture capture operations:
 
 - Capture H.264 keyframes from stream
 - Convert to JPEG using FFmpeg
-- Rate limiting and error handling
+- Error handling and logging
 
 **Usage**:
 
@@ -190,6 +192,37 @@ const options = snapshotService.getPictureOptions();
 
 // Take picture
 const mediaObject = await snapshotService.takePicture({ timeout: 15000 });
+```
+
+### Stream Service
+
+**Location**: `services/device/stream-service.ts`
+
+Manages video streaming operations:
+
+- Stream server lifecycle management
+- FFmpeg configuration for low-latency H.264
+- Media object creation
+- Quality-based dimension calculation
+
+**Usage**:
+
+```typescript
+const streamService = new StreamService(serialNumber, streamServer, logger);
+
+// Get stream options
+const options = streamService.getVideoStreamOptions(VideoQuality.HIGH);
+
+// Get video stream
+const mediaObject = await streamService.getVideoStream(VideoQuality.HIGH, {
+  id: "main",
+});
+
+// Check status
+const isActive = streamService.isStreaming();
+
+// Stop stream
+await streamService.stopStream();
 ```
 
 ### Interface Handlers
@@ -459,21 +492,38 @@ export class AuthenticationService {
 - ✅ Maintainable
 - ✅ Reusable services
 
-## ✅ Phase 2 Complete (Current)
+## ✅ Phase 3 Complete (Current)
 
-Added device management services:
+Added video streaming service:
+
+- ✅ **StreamService**: Video streaming management (30 tests)
+- ✅ FFmpeg configuration for low-latency H.264
+- ✅ Quality-based video dimensions
+- ✅ Stream lifecycle management
+- ✅ Shared service types (IStreamServer)
+- ✅ Comprehensive unit tests (91 total tests passing)
+- ✅ Updated documentation
+
+## Previous Phases
+
+### Phase 2
 
 - ✅ **DevicePropertyService**: Property management and synchronization (20 tests)
 - ✅ **SnapshotService**: Camera snapshot operations (9 tests)
-- ✅ Comprehensive unit tests (61 total tests passing)
-- ✅ Updated documentation
+
+### Phase 1
+
+- ✅ **AuthenticationService**: CAPTCHA and MFA handling (18 tests)
+- ✅ **VideoClipsService**: P2P and cloud clip retrieval
+- ✅ **Interface Handlers**: Light control and PTZ operations
+- ✅ **Utils**: FFmpeg, PropertyMapper, DeviceManifestBuilder
 
 ## 🔜 Next Steps
 
-1. **Complete Service Extraction (Phase 3)**
-   - Extract streaming logic into StreamService
+1. **Complete Service Extraction (Phase 4)**
    - Extract settings management from provider
    - Create DeviceStateManager for state coordination
+   - Extract refresh logic
 
 2. **Add More Tests**
    - VideoClipsService tests
