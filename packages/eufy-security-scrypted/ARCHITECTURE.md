@@ -16,6 +16,9 @@ src/
 │   ├── device/               # Device management services
 │   │   ├── types.ts          # Shared device service types
 │   │   ├── device-property-service.ts
+│   │   ├── device-settings-service.ts
+│   │   ├── device-state-service.ts
+│   │   ├── refresh-service.ts
 │   │   ├── snapshot-service.ts
 │   │   └── stream-service.ts
 │   ├── video/                # Video streaming and clips
@@ -223,6 +226,116 @@ const isActive = streamService.isStreaming();
 
 // Stop stream
 await streamService.stopStream();
+```
+
+### Device Settings Service
+
+**Location**: `services/device/device-settings-service.ts`
+
+Manages device settings and properties:
+
+- Generates UI settings from device properties and metadata
+- Handles device property updates with PropertyMapper integration
+- Manages custom Scrypted settings storage
+- Notifies listeners of settings changes
+
+**Usage**:
+
+```typescript
+const settingsService = new DeviceSettingsService(
+  deviceApi,
+  propertyMapper,
+  logger
+);
+
+// Get settings for UI
+const settings = await settingsService.getSettings();
+
+// Update device property
+await settingsService.putSetting("motionDetection", true);
+
+// Update custom setting
+await settingsService.putSetting("customName", "Front Door");
+
+// Get custom setting
+const value = settingsService.getCustomSetting("customName");
+
+// Listen for changes
+const unsubscribe = settingsService.onSettingsChange((key, value) => {
+  console.log(`Setting ${key} changed to ${value}`);
+});
+```
+
+### Device State Service
+
+**Location**: `services/device/device-state-service.ts`
+
+Converts Eufy device properties to Scrypted device state:
+
+- Maps Eufy properties to Scrypted interfaces
+- Handles bulk and single property updates
+- Manages state change notifications
+- Supports motion, battery, light, charging, and sensor states
+
+**Usage**:
+
+```typescript
+const stateService = new DeviceStateService(logger);
+
+// Update from multiple properties
+stateService.updateFromProperties(deviceProperties);
+
+// Update single property
+stateService.updateProperty("battery", 85);
+
+// Get current state
+const state = stateService.getState();
+console.log(state.batteryLevel); // 85
+console.log(state.motionDetected); // true/false
+
+// Listen for state changes
+const unsubscribe = stateService.onStateChange((change) => {
+  console.log(`${change.interface} changed to ${change.value}`);
+});
+```
+
+### Refresh Service
+
+**Location**: `services/device/refresh-service.ts`
+
+Manages device property refresh operations:
+
+- Handles user-initiated and scheduled refreshes
+- Fetches latest properties from API
+- Provides success/error callbacks
+- Returns configurable refresh frequency
+
+**Usage**:
+
+```typescript
+const refreshService = new RefreshService(deviceApi, logger);
+
+// Get refresh frequency (seconds)
+const freq = refreshService.getRefreshFrequency(); // 600
+
+// Perform refresh
+const properties = await refreshService.refresh();
+
+// User-initiated refresh
+await refreshService.refresh(undefined, true);
+
+// Specific interface refresh (refreshes all)
+await refreshService.refresh("Battery");
+
+// Listen for successful refresh
+refreshService.onRefreshComplete((properties) => {
+  console.log("Properties refreshed:", properties);
+});
+
+// Listen for refresh errors
+refreshService.onRefreshError((error) => {
+  console.error("Refresh failed:", error);
+});
 ```
 
 ### Interface Handlers
@@ -492,19 +605,38 @@ export class AuthenticationService {
 - ✅ Maintainable
 - ✅ Reusable services
 
-## ✅ Phase 3 Complete (Current)
+## ✅ Phase 4 Complete (Current)
 
-Added video streaming service:
+Added device settings, state, and refresh services:
+
+- ✅ **DeviceSettingsService**: Device settings management with PropertyMapper integration (23 tests)
+  - Device property settings with UI generation
+  - Custom Scrypted settings storage
+  - Change notifications with multiple listeners
+  - Integration with PropertyMapper for value adjustment
+- ✅ **DeviceStateService**: State conversion and management (25 tests)
+  - Converts Eufy properties to Scrypted device state
+  - Bulk and single property updates
+  - State change notifications for all ScryptedInterfaces
+  - Motion, battery, sensors, charging state management
+- ✅ **RefreshService**: Property refresh operations (24 tests)
+  - User-initiated and scheduled refreshes
+  - Success/error callback handling
+  - Configurable refresh frequency
+  - Graceful error handling
+- ✅ Comprehensive unit tests (160 total tests passing, +69 from Phase 3)
+- ✅ Zero TypeScript/lint errors
+- ✅ Updated documentation
+
+## Previous Phases
+
+### Phase 3
 
 - ✅ **StreamService**: Video streaming management (30 tests)
 - ✅ FFmpeg configuration for low-latency H.264
 - ✅ Quality-based video dimensions
 - ✅ Stream lifecycle management
 - ✅ Shared service types (IStreamServer)
-- ✅ Comprehensive unit tests (91 total tests passing)
-- ✅ Updated documentation
-
-## Previous Phases
 
 ### Phase 2
 
@@ -520,10 +652,10 @@ Added video streaming service:
 
 ## 🔜 Next Steps
 
-1. **Complete Service Extraction (Phase 4)**
-   - Extract settings management from provider
-   - Create DeviceStateManager for state coordination
-   - Extract refresh logic
+1. **Integrate Phase 4 Services**
+   - Replace inline implementations in eufy-device.ts
+   - Reduce eufy-device.ts to <800 lines target
+   - Update eufy-device.ts to use new services
 
 2. **Add More Tests**
    - VideoClipsService tests
