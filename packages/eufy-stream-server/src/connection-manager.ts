@@ -1,5 +1,9 @@
 /**
  * Connection Manager - Simple TCP client connection management
+ *
+ * Manages TCP client connections for the stream server, handling connection
+ * lifecycle, data broadcasting, and connection limits. Emits events for
+ * connection state changes.
  */
 
 import * as net from "net";
@@ -9,6 +13,25 @@ import { ConnectionInfo } from "./types";
 
 /**
  * Simple connection manager for TCP clients
+ *
+ * Handles incoming TCP socket connections, manages connection lifecycle,
+ * broadcasts data to all connected clients, and enforces connection limits.
+ *
+ * @fires clientConnected - Emitted when a new client connects
+ * @fires clientDisconnected - Emitted when a client disconnects
+ *
+ * @example
+ * ```typescript
+ * const manager = new ConnectionManager(logger);
+ *
+ * manager.on('clientConnected', (id, info) => {
+ *   console.log(`Client ${id} connected from ${info.remoteAddress}`);
+ * });
+ *
+ * server.on('connection', (socket) => {
+ *   manager.handleConnection(socket);
+ * });
+ * ```
  */
 export class ConnectionManager extends EventEmitter {
   private logger: Logger<ILogObj>;
@@ -17,13 +40,32 @@ export class ConnectionManager extends EventEmitter {
   private connectionCounter = 0;
   private maxConnections = 10;
 
+  /**
+   * Creates a new ConnectionManager instance
+   *
+   * @param logger - Logger instance compatible with tslog's Logger<ILogObj> interface
+   */
   constructor(logger: Logger<ILogObj>) {
     super();
     this.logger = logger;
   }
 
   /**
-   * Handle a new client connection
+   * Handle a new incoming TCP client connection
+   *
+   * Accepts the socket connection, assigns a unique ID, configures socket options
+   * (no-delay, keep-alive), and sets up event handlers. Rejects connections if
+   * the maximum connection limit is reached.
+   *
+   * @param socket - TCP socket from incoming connection
+   * @fires clientConnected - Emitted with (connectionId, connectionInfo) when client connects
+   *
+   * @example
+   * ```typescript
+   * server.on('connection', (socket) => {
+   *   manager.handleConnection(socket);
+   * });
+   * ```
    */
   handleConnection(socket: net.Socket): void {
     if (this.connections.size >= this.maxConnections) {
@@ -74,7 +116,14 @@ export class ConnectionManager extends EventEmitter {
   }
 
   /**
-   * Handle client disconnection
+   * Handle client disconnection and cleanup
+   *
+   * Removes event listeners, destroys the socket, and cleans up connection
+   * tracking data. Called automatically when socket closes or errors.
+   *
+   * @param connectionId - Unique identifier of the connection to close
+   * @fires clientDisconnected - Emitted with connectionId when client disconnects
+   * @private
    */
   private handleDisconnection(connectionId: string): void {
     const socket = this.connections.get(connectionId);
@@ -97,6 +146,21 @@ export class ConnectionManager extends EventEmitter {
 
   /**
    * Broadcast data to all connected clients
+   *
+   * Sends the provided data buffer to all active client connections.
+   * Automatically handles disconnection for failed writes or non-writable sockets.
+   * Updates bytes written statistics for each successful write.
+   *
+   * @param data - Data buffer to broadcast to all clients
+   * @returns true if data was successfully sent to at least one client, false if no active clients
+   *
+   * @example
+   * ```typescript
+   * const success = manager.broadcast(videoDataBuffer);
+   * if (!success) {
+   *   console.log('No clients connected to receive data');
+   * }
+   * ```
    */
   broadcast(data: Buffer): boolean {
     if (this.connections.size === 0) {
@@ -135,14 +199,29 @@ export class ConnectionManager extends EventEmitter {
   }
 
   /**
-   * Get number of active connections
+   * Get the number of currently active connections
+   *
+   * @returns Count of active client connections
    */
   getActiveConnectionCount(): number {
     return this.connections.size;
   }
 
   /**
-   * Get connection statistics
+   * Get detailed statistics for all connections
+   *
+   * Returns information about all current connections including connection times,
+   * bytes written, and connection status.
+   *
+   * @returns Record mapping connection IDs to their detailed information
+   *
+   * @example
+   * ```typescript
+   * const stats = manager.getConnectionStats();
+   * for (const [id, info] of Object.entries(stats)) {
+   *   console.log(`${id}: ${info.bytesWritten} bytes sent`);
+   * }
+   * ```
    */
   getConnectionStats(): Record<string, ConnectionInfo> {
     const stats: Record<string, ConnectionInfo> = {};
@@ -153,7 +232,17 @@ export class ConnectionManager extends EventEmitter {
   }
 
   /**
-   * Close all connections and cleanup
+   * Close all connections and cleanup resources
+   *
+   * Closes all active client connections, removes all event listeners,
+   * and clears connection tracking data. Should be called during server shutdown.
+   *
+   * @example
+   * ```typescript
+   * // During server shutdown
+   * manager.close();
+   * console.log('All connections closed');
+   * ```
    */
   close(): void {
     this.logger.info(`Closing ${this.connections.size} connections`);
