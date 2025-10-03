@@ -1,6 +1,7 @@
 {
   "name": "@caplaz/eufy-security-client",
   "version": "0.1.0",
+  "private": true,
   "description": "WebSocket client library for communicating with eufy-security-ws server with type-safe event handling and device management for Eufy security cameras",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -39,9 +39,7 @@ jobs:
 
       - name: Publish packages
         run: |
-          # Publish all packages that have changes
-          npx lerna publish from-package --yes
-          # Ensure eufy-security-scrypted is always published on release
+          # Only publish the main Scrypted plugin
           cd packages/eufy-security-scrypted
           npm publish --tag latest
         env:
