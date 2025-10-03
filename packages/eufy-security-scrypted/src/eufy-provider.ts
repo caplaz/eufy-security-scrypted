@@ -125,7 +125,6 @@ export class EufySecurityProvider
     // Create a logger for the WebSocket client using the same console
     // (WebSocket events are part of the provider's responsibility)
     this.wsLogger = this.logger.getSubLogger({ name: "WebSocketClient" });
-    this.wsLogger.attachTransport(createConsoleTransport(this.console));
     this.wsClient = new EufyWebSocketClient(
       this.storage.getItem("wsUrl") || "ws://localhost:3000",
       this.wsLogger
@@ -137,12 +136,10 @@ export class EufySecurityProvider
       parseInt(this.storage.getItem("memoryThresholdMB") || "120")
     );
     const memoryLogger = this.logger.getSubLogger({ name: "Memory" });
-    memoryLogger.attachTransport(createConsoleTransport(this.console));
     MemoryManager.setMemoryThreshold(memoryThreshold, memoryLogger);
 
     // Initialize authentication manager
     const authLogger = this.logger.getSubLogger({ name: "Auth" });
-    authLogger.attachTransport(createConsoleTransport(this.console));
     this.authManager = new AuthenticationManager(
       this.wsClient,
       authLogger,

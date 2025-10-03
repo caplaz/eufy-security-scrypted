@@ -169,8 +169,12 @@ export class EufyDevice
 
     // Create a sub-logger with this device's console
     // This ensures device logs appear in the device's log window in Scrypted
+    // Use attachedTransports: [] to prevent inheriting parent's transport
     const loggerName = nativeId.charAt(0).toUpperCase() + nativeId.slice(1);
-    this.logger = parentLogger.getSubLogger({ name: loggerName });
+    this.logger = parentLogger.getSubLogger({ 
+      name: loggerName,
+      attachedTransports: []
+    });
     this.logger.attachTransport(createConsoleTransport(this.console));
 
     this.logger.info(`Created EufyDevice for ${nativeId}`);

@@ -110,8 +110,12 @@ export class EufyStation
 
     // Create a sub-logger with this station's console
     // This ensures station logs appear in the station's log window
+    // Use attachedTransports: [] to prevent inheriting parent's transport
     const loggerName = nativeId.charAt(0).toUpperCase() + nativeId.slice(1);
-    this.logger = parentLogger.getSubLogger({ name: loggerName });
+    this.logger = parentLogger.getSubLogger({ 
+      name: loggerName,
+      attachedTransports: []
+    });
     this.logger.attachTransport(createConsoleTransport(this.console));
 
     this.logger.info(`Created EufyStation for ${nativeId}`);
