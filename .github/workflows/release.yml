@@ -41,7 +41,7 @@ jobs:
         run: |
           # Only publish the main Scrypted plugin
           cd packages/eufy-security-scrypted
-          npm publish --tag latest
+          npm publish --tag latest --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
