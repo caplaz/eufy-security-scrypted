@@ -104,6 +104,11 @@ export class StreamServer extends EventEmitter {
     timestamp: number;
   }> = [];
 
+  // SPS/PPS cache for new client initialization
+  // These are the critical headers that FFmpeg needs to parse the H.264 stream
+  private cachedSPS: Buffer | null = null;
+  private cachedPPS: Buffer | null = null;
+
   constructor(options: StreamServerOptions) {
     super();
 
@@ -148,6 +153,9 @@ export class StreamServer extends EventEmitter {
         );
         this.emit("clientConnected", connectionId, connectionInfo);
 
+        // Send cached SPS/PPS headers immediately so FFmpeg can parse the stream
+        this.sendCachedHeaders(connectionId);
+
         // Start livestream when first client connects
         if (previousCount === 0) {
           this.livestreamIntendedState = true;
@@ -172,6 +180,34 @@ export class StreamServer extends EventEmitter {
         await this.ensureLivestreamState();
       }
     });
+  }
+
+  /**
+   * Send cached SPS/PPS headers to a specific client
+   * This ensures new clients can immediately decode the stream
+   * @param connectionId - The connection ID to send headers to
+   */
+  private sendCachedHeaders(connectionId: string): void {
+    if (!this.cachedSPS && !this.cachedPPS) {
+      this.logger.debug(
+        `No cached SPS/PPS headers available for client ${connectionId}`
+      );
+      return;
+    }
+
+    if (this.cachedSPS) {
+      this.logger.debug(
+        `Sending cached SPS header (${this.cachedSPS.length} bytes) to ${connectionId}`
+      );
+      this.connectionManager.sendToClient(connectionId, this.cachedSPS);
+    }
+
+    if (this.cachedPPS) {
+      this.logger.debug(
+        `Sending cached PPS header (${this.cachedPPS.length} bytes) to ${connectionId}`
+      );
+      this.connectionManager.sendToClient(connectionId, this.cachedPPS);
+    }
   }
 
   /**
@@ -348,10 +384,27 @@ export class StreamServer extends EventEmitter {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        if (this.livestreamIntendedState && !this.livestreamActualState) {
+        // First, check the actual livestream status from the device
+        let actualStreamingStatus = false;
+        try {
+          const statusResponse = await this.options.wsClient.commands
+            .device(this.options.serialNumber)
+            .isLivestreaming();
+          actualStreamingStatus = statusResponse.livestreaming;
+          this.logger.debug(
+            `Current device livestream status: ${actualStreamingStatus}`
+          );
+        } catch (error: any) {
+          this.logger.warn(
+            "Failed to check livestream status, continuing with command:",
+            error.message || error
+          );
+        }
+
+        if (this.livestreamIntendedState && !actualStreamingStatus) {
           // Need to start livestream
           this.logger.info(
-            `🎥 Attempting to start livestream (attempt ${attempt}/${maxRetries})`
+            `🎥 Starting livestream (attempt ${attempt}/${maxRetries})`
           );
           await this.options.wsClient.commands
             .device(this.options.serialNumber)
@@ -367,36 +420,22 @@ export class StreamServer extends EventEmitter {
               this.ensureLivestreamState();
             }
           }, 30000); // 30 seconds to receive first video data
-        } else if (
-          !this.livestreamIntendedState &&
-          this.livestreamActualState
-        ) {
+        } else if (this.livestreamIntendedState && actualStreamingStatus) {
+          // Stream is already running and we want it running - all good
+          this.logger.debug("Livestream already running as desired");
+        } else if (!this.livestreamIntendedState && actualStreamingStatus) {
           // Need to stop livestream
           this.logger.info(
-            `🛑 Attempting to stop livestream (attempt ${attempt}/${maxRetries})`
+            `🛑 Stopping livestream (attempt ${attempt}/${maxRetries})`
           );
-          try {
-            await this.options.wsClient.commands
-              .device(this.options.serialNumber)
-              .stopLivestream();
-            this.logger.info("✅ Livestream stop command sent successfully");
-            this.livestreamActualState = false;
-          } catch (error: any) {
-            // Ignore "livestream not running" errors - it's not really an error
-            // Error can be in format: "Command failed: device_livestream_not_running"
-            if (
-              error.message &&
-              (error.message.includes("livestream_not_running") ||
-                error.message.includes("LivestreamNotRunningError"))
-            ) {
-              this.logger.debug(
-                "Livestream was already stopped (not an error)"
-              );
-              this.livestreamActualState = false;
-            } else {
-              throw error;
-            }
-          }
+          await this.options.wsClient.commands
+            .device(this.options.serialNumber)
+            .stopLivestream();
+          this.logger.info("✅ Livestream stop command sent successfully");
+          this.livestreamActualState = false;
+        } else {
+          // Stream is not running and we don't want it running - all good
+          this.logger.debug("Livestream already stopped as desired");
         }
 
         // Success - break out of retry loop
@@ -542,6 +581,20 @@ export class StreamServer extends EventEmitter {
       this.logger.debug(
         `Processing H.264 data: ${data.length} bytes, NALs: [${nalInfo}], keyFrame: ${isKeyFrame}`
       );
+
+      // Cache SPS/PPS NAL units for new client initialization
+      // Type 7 = SPS (Sequence Parameter Set), Type 8 = PPS (Picture Parameter Set)
+      nalUnits.forEach((nal) => {
+        if (nal.type === 7) {
+          // SPS
+          this.cachedSPS = data; // Cache the entire buffer containing SPS
+          this.logger.debug(`Cached SPS header (${data.length} bytes)`);
+        } else if (nal.type === 8) {
+          // PPS
+          this.cachedPPS = data; // Cache the entire buffer containing PPS
+          this.logger.debug(`Cached PPS header (${data.length} bytes)`);
+        }
+      });
 
       // Resolve any pending snapshot requests with keyframe data
       // This happens BEFORE checking if server is active, so snapshots work without TCP server
@@ -719,14 +772,18 @@ export class StreamServer extends EventEmitter {
   async captureSnapshot(timeoutMs: number = 15000): Promise<Buffer> {
     this.logger.info("📸 Capturing snapshot...");
 
-    const wasStreamRunning = this.livestreamActualState;
+    const wasStreamRunning = this.livestreamIntendedState;
 
     try {
-      // Start livestream if not already running
-      if (!this.livestreamActualState) {
+      // Start livestream if not already running or being started
+      if (!this.livestreamIntendedState) {
         this.logger.debug("Starting livestream for snapshot capture");
         this.livestreamIntendedState = true;
         await this.ensureLivestreamState();
+      } else {
+        this.logger.debug(
+          "Livestream already intended/running, waiting for keyframe"
+        );
       }
 
       // Wait for a keyframe

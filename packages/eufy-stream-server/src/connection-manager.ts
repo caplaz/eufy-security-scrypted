@@ -145,6 +145,56 @@ export class ConnectionManager extends EventEmitter {
   }
 
   /**
+   * Send data to a specific client
+   *
+   * Sends the provided data buffer to a single client connection.
+   * Automatically handles disconnection if the write fails or socket is not writable.
+   * Updates bytes written statistics for successful writes.
+   *
+   * @param connectionId - The ID of the client to send data to
+   * @param data - Data buffer to send to the client
+   * @returns true if data was successfully sent, false otherwise
+   *
+   * @example
+   * ```typescript
+   * const success = manager.sendToClient('conn_1', cachedHeaderBuffer);
+   * if (!success) {
+   *   console.log('Failed to send data to client');
+   * }
+   * ```
+   */
+  sendToClient(connectionId: string, data: Buffer): boolean {
+    const socket = this.connections.get(connectionId);
+    if (!socket) {
+      this.logger.warn(`Cannot send to ${connectionId}: connection not found`);
+      return false;
+    }
+
+    try {
+      if (socket.writable) {
+        socket.write(data);
+
+        // Update bytes written
+        const info = this.connectionInfo.get(connectionId);
+        if (info) {
+          info.bytesWritten += data.length;
+        }
+
+        this.logger.debug(`Sent ${data.length} bytes to ${connectionId}`);
+        return true;
+      } else {
+        this.logger.warn(`Socket not writable for ${connectionId}`);
+        this.handleDisconnection(connectionId);
+        return false;
+      }
+    } catch (error) {
+      this.logger.error(`Failed to write to ${connectionId}:`, error);
+      this.handleDisconnection(connectionId);
+      return false;
+    }
+  }
+
+  /**
    * Broadcast data to all connected clients
    *
    * Sends the provided data buffer to all active client connections.

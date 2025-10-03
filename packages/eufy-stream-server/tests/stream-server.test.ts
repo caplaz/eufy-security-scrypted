@@ -543,4 +543,101 @@ describe("StreamServer", () => {
       expect(mockEventRemover).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("SPS/PPS header caching", () => {
+    it("should cache SPS/PPS headers and send to new clients", async () => {
+      const { createTestSPSData, createTestPPSData } = require("./test-utils");
+
+      const mockWsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: {
+          device: jest.fn().mockReturnValue({
+            startLivestream: jest.fn().mockResolvedValue({}),
+            stopLivestream: jest.fn().mockResolvedValue({}),
+          }),
+        },
+      };
+
+      const serverWithWs = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: false,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+      });
+
+      await serverWithWs.start();
+
+      // Get the WebSocket event handler
+      const eventHandler = mockWsClient.addEventListener.mock.calls[0][1];
+
+      // Simulate receiving SPS header
+      const spsData = createTestSPSData();
+      eventHandler({
+        serialNumber: "TEST123",
+        buffer: { data: spsData },
+        metadata: {
+          videoCodec: "h264",
+          videoFPS: 30,
+          videoWidth: 1920,
+          videoHeight: 1080,
+        },
+      });
+
+      await wait(50);
+
+      // Simulate receiving PPS header
+      const ppsData = createTestPPSData();
+      eventHandler({
+        serialNumber: "TEST123",
+        buffer: { data: ppsData },
+        metadata: {
+          videoCodec: "h264",
+          videoFPS: 30,
+          videoWidth: 1920,
+          videoHeight: 1080,
+        },
+      });
+
+      await wait(50);
+
+      // Now connect a client - it should receive cached SPS/PPS headers
+      const client = new net.Socket();
+      const receivedData: Buffer[] = [];
+
+      client.on("data", (data) => {
+        receivedData.push(data);
+      });
+
+      await new Promise<void>((resolve) => {
+        client.connect(testPort, "127.0.0.1", () => {
+          resolve();
+        });
+      });
+
+      // Wait for headers to be sent
+      await wait(100);
+
+      // Client should have received at least one buffer
+      expect(receivedData.length).toBeGreaterThanOrEqual(1);
+
+      // Combine all received buffers for verification
+      const combinedData = Buffer.concat(receivedData);
+
+      // Verify we received SPS (contains NAL type 7)
+      const hasSPS =
+        combinedData.includes(Buffer.from([0x00, 0x00, 0x00, 0x01, 0x67])) ||
+        combinedData.includes(Buffer.from([0x00, 0x00, 0x01, 0x67]));
+      expect(hasSPS).toBe(true);
+
+      // Verify we received PPS (contains NAL type 8)
+      const hasPPS =
+        combinedData.includes(Buffer.from([0x00, 0x00, 0x00, 0x01, 0x68])) ||
+        combinedData.includes(Buffer.from([0x00, 0x00, 0x01, 0x68]));
+      expect(hasPPS).toBe(true);
+
+      client.destroy();
+      await serverWithWs.stop();
+    });
+  });
 });
