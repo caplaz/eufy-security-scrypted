@@ -80,6 +80,9 @@ export class EufySecurityProvider
   pushConnected = false;
   mqttConnected = false;
 
+  // Connection in progress flag (true during initial startup or reconnection)
+  private isConnecting = true;
+
   // Authentication manager (handles all auth logic)
   private authManager: AuthenticationManager;
 
@@ -127,6 +130,9 @@ export class EufySecurityProvider
         await this.registerStationsFromServerState(result);
         await this.registerDevicesFromServerState(result);
         this.logger.info("✅ Device discovery complete");
+
+        // Mark connection as complete
+        this.isConnecting = false;
       }
     );
 
@@ -407,6 +413,9 @@ export class EufySecurityProvider
     if (key === "connectDriver") {
       this.logger.info("🔗 Button clicked: Connect to Eufy cloud");
 
+      // Mark connection as in progress
+      this.isConnecting = true;
+
       try {
         // Send connect command to the driver
         await this.wsClient.commands.driver().connect();
@@ -431,6 +440,9 @@ export class EufySecurityProvider
           await this.registerStationsFromServerState(result);
           await this.registerDevicesFromServerState(result);
           this.logger.info("✅ Device discovery complete");
+
+          // Mark connection as complete
+          this.isConnecting = false;
         } else {
           // Not connected - check for pending authentication
           this.logger.info(
@@ -479,6 +491,9 @@ export class EufySecurityProvider
                   await this.registerStationsFromServerState(updatedResult);
                   await this.registerDevicesFromServerState(updatedResult);
                   this.logger.info("✅ Device discovery complete");
+
+                  // Mark connection as complete
+                  this.isConnecting = false;
                 }
                 this.onDeviceEvent(ScryptedInterface.Settings, undefined);
               },
@@ -502,6 +517,9 @@ export class EufySecurityProvider
       try {
         await this.wsClient.commands.driver().disconnect();
         this.logger.info("✅ Driver disconnected successfully");
+
+        // Mark as ready for new connection
+        this.isConnecting = true;
 
         // Refresh the settings UI to show updated connection state
         this.onDeviceEvent(ScryptedInterface.Settings, undefined);
@@ -665,9 +683,16 @@ export class EufySecurityProvider
     // Check if driver is connected before creating devices
     const clientState = this.wsClient.getState();
     if (!clientState.driverConnected) {
-      this.logger.warn(
-        `⚠️ Driver not connected, cannot create device ${nativeId}`
-      );
+      // During connection, this is expected - devices will be registered after auth
+      if (this.isConnecting) {
+        this.logger.debug(
+          `⏳ Driver connecting, device ${nativeId} will be available after authentication`
+        );
+      } else {
+        this.logger.warn(
+          `⚠️ Driver not connected, cannot create device ${nativeId}`
+        );
+      }
       return undefined;
     }
 
@@ -721,8 +746,14 @@ export class EufySecurityProvider
       // IMPORTANT: Register stations first so they exist as parents for devices
       await this.registerStationsFromServerState(serverState);
       await this.registerDevicesFromServerState(serverState);
+
+      // Connection completed successfully
+      this.isConnecting = false;
     } else {
-      this.logger.warn("⚠️ Driver not connected, skipping device registration");
+      this.logger.info(
+        "⏳ Driver not connected yet - authentication may be required. Check settings to connect."
+      );
+      // Keep isConnecting = true until successful connection
     }
   }
 
