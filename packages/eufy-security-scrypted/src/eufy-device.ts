@@ -30,9 +30,7 @@ import {
   Battery,
   Brightness,
   Camera,
-  ChargeState,
   Charger,
-  FFmpegInput,
   MediaObject,
   MotionSensor,
   OnOff,
@@ -57,7 +55,6 @@ import {
 } from "@scrypted/sdk";
 
 import {
-  ChargingStatus,
   DEVICE_EVENTS,
   DeviceEventSource,
   DeviceEventType,
@@ -67,10 +64,6 @@ import {
   EVENT_SOURCES,
   EufyWebSocketClient,
   EventCallbackForType,
-  PanTiltDirection,
-  StorageType,
-  VideoQuality,
-  getDeviceCapabilities,
 } from "@caplaz/eufy-security-client";
 
 import {
@@ -78,9 +71,7 @@ import {
   createConsoleLogger,
   isDebugEnabled,
 } from "./utils/console-logger";
-import { DeviceUtils } from "./utils/device-utils";
 import { StreamServer } from "@caplaz/eufy-stream-server";
-import sdk from "@scrypted/sdk";
 
 // Device Services
 import {
@@ -131,8 +122,6 @@ export class EufyDevice
   private lightControlService!: LightControlService;
 
   private streamServer!: StreamServer;
-  // Event listener removers for cleanup
-  private videoDataEventRemover?: () => boolean;
 
   /**
    * Get the serial number for this station.
