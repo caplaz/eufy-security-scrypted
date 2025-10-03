@@ -120,9 +120,9 @@ Settings → Eufy Cloud Account
 ┌─────────────────────────────────┐
 │  🔐 CAPTCHA Challenge           │
 │  [Image showing CAPTCHA code]   │
-│                                  │
+│                                 │
 │  CAPTCHA Code: [ _____ ]        │
-│  [Submit CAPTCHA Code]           │
+│  [Submit CAPTCHA Code]          │
 └─────────────────────────────────┘
 ```
 
@@ -134,7 +134,7 @@ When 2FA is enabled on your account:
 Settings → Eufy Cloud Account
 ┌─────────────────────────────────┐
 │  🔐 2FA Verification Code       │
-│                                  │
+│                                 │
 │  Check your email/SMS for code  │
 │  Verification Code: [ _____ ]   │
 │  [Submit Code] [Request New]    │

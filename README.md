@@ -27,7 +27,7 @@ Your Home Network          Eufy Cloud          Scrypted Server
      │     1. Discovery         │                     │
      ├─────────────────────────►│                     │
      │                          │◄────────────────────┤
-     │                          │     2. Authentication│
+     │                          │    2. Authentication│
      │                          │                     │
      │◄─────────────────────────┼─────────────────────┼─ Device Control
      │    3. Video Stream       │                     │
@@ -62,7 +62,6 @@ Your Home Network          Eufy Cloud          Scrypted Server
 
 ### Prerequisites
 
-- **Node.js ≥18.0.0** - Modern JavaScript runtime
 - **Scrypted Server** - Home automation platform ([get started](https://docs.scrypted.app/))
 - **Eufy Account** - Active Eufy Security subscription
 
