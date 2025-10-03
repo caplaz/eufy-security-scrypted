@@ -515,11 +515,6 @@ export class StreamServer extends EventEmitter {
     timestamp?: number,
     isKeyFrame?: boolean
   ): Promise<boolean> {
-    if (!this.isActive) {
-      this.logger.warn("Cannot stream video: server not active");
-      return false;
-    }
-
     if (!data || data.length === 0) {
       this.logger.warn("Cannot stream empty video data");
       return false;
@@ -549,6 +544,7 @@ export class StreamServer extends EventEmitter {
       );
 
       // Resolve any pending snapshot requests with keyframe data
+      // This happens BEFORE checking if server is active, so snapshots work without TCP server
       if (isKeyFrame && this.snapshotResolvers.length > 0) {
         this.logger.debug(
           `Resolving ${this.snapshotResolvers.length} snapshot request(s) with keyframe data`
@@ -556,6 +552,16 @@ export class StreamServer extends EventEmitter {
         const resolvers = [...this.snapshotResolvers];
         this.snapshotResolvers = [];
         resolvers.forEach(({ resolve }) => resolve(data));
+      }
+
+      // If server is not active, we've already handled snapshot resolution above
+      // so we can just return success without broadcasting to TCP clients
+      if (!this.isActive) {
+        // Only update stats if we're handling snapshots
+        if (this.snapshotResolvers.length > 0 || isKeyFrame) {
+          this.stats.framesProcessed++;
+        }
+        return true; // Return true because snapshot was handled successfully
       }
 
       // Broadcast to all connected clients
