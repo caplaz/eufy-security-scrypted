@@ -72,7 +72,7 @@ Your App → @caplaz/eufy-security-client → eufy-security-ws → Eufy Cloud/De
 - ✅ **Well-Tested** - 80%+ test coverage
 - ✅ **Production Ready** - Used in Scrypted plugin
 
-**📖 For detailed technical information**, see **[WHY_THIS_PACKAGE.md](./WHY_THIS_PACKAGE.md)**
+**📖 For detailed technical information**, see **[WHY_THIS_PACKAGE](./WHY_THIS_PACKAGE.md)**
 
 ---
 
@@ -107,13 +107,13 @@ client.on("error", (error) => {
 
 ### Connection States
 
-| State          | Description                           |
-| -------------- | ------------------------------------- |
-| `disconnected` | Not connected to server               |
-| `connecting`   | Establishing WebSocket connection     |
-| `connected`    | WebSocket connected                   |
-| `negotiating`  | Negotiating API schema                |
-| `ready`        | Fully initialized and ready           |
+| State          | Description                       |
+| -------------- | --------------------------------- |
+| `disconnected` | Not connected to server           |
+| `connecting`   | Establishing WebSocket connection |
+| `connected`    | WebSocket connected               |
+| `negotiating`  | Negotiating API schema            |
+| `ready`        | Fully initialized and ready       |
 
 ### Checking Status
 
@@ -136,7 +136,7 @@ console.log(`Current state: ${state}`);
 // Get all devices
 const devices = await client.getDevices();
 
-devices.forEach(device => {
+devices.forEach((device) => {
   console.log(`${device.name} (${device.serial_number})`);
   console.log(`  Type: ${device.type}`);
   console.log(`  Model: ${device.model}`);
@@ -150,12 +150,12 @@ Each device object includes:
 
 ```typescript
 interface Device {
-  serial_number: string;        // Unique device identifier
-  name: string;                 // User-friendly name
-  model: string;                // Device model
-  type: number;                 // Device type code
-  station_serial_number: string;// Parent station serial
-  state: number;                // Online status (1 = online)
+  serial_number: string; // Unique device identifier
+  name: string; // User-friendly name
+  model: string; // Device model
+  type: number; // Device type code
+  station_serial_number: string; // Parent station serial
+  state: number; // Online status (1 = online)
   // ... additional properties
 }
 ```
@@ -166,7 +166,7 @@ interface Device {
 // Get all base stations
 const stations = await client.getStations();
 
-stations.forEach(station => {
+stations.forEach((station) => {
   console.log(`${station.name} (${station.serial_number})`);
   console.log(`  Model: ${station.model}`);
   console.log(`  Guard Mode: ${station.guard_mode}`);
@@ -195,11 +195,11 @@ client.on("streamData", (data) => {
   console.log(`Received ${data.type} data`);
   console.log(`  Device: ${data.deviceSerial}`);
   console.log(`  Size: ${data.buffer.length} bytes`);
-  
+
   if (data.metadata) {
     console.log(`  Metadata:`, data.metadata);
   }
-  
+
   // Process the video/audio buffer
   processStreamData(data.buffer, data.type);
 });
@@ -209,10 +209,11 @@ client.on("streamData", (data) => {
 
 ```typescript
 interface StreamData {
-  type: "video" | "audio";      // Data type
-  buffer: Buffer;               // Raw stream data
-  deviceSerial: string;         // Source device
-  metadata?: {                  // Optional metadata
+  type: "video" | "audio"; // Data type
+  buffer: Buffer; // Raw stream data
+  deviceSerial: string; // Source device
+  metadata?: {
+    // Optional metadata
     videoWidth?: number;
     videoHeight?: number;
     videoFPS?: number;
@@ -254,7 +255,7 @@ async function streamCamera(serialNumber: string, duration: number) {
 
     // Get device info
     const devices = await client.getDevices();
-    const camera = devices.find(d => d.serial_number === serialNumber);
+    const camera = devices.find((d) => d.serial_number === serialNumber);
     console.log(`📹 Found camera: ${camera?.name}`);
 
     // Handle stream data
@@ -271,12 +272,11 @@ async function streamCamera(serialNumber: string, duration: number) {
     console.log("🎥 Streaming started...");
 
     // Stream for specified duration
-    await new Promise(resolve => setTimeout(resolve, duration));
+    await new Promise((resolve) => setTimeout(resolve, duration));
 
     // Stop streaming
     await client.stopStream(serialNumber);
     console.log("⏹️  Streaming stopped");
-
   } finally {
     videoFile.close();
     audioFile.close();
@@ -300,7 +300,11 @@ streamCamera("T8210N20123456789", 30000);
 await client.setCommandWithString("T8210N20123456789", "camera.snapshot");
 
 // Enable/disable motion detection
-await client.setCommandWithBool("T8210N20123456789", "camera.motionDetection", true);
+await client.setCommandWithBool(
+  "T8210N20123456789",
+  "camera.motionDetection",
+  true
+);
 
 // Control floodlight
 await client.setCommandWithBool("T8210N20123456789", "camera.light", true);
@@ -469,60 +473,60 @@ client.on("stationAlarmEvent", (event) => {
 
 ```typescript
 interface ClientOptions {
-  wsUrl: string;              // WebSocket server URL (required)
-  logger?: Logger<ILogObj>;   // Optional tslog logger
+  wsUrl: string; // WebSocket server URL (required)
+  logger?: Logger<ILogObj>; // Optional tslog logger
 }
 ```
 
 #### Connection Methods
 
-| Method                         | Returns             | Description                     |
-| ------------------------------ | ------------------- | ------------------------------- |
-| `connect()`                    | `Promise<void>`     | Connect to WebSocket server     |
-| `disconnect()`                 | `Promise<void>`     | Disconnect and cleanup          |
-| `isConnected()`                | `boolean`           | Check if ready for operations   |
-| `getConnectionState()`         | `ConnectionState`   | Get current connection state    |
+| Method                 | Returns           | Description                   |
+| ---------------------- | ----------------- | ----------------------------- |
+| `connect()`            | `Promise<void>`   | Connect to WebSocket server   |
+| `disconnect()`         | `Promise<void>`   | Disconnect and cleanup        |
+| `isConnected()`        | `boolean`         | Check if ready for operations |
+| `getConnectionState()` | `ConnectionState` | Get current connection state  |
 
 #### Device Methods
 
-| Method                         | Returns             | Description                     |
-| ------------------------------ | ------------------- | ------------------------------- |
-| `getDevices()`                 | `Promise<Device[]>` | Get all devices                 |
-| `getStations()`                | `Promise<Station[]>`| Get all base stations           |
-| `getDevice(serial)`            | `Device \| null`    | Get device by serial number     |
-| `getStation(serial)`           | `Station \| null`   | Get station by serial number    |
+| Method               | Returns              | Description                  |
+| -------------------- | -------------------- | ---------------------------- |
+| `getDevices()`       | `Promise<Device[]>`  | Get all devices              |
+| `getStations()`      | `Promise<Station[]>` | Get all base stations        |
+| `getDevice(serial)`  | `Device \| null`     | Get device by serial number  |
+| `getStation(serial)` | `Station \| null`    | Get station by serial number |
 
 #### Streaming Methods
 
-| Method                         | Returns             | Description                     |
-| ------------------------------ | ------------------- | ------------------------------- |
-| `startStream(serial)`          | `Promise<void>`     | Start device livestream         |
-| `stopStream(serial)`           | `Promise<void>`     | Stop device livestream          |
+| Method                | Returns         | Description             |
+| --------------------- | --------------- | ----------------------- |
+| `startStream(serial)` | `Promise<void>` | Start device livestream |
+| `stopStream(serial)`  | `Promise<void>` | Stop device livestream  |
 
 #### Command Methods
 
-| Method                                    | Description                    |
-| ----------------------------------------- | ------------------------------ |
-| `setCommandWithString(serial, cmd, val?)` | Execute string command         |
-| `setCommandWithNumber(serial, cmd, val)`  | Execute numeric command        |
-| `setCommandWithBool(serial, cmd, val)`    | Execute boolean command        |
+| Method                                    | Description             |
+| ----------------------------------------- | ----------------------- |
+| `setCommandWithString(serial, cmd, val?)` | Execute string command  |
+| `setCommandWithNumber(serial, cmd, val)`  | Execute numeric command |
+| `setCommandWithBool(serial, cmd, val)`    | Execute boolean command |
 
 #### Events
 
-| Event                  | Payload                      | Description                |
-| ---------------------- | ---------------------------- | -------------------------- |
-| `connected`            | `void`                       | WebSocket connected        |
-| `disconnected`         | `void`                       | WebSocket disconnected     |
-| `ready`                | `void`                       | Client fully initialized   |
-| `error`                | `Error`                      | Connection error occurred  |
-| `streamStarted`        | `StreamEvent`                | Stream began               |
-| `streamStopped`        | `StreamEvent`                | Stream ended               |
-| `streamData`           | `StreamData`                 | Video/audio data received  |
-| `propertyChanged`      | `PropertyChangedEvent`       | Device property updated    |
-| `deviceAdded`          | `Device`                     | New device discovered      |
-| `deviceRemoved`        | `string`                     | Device removed             |
-| `stationGuardModeChanged` | `GuardModeEvent`          | Station guard mode changed |
-| `stationAlarmEvent`    | `AlarmEvent`                 | Alarm triggered            |
+| Event                     | Payload                | Description                |
+| ------------------------- | ---------------------- | -------------------------- |
+| `connected`               | `void`                 | WebSocket connected        |
+| `disconnected`            | `void`                 | WebSocket disconnected     |
+| `ready`                   | `void`                 | Client fully initialized   |
+| `error`                   | `Error`                | Connection error occurred  |
+| `streamStarted`           | `StreamEvent`          | Stream began               |
+| `streamStopped`           | `StreamEvent`          | Stream ended               |
+| `streamData`              | `StreamData`           | Video/audio data received  |
+| `propertyChanged`         | `PropertyChangedEvent` | Device property updated    |
+| `deviceAdded`             | `Device`               | New device discovered      |
+| `deviceRemoved`           | `string`               | Device removed             |
+| `stationGuardModeChanged` | `GuardModeEvent`       | Station guard mode changed |
+| `stationAlarmEvent`       | `AlarmEvent`           | Alarm triggered            |
 
 ---
 
@@ -595,7 +599,7 @@ const videoProcessor = new Transform({
     // Process H.264 chunk
     const processed = processH264(chunk);
     callback(null, processed);
-  }
+  },
 });
 
 client.on("streamData", (data) => {

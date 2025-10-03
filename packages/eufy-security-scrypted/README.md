@@ -1,4 +1,4 @@
-# Eufy Security Plugin for Scrypted
+# @caplaz/eufy-security-scrypted
 
 > **Complete integration for Eufy Security cameras, doorbells, and security systems with Scrypted**
 
