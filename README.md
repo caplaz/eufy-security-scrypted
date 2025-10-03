@@ -10,6 +10,8 @@ A modern monorepo providing comprehensive Eufy Security camera integration throu
 
 **Eufy Security uses legacy encryption that modern Node.js cannot handle.** Eufy cameras and devices were designed years ago with older security protocols that are incompatible with current Node.js versions. This creates a fundamental compatibility barrier for modern home automation platforms.
 
+_For a detailed technical explanation of why this architecture was chosen, see [WHY_THIS_PACKAGE](packages/eufy-security-client/WHY_THIS_PACKAGE.md)._
+
 ### Why We Need a Separate Server
 
 Modern Node.js runtimes (18+) have removed support for the deprecated OpenSSL encryption methods that Eufy's older firmware relies on. This means:
@@ -58,6 +60,15 @@ This plugin uses a **two-tier architecture** with a dedicated `eufy-security-ws`
 - 🔧 **[Eufy Security WS](https://github.com/bropat/eufy-security-ws)** - The foundation this plugin builds upon
 - 🏠 **[Home Assistant Integration](https://www.home-assistant.io/integrations/scrypted/)** - Use with Home Assistant
 - 📚 **[API Reference](packages/eufy-security-client/)** - Technical API documentation
+
+## 📝 Changelog
+
+All notable changes to this project are documented in the **[CHANGELOG](CHANGELOG.md)** file. This includes:
+
+- Version history for all packages in the monorepo
+- Feature additions and bug fixes
+- Breaking changes and migration guides
+- Release notes and upgrade instructions
 
 ---
 
