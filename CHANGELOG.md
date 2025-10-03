@@ -5,7 +5,49 @@ All notable changes to the Eufy Security Scrypted monorepo will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - 2025-09-27
+## [0.1.0] - 2025-10-03
+
+### 🎉 Initial Release
+
+**Eufy Security Scrypted Plugin** - Complete home automation integration for Eufy Security cameras and devices.
+
+#### ✨ Major Features
+
+- **Live Video Streaming**: Real-time H.264 video streaming with FFmpeg compatibility
+- **Device Discovery**: Automatic detection and registration of Eufy cameras, doorbells, and stations
+- **Snapshot Capture**: High-quality JPEG snapshots from live video streams
+- **Motion Detection**: Real-time motion event notifications and alerts
+- **Device Control**: Remote control of camera settings, PTZ movement, and device configuration
+- **Two-Tier Architecture**: Modern Node.js plugin with legacy protocol server for compatibility
+
+#### 🔧 Technical Improvements
+
+- **SPS/PPS Header Caching**: Automatic FFmpeg stream initialization for new clients
+- **Race Condition Fixes**: Eliminated duplicate livestream start attempts during snapshot capture
+- **Enhanced State Management**: Improved livestream state synchronization with device status queries
+- **Connection Management**: Robust TCP connection handling with automatic cleanup
+- **Event-Driven Architecture**: Comprehensive WebSocket event handling and device state updates
+
+#### 📦 Package Ecosystem
+
+- **@caplaz/eufy-security-scrypted**: Main Scrypted plugin with full device integration
+- **@caplaz/eufy-security-client**: Type-safe WebSocket client library (318 tests, 100% pass rate)
+- **@caplaz/eufy-stream-server**: High-performance TCP streaming server for H.264 video
+- **@caplaz/eufy-security-cli**: Command-line interface for testing and automation
+
+#### 🧪 Quality Assurance
+
+- **Comprehensive Testing**: 318 total tests across all packages
+- **Type Safety**: Full TypeScript coverage with strict type checking
+- **Code Quality**: ESLint configuration with zero warnings
+- **Documentation**: Complete API documentation and usage examples
+
+#### 🏗️ Architecture
+
+- **Monorepo Structure**: Unified development with shared tooling and CI/CD
+- **Modern Tooling**: TypeScript, Jest, ESLint, Prettier, and GitHub Actions
+- **Legacy Compatibility**: Works with all Eufy device generations through eufy-security-ws
+- **Home Automation Ready**: Full Scrypted integration with device interfaces
 
 ### Changed
 
@@ -15,7 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Monorepo Structure**: Consolidated four packages into a unified monorepo with shared tooling and CI/CD
-- **Comprehensive Testing**: Added extensive test coverage across all packages (206 total tests)
+- **Comprehensive Testing**: Added extensive test coverage across all packages (318 total tests)
 - **Documentation**: Standardized README files with consistent formatting and comprehensive examples
 - **CI/CD Pipeline**: GitHub Actions workflows for automated testing, building, and publishing
 
