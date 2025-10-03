@@ -5,10 +5,11 @@
  * Extends tslog's Logger class for full compatibility with packages that use tslog.
  *
  * Features:
- * - Global debug toggle that can be controlled from the UI
- * - Works with Scrypted's console interface (log, warn, error methods)
- * - Immediate propagation of debug setting changes
- * - Full tslog Logger interface compatibility with hierarchical logging
+ * - Global debug toggle that can be controlled from the root logger only
+ * - Each logger has its own console (device logs go to device console)
+ * - Hierarchical logging with automatic prefix management
+ * - Sublogs inherit verbosity settings from root but write to their own console
+ * - Full tslog Logger interface compatibility
  * - Memory efficient - no string formatting when debug is disabled
  */
 
@@ -17,56 +18,24 @@ import { Logger, ILogObj, ILogObjMeta, ISettingsParam } from "tslog";
 // Re-export tslog types for use in other packages
 export type { Logger, ILogObj };
 
-interface ConsoleLoggerConfig {
-  console: Console;
-  debugEnabled: boolean;
-}
-
-let globalConfig: ConsoleLoggerConfig | null = null;
-
-/**
- * Initialize the global console logger with a Scrypted console instance
- * This should be called early in the provider constructor
- */
-export function initializeConsoleLogger(
-  console: Console,
-  debugEnabled: boolean = false
-): void {
-  globalConfig = {
-    console,
-    debugEnabled,
-  };
-}
-
-/**
- * Update the global debug setting
- * This will immediately affect all subsequent debug log calls
- */
-export function setDebugEnabled(enabled: boolean): void {
-  if (globalConfig) {
-    globalConfig.debugEnabled = enabled;
-  }
-}
-
-/**
- * Get the current debug enabled state
- */
-export function isDebugEnabled(): boolean {
-  return globalConfig?.debugEnabled ?? false;
-}
-
 /**
  * ConsoleLogger extends tslog's Logger class to provide custom console-based logging
  * with centralized debug toggle control for Scrypted's console interface.
  *
+ * Each logger has its own console instance (from Scrypted device/provider),
+ * but respects the global debug setting for verbosity control.
+ *
  * Uses tslog's built-in hierarchy (getSubLogger) for automatic prefix management.
  */
 export class ConsoleLogger extends Logger<ILogObj> {
-  constructor(settings?: ISettingsParam<ILogObj>) {
+  private console: Console;
+
+  constructor(console: Console, settings?: ISettingsParam<ILogObj>) {
     super({
       type: "hidden", // Don't use tslog's built-in formatters
       ...settings,
     });
+    this.console = console;
   }
 
   /**
@@ -105,10 +74,8 @@ export class ConsoleLogger extends Logger<ILogObj> {
    * Silly level logging - most verbose, only when debug is enabled
    */
   silly(...args: unknown[]): (ILogObj & ILogObjMeta) | undefined {
-    if (globalConfig?.debugEnabled) {
-      const msg = this.formatMessage(...args);
-      globalConfig.console.log(msg);
-    }
+    const msg = this.formatMessage(...args);
+    this.console.log(msg);
     return undefined;
   }
 
@@ -116,12 +83,10 @@ export class ConsoleLogger extends Logger<ILogObj> {
    * Trace level logging - very detailed debugging information
    */
   trace(...args: unknown[]): (ILogObj & ILogObjMeta) | undefined {
-    if (globalConfig?.debugEnabled) {
-      const prefix = this.getHierarchicalPrefix();
-      const emoji = prefix ? "" : "🔍 ";
-      const msg = this.formatMessage(...args);
-      globalConfig.console.log(`${emoji}${msg}`);
-    }
+    const prefix = this.getHierarchicalPrefix();
+    const emoji = prefix ? "" : "🔍 ";
+    const msg = this.formatMessage(...args);
+    this.console.log(`${emoji}${msg}`);
     return undefined;
   }
 
@@ -130,12 +95,10 @@ export class ConsoleLogger extends Logger<ILogObj> {
    * Only logs when debug is enabled
    */
   debug(...args: unknown[]): (ILogObj & ILogObjMeta) | undefined {
-    if (globalConfig?.debugEnabled) {
-      const prefix = this.getHierarchicalPrefix();
-      const emoji = prefix ? "" : "🐛 ";
-      const msg = this.formatMessage(...args);
-      globalConfig.console.log(`${emoji}${msg}`);
-    }
+    const prefix = this.getHierarchicalPrefix();
+    const emoji = prefix ? "" : "🐛 ";
+    const msg = this.formatMessage(...args);
+    this.console.log(`${emoji}${msg}`);
     return undefined;
   }
 
@@ -143,10 +106,8 @@ export class ConsoleLogger extends Logger<ILogObj> {
    * Info level logging - general information, always logged
    */
   info(...args: unknown[]): (ILogObj & ILogObjMeta) | undefined {
-    if (globalConfig) {
-      const msg = this.formatMessage(...args);
-      globalConfig.console.log(msg);
-    }
+    const msg = this.formatMessage(...args);
+    this.console.log(msg);
     return undefined;
   }
 
@@ -154,10 +115,8 @@ export class ConsoleLogger extends Logger<ILogObj> {
    * Warning level logging - warnings and potential issues, always logged
    */
   warn(...args: unknown[]): (ILogObj & ILogObjMeta) | undefined {
-    if (globalConfig) {
-      const msg = this.formatMessage(...args);
-      globalConfig.console.warn(msg);
-    }
+    const msg = this.formatMessage(...args);
+    this.console.warn(msg);
     return undefined;
   }
 
@@ -165,10 +124,8 @@ export class ConsoleLogger extends Logger<ILogObj> {
    * Error level logging - errors and failures, always logged
    */
   error(...args: unknown[]): (ILogObj & ILogObjMeta) | undefined {
-    if (globalConfig) {
-      const msg = this.formatMessage(...args);
-      globalConfig.console.error(msg);
-    }
+    const msg = this.formatMessage(...args);
+    this.console.error(msg);
     return undefined;
   }
 
@@ -176,31 +133,75 @@ export class ConsoleLogger extends Logger<ILogObj> {
    * Fatal level logging - critical errors, always logged
    */
   fatal(...args: unknown[]): (ILogObj & ILogObjMeta) | undefined {
-    if (globalConfig) {
-      const prefix = this.getHierarchicalPrefix();
-      const emoji = prefix ? "🚨 " : "🚨 ";
-      const msg = this.formatMessage(...args);
-      globalConfig.console.error(`${emoji}${msg}`);
-    }
+    const prefix = this.getHierarchicalPrefix();
+    const emoji = prefix ? "🚨 " : "🚨 ";
+    const msg = this.formatMessage(...args);
+    this.console.error(`${emoji}${msg}`);
     return undefined;
   }
 
   /**
-   * Override getSubLogger to return ConsoleLogger type (instead of base Logger)
-   * This maintains type consistency throughout the hierarchy
+   * Create a sub-logger with its own console but inheriting verbosity settings
+   * This allows device logs to appear in their own console while respecting
+   * the global debug setting controlled by the root logger
+   *
+   * @param console - The Scrypted console for this sublog (e.g., device.console)
+   * @param settings - Optional settings for the sublogger (name, etc.)
    */
-  getSubLogger(settings?: ISettingsParam<ILogObj>): ConsoleLogger {
+  createSubLogger(
+    console: Console,
+    settings?: ISettingsParam<ILogObj>
+  ): ConsoleLogger {
+    // Create a sublogger using tslog's hierarchy (for automatic prefix management)
     const subLogger = super.getSubLogger(settings) as any;
+
+    // Set the console for this sublogger
+    subLogger.console = console;
+
     // Set the prototype to ConsoleLogger to ensure proper method behavior
     Object.setPrototypeOf(subLogger, ConsoleLogger.prototype);
+
     return subLogger as ConsoleLogger;
   }
 }
 
 /**
  * Create the root logger for the Eufy provider
+ * This is the only logger that should control the global debug setting
  * All stations and devices will be sub-loggers of this root logger
+ *
+ * @param console - The Scrypted console for the root logger (provider.console)
+ * @param name - Name for the root logger (default: "Eufy")
+ * @param debugEnabled - Initial debug state (default: false)
+ */
+export function createRootLogger(
+  console: Console,
+  name: string = "Eufy",
+  debugEnabled: boolean = false
+): ConsoleLogger {
+  return new ConsoleLogger(console, {
+    name,
+    minLevel: debugEnabled ? 0 : 3, // 0=silly (all), 3=info (info+)
+  });
+}
+
+/**
+ * @deprecated Use createRootLogger for the provider or logger.createSubLogger() for children
+ * This function is kept for backward compatibility but should not be used
  */
 export function createConsoleLogger(name: string = "Eufy"): ConsoleLogger {
-  return new ConsoleLogger({ name });
+  // This is a fallback that shouldn't be used in the new design
+  // Return a logger with global console as fallback
+  return new ConsoleLogger(console, { name });
+}
+
+/**
+ * @deprecated No longer needed - logger configuration is handled per-instance
+ * Kept for backward compatibility
+ */
+export function initializeConsoleLogger(
+  _console: Console,
+  debugEnabled: boolean = false
+): void {
+  // No-op - kept for backward compatibility
 }

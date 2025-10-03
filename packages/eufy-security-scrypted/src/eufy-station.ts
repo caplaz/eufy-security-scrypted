@@ -31,7 +31,7 @@ import {
   StationPropertyChangedEventPayload,
 } from "@caplaz/eufy-security-client";
 
-import { createConsoleLogger, ConsoleLogger } from "./utils/console-logger";
+import { ConsoleLogger } from "./utils/console-logger";
 import { EufyDevice } from "./eufy-device";
 import {
   alarmModeMap,
@@ -74,20 +74,21 @@ export class EufyStation
    * Construct a new EufyStation.
    * @param nativeId - Scrypted nativeId for this station.
    * @param wsClient - EufyWebSocketClient instance for API access.
-   * @param parentLogger - Parent logger for hierarchical logging.
+   * @param parentLogger - Parent logger for hierarchical logging (from provider).
    */
   constructor(
     nativeId: string,
     wsClient: EufyWebSocketClient,
-    parentLogger?: ConsoleLogger
+    parentLogger: ConsoleLogger
   ) {
     super(nativeId);
     this.wsClient = wsClient;
 
-    // Create hierarchical sub-logger if parent provided, otherwise create standalone logger
-    this.logger = parentLogger
-      ? parentLogger.getSubLogger({ name: nativeId })
-      : createConsoleLogger(this.name);
+    // Create a sub-logger with this station's console
+    // This ensures station logs appear in the station's log window
+    this.logger = parentLogger.createSubLogger(this.console, {
+      name: nativeId,
+    });
 
     this.logger.info(`Created EufyStation for ${nativeId}`);
 

@@ -66,11 +66,7 @@ import {
   EventCallbackForType,
 } from "@caplaz/eufy-security-client";
 
-import {
-  ConsoleLogger,
-  createConsoleLogger,
-  isDebugEnabled,
-} from "./utils/console-logger";
+import { ConsoleLogger } from "./utils/console-logger";
 import { StreamServer } from "@caplaz/eufy-stream-server";
 
 // Device Services
@@ -142,15 +138,16 @@ export class EufyDevice
   constructor(
     nativeId: string,
     wsClient: EufyWebSocketClient,
-    parentLogger?: ConsoleLogger
+    parentLogger: ConsoleLogger
   ) {
     super(nativeId);
     this.wsClient = wsClient;
 
-    // Create hierarchical sub-logger if parent provided, otherwise create standalone logger
-    this.logger = parentLogger
-      ? parentLogger.getSubLogger({ name: nativeId })
-      : createConsoleLogger(this.name);
+    // Create a sub-logger with this device's console
+    // This ensures device logs appear in the device's log window in Scrypted
+    this.logger = parentLogger.createSubLogger(this.console, {
+      name: nativeId,
+    });
 
     this.logger.info(`Created EufyDevice for ${nativeId}`);
 
@@ -598,8 +595,7 @@ export class EufyDevice
     this.streamServer = new StreamServer({
       port: 0, // Let the system assign a free port
       host: "127.0.0.1", // Only allow connections from localhost
-      debug: isDebugEnabled(), // Respect global debug logging setting
-      logger: this.logger, // Pass the ConsoleLogger instance for consistent logging
+      logger: this.logger, // Pass the ConsoleLogger instance for consistent logging (handles debug level)
       wsClient: this.wsClient,
       serialNumber: this.serialNumber,
     });

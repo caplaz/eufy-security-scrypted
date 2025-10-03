@@ -49,12 +49,7 @@ import {
 } from "@caplaz/eufy-security-client";
 import { Logger, ILogObj } from "tslog";
 import { EufyStation } from "./eufy-station";
-import {
-  createConsoleLogger,
-  ConsoleLogger,
-  initializeConsoleLogger,
-  setDebugEnabled,
-} from "./utils/console-logger";
+import { ConsoleLogger, createRootLogger } from "./utils/console-logger";
 import { DeviceUtils } from "./utils/device-utils";
 import { MemoryManager } from "./utils/memory-manager";
 
@@ -67,7 +62,6 @@ export class EufySecurityProvider
   // Core dependencies
   wsClient: EufyWebSocketClient;
   wsLogger: Logger<ILogObj>;
-  private rootLogger: ConsoleLogger;
   private logger: ConsoleLogger;
 
   // Device management
@@ -93,19 +87,20 @@ export class EufySecurityProvider
   constructor(nativeId?: string) {
     super(nativeId);
 
-    // Initialize the global console logger with this provider's console
+    // Initialize the root logger with this provider's console
+    // This controls the global debug setting for all sublogs
     this.debugLogging = this.storage.getItem("debugLogging") === "true";
-    initializeConsoleLogger(this.console, this.debugLogging);
+    this.logger = createRootLogger(
+      this.console,
+      "EufySecurity",
+      this.debugLogging
+    );
 
-    // Create hierarchical root logger
-    // Create hierarchical root logger
-    // Create root logger using createConsoleLogger
-    this.rootLogger = createConsoleLogger("EufySecurity");
-    // Create provider-specific logger
-    this.logger = createConsoleLogger("EufySecurity-Provider");
-
-    // Create a logger for the WebSocket client using ConsoleLogger for consistent formatting
-    this.wsLogger = createConsoleLogger("EufySecurity-WebSocketClient");
+    // Create a logger for the WebSocket client using the same console
+    // (WebSocket events are part of the provider's responsibility)
+    this.wsLogger = this.logger.createSubLogger(this.console, {
+      name: "WebSocketClient",
+    });
     this.wsClient = new EufyWebSocketClient(
       this.storage.getItem("wsUrl") || "ws://localhost:3000",
       this.wsLogger
@@ -116,13 +111,18 @@ export class EufySecurityProvider
       50,
       parseInt(this.storage.getItem("memoryThresholdMB") || "120")
     );
-    const consoleLogger = createConsoleLogger("MemoryManager");
-    MemoryManager.setMemoryThreshold(memoryThreshold, consoleLogger);
+    const memoryLogger = this.logger.createSubLogger(this.console, {
+      name: "MemoryManager",
+    });
+    MemoryManager.setMemoryThreshold(memoryThreshold, memoryLogger);
 
     // Initialize authentication manager
+    const authLogger = this.logger.createSubLogger(this.console, {
+      name: "Auth",
+    });
     this.authManager = new AuthenticationManager(
       this.wsClient,
-      createConsoleLogger("EufySecurity-Auth"),
+      authLogger,
       () => this.onDeviceEvent(ScryptedInterface.Settings, undefined),
       async (result: StartListeningResponse) => {
         this.displayConnectResult(true, true);
@@ -621,8 +621,8 @@ export class EufySecurityProvider
         value === true || value === "true" || value === 1 || value === "1";
       this.debugLogging = newDebugValue;
 
-      // Update global debug setting immediately
-      setDebugEnabled(this.debugLogging);
+      // Update root logger minLevel - this propagates to all sub-loggers via tslog's hierarchy
+      this.logger.settings.minLevel = this.debugLogging ? 0 : 3;
 
       // Update WebSocket logger level
       this.wsLogger.settings.minLevel = this.debugLogging ? 0 : 3;
@@ -636,10 +636,10 @@ export class EufySecurityProvider
     } else if (key === "memoryThresholdMB") {
       const memMB = Math.max(50, parseInt(value as string) || 120);
       this.storage.setItem("memoryThresholdMB", memMB.toString());
-      MemoryManager.setMemoryThreshold(
-        memMB,
-        createConsoleLogger("MemoryManager")
-      );
+      const memoryLogger = this.logger.createSubLogger(this.console, {
+        name: "MemoryManager",
+      });
+      MemoryManager.setMemoryThreshold(memMB, memoryLogger);
       this.logger.info(`Memory threshold updated to ${memMB}MB`);
       this.onDeviceEvent(ScryptedInterface.Settings, undefined);
     }
@@ -702,7 +702,7 @@ export class EufySecurityProvider
       // Return existing station or create new EufyStation
       let station = this.stations.get(nativeId);
       if (!station) {
-        station = new EufyStation(nativeId, this.wsClient, this.rootLogger);
+        station = new EufyStation(nativeId, this.wsClient, this.logger);
         this.stations.set(nativeId, station);
         this.logger.info(`Created new station ${nativeId}`);
       }

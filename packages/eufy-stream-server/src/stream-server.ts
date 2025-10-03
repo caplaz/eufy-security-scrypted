@@ -29,7 +29,11 @@ export interface StreamServerOptions {
   host?: string;
   /** Maximum number of concurrent connections (default: 10) */
   maxConnections?: number;
-  /** Enable debug logging (default: false) */
+  /**
+   * @deprecated No longer used - debug level is controlled by the logger instance.
+   * If you provide a logger, it controls its own debug level.
+   * If no logger is provided, the internal logger defaults to info level.
+   */
   debug?: boolean;
   /** Optional external logger instance compatible with tslog Logger<ILogObj> (if not provided, uses internal tslog Logger) */
   logger?: Logger<ILogObj>;
@@ -114,11 +118,12 @@ export class StreamServer extends EventEmitter {
     };
 
     // Use external logger if provided, otherwise create internal tslog Logger
+    // Note: When external logger is provided, it controls its own debug level
     this.logger =
       options.logger ??
       new Logger({
         name: "StreamServer",
-        minLevel: this.options.debug ? 2 : 3, // 2=debug, 3=info
+        minLevel: 3, // info level - external loggers control their own debug level
       });
 
     this.connectionManager = new ConnectionManager(this.logger);
@@ -294,13 +299,13 @@ export class StreamServer extends EventEmitter {
           );
         }
 
-        // Only log video data events if debug is enabled and we have active clients
+        // Log video data events based on client activity
         const activeClients = this.connectionManager.getActiveConnectionCount();
-        if (this.options.debug && activeClients > 0) {
+        if (activeClients > 0) {
           this.logger.debug(
             `Received video data event for ${event.serialNumber}: ${event.buffer.data.length} bytes (${activeClients} active clients)`
           );
-        } else if (this.options.debug && activeClients === 0) {
+        } else {
           // Log less frequently when no clients - only every 10th frame
           if (this.stats.framesProcessed % 10 === 0) {
             this.logger.debug(
@@ -532,18 +537,16 @@ export class StreamServer extends EventEmitter {
         isKeyFrame = this.h264Parser.isKeyFrame(data);
       }
 
-      // Log NAL unit information in debug mode
-      if (this.options.debug) {
-        const nalUnits = this.h264Parser.extractNALUnits(data);
-        const nalInfo = nalUnits
-          .map(
-            (nal) => `${this.h264Parser.getNALTypeName(nal.type)}(${nal.type})`
-          )
-          .join(", ");
-        this.logger.debug(
-          `Processing H.264 data: ${data.length} bytes, NALs: [${nalInfo}], keyFrame: ${isKeyFrame}`
-        );
-      }
+      // Log NAL unit information for debugging
+      const nalUnits = this.h264Parser.extractNALUnits(data);
+      const nalInfo = nalUnits
+        .map(
+          (nal) => `${this.h264Parser.getNALTypeName(nal.type)}(${nal.type})`
+        )
+        .join(", ");
+      this.logger.debug(
+        `Processing H.264 data: ${data.length} bytes, NALs: [${nalInfo}], keyFrame: ${isKeyFrame}`
+      );
 
       // Resolve any pending snapshot requests with keyframe data
       if (isKeyFrame && this.snapshotResolvers.length > 0) {
@@ -568,13 +571,13 @@ export class StreamServer extends EventEmitter {
       this.stats.bytesTransferred += data.length;
       this.stats.lastFrameTime = new Date();
 
-      // Only log when there are actual active clients or in debug mode
+      // Log frame streaming activity
       const activeClients = this.connectionManager.getActiveConnectionCount();
       if (activeClients > 0) {
         this.logger.debug(
           `Streamed video frame: ${data.length} bytes to ${activeClients} clients`
         );
-      } else if (this.options.debug) {
+      } else {
         this.logger.debug(
           `Processed video frame: ${data.length} bytes (no active clients)`
         );
