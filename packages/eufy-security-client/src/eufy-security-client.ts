@@ -53,6 +53,7 @@ export class EufySecurityClient extends EventEmitter {
   private logger: Logger<ILogObj>;
   private devices: Map<string, DeviceInfo> = new Map();
   private isConnectedFlag = false;
+  private eventListenerCleanup: Array<() => boolean> = [];
 
   /**
    * Creates a new EufySecurityClient instance
@@ -151,17 +152,41 @@ export class EufySecurityClient extends EventEmitter {
   /**
    * Disconnect from the WebSocket server and cleanup resources
    *
-   * Gracefully closes the WebSocket connection and resets internal state.
+   * Gracefully closes the WebSocket connection, removes all event listeners,
+   * clears device cache, and resets internal state to prevent memory leaks.
    *
    * @example
    * ```typescript
    * await client.disconnect();
-   * console.log('Client disconnected');
+   * console.log('Client disconnected and cleaned up');
    * ```
    */
   async disconnect(): Promise<void> {
     this.isConnectedFlag = false;
+
+    // Clean up all API manager event listeners
+    this.logger.debug(
+      `Cleaning up ${this.eventListenerCleanup.length} event listeners`
+    );
+    this.eventListenerCleanup.forEach((cleanup) => {
+      try {
+        cleanup();
+      } catch (error) {
+        this.logger.warn("Error during event listener cleanup:", error);
+      }
+    });
+    this.eventListenerCleanup = [];
+
+    // Remove all EventEmitter listeners (streamData, streamStarted, etc.)
+    this.removeAllListeners();
+
+    // Clear device cache
+    this.devices.clear();
+
+    // Disconnect from API manager
     this.apiManager.disconnect();
+
+    this.logger.info("Client disconnected and all resources cleaned up");
   }
 
   /**
@@ -363,80 +388,93 @@ export class EufySecurityClient extends EventEmitter {
    *
    * Configures listeners for device events, stream events, and data events.
    * Transforms API manager events into client-friendly events.
+   * Stores cleanup functions for proper resource management.
    *
    * @private
    */
   private setupEventHandlers(): void {
     // Listen for device events to populate device list
-    this.apiManager.addEventListener("device added", (event) => {
-      this.addDevice(event);
-    });
-
-    this.apiManager.addEventListener("device removed", (event) => {
-      // The event structure may vary, so we'll handle it safely
-      const serialNumber =
-        (event as any).serialNumber || (event as any).device?.serialNumber;
-      if (serialNumber) {
-        this.removeDevice(serialNumber);
-      }
-    });
-
-    // Forward stream events
-    this.apiManager.addEventListener("livestream started", (event) => {
-      this.logger.info("🎬 Livestream started event received:", event);
-      // Emit as streamStarted for compatibility
-      super.emit("streamStarted", event);
-    });
-
-    this.apiManager.addEventListener("livestream stopped", (event) => {
-      this.logger.info("⏹️ Livestream stopped event received:", event);
-      // Emit as streamStopped for compatibility
-      super.emit("streamStopped", event);
-    });
-
-    this.apiManager.addEventListener(
-      DEVICE_EVENTS.LIVESTREAM_VIDEO_DATA,
-      (event) => {
-        const bufferSize = event.buffer?.data?.length || 0;
-        this.logger.debug(
-          `📹 Video data received: ${bufferSize} bytes from device ${event.serialNumber}`
-        );
-
-        // Convert JSONBuffer to Buffer for compatibility
-        const buffer = event.buffer
-          ? Buffer.from(event.buffer.data)
-          : Buffer.alloc(0);
-
-        // Emit as streamData for compatibility, including video metadata
-        super.emit("streamData", {
-          type: "video",
-          buffer: buffer,
-          deviceSerial: event.serialNumber,
-          metadata: event.metadata, // Pass through video metadata with dimensions
-        });
-      }
+    this.eventListenerCleanup.push(
+      this.apiManager.addEventListener("device added", (event) => {
+        this.addDevice(event);
+      })
     );
 
-    this.apiManager.addEventListener(
-      DEVICE_EVENTS.LIVESTREAM_AUDIO_DATA,
-      (event) => {
-        const bufferSize = event.buffer?.data?.length || 0;
-        this.logger.debug(
-          `🎵 Audio data received: ${bufferSize} bytes from device ${event.serialNumber}`
-        );
+    this.eventListenerCleanup.push(
+      this.apiManager.addEventListener("device removed", (event) => {
+        // The event structure may vary, so we'll handle it safely
+        const serialNumber =
+          (event as any).serialNumber || (event as any).device?.serialNumber;
+        if (serialNumber) {
+          this.removeDevice(serialNumber);
+        }
+      })
+    );
 
-        // Convert JSONBuffer to Buffer for compatibility
-        const buffer = event.buffer
-          ? Buffer.from(event.buffer.data)
-          : Buffer.alloc(0);
+    // Forward stream events
+    this.eventListenerCleanup.push(
+      this.apiManager.addEventListener("livestream started", (event) => {
+        this.logger.info("🎬 Livestream started event received:", event);
+        // Emit as streamStarted for compatibility
+        super.emit("streamStarted", event);
+      })
+    );
 
-        // Emit as streamData for compatibility
-        super.emit("streamData", {
-          type: "audio",
-          buffer: buffer,
-          deviceSerial: event.serialNumber,
-        });
-      }
+    this.eventListenerCleanup.push(
+      this.apiManager.addEventListener("livestream stopped", (event) => {
+        this.logger.info("⏹️ Livestream stopped event received:", event);
+        // Emit as streamStopped for compatibility
+        super.emit("streamStopped", event);
+      })
+    );
+
+    this.eventListenerCleanup.push(
+      this.apiManager.addEventListener(
+        DEVICE_EVENTS.LIVESTREAM_VIDEO_DATA,
+        (event) => {
+          const bufferSize = event.buffer?.data?.length || 0;
+          this.logger.debug(
+            `📹 Video data received: ${bufferSize} bytes from device ${event.serialNumber}`
+          );
+
+          // Convert JSONBuffer to Buffer for compatibility
+          const buffer = event.buffer
+            ? Buffer.from(event.buffer.data)
+            : Buffer.alloc(0);
+
+          // Emit as streamData for compatibility, including video metadata
+          super.emit("streamData", {
+            type: "video",
+            buffer: buffer,
+            deviceSerial: event.serialNumber,
+            metadata: event.metadata, // Pass through video metadata with dimensions
+          });
+        }
+      )
+    );
+
+    this.eventListenerCleanup.push(
+      this.apiManager.addEventListener(
+        DEVICE_EVENTS.LIVESTREAM_AUDIO_DATA,
+        (event) => {
+          const bufferSize = event.buffer?.data?.length || 0;
+          this.logger.debug(
+            `🎵 Audio data received: ${bufferSize} bytes from device ${event.serialNumber}`
+          );
+
+          // Convert JSONBuffer to Buffer for compatibility
+          const buffer = event.buffer
+            ? Buffer.from(event.buffer.data)
+            : Buffer.alloc(0);
+
+          // Emit as streamData for compatibility
+          super.emit("streamData", {
+            type: "audio",
+            buffer: buffer,
+            deviceSerial: event.serialNumber,
+          });
+        }
+      )
     );
   }
 

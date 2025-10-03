@@ -488,7 +488,7 @@ Contributions welcome! Please:
 3. Make your changes with tests
 4. Submit a pull request
 
-See [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING](../../CONTRIBUTING.md) for guidelines.
 
 ---
 

@@ -94,7 +94,7 @@ cd ../packages/eufy-security-cli
 npm run start -- device list --ws-host localhost:3000
 ```
 
-See [docker/README.md](docker/README.md) for detailed setup instructions.
+See [DOCKER](docker/README.md) for detailed setup instructions.
 
 ## 🔧 Scrypted Plugin Setup
 
