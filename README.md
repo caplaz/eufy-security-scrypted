@@ -5,6 +5,16 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
 
+> **⚠️ EARLY DEVELOPMENT WARNING**
+>
+> **This plugin is in early development and should be considered experimental.**
+>
+> - Many Eufy device models have not been tested
+> - Bugs and compatibility issues are expected
+> - Features may change without notice
+> - Use at your own risk in production environments
+> - Please report issues to help improve stability
+
 > **Complete Eufy Security integration for Scrypted with streaming support**
 
 ![Eufy Security Plugin for Scrypted](images/banner.png)
@@ -383,6 +393,12 @@ eufy-security-scrypted/
 
 ## 🙏 Acknowledgments
 
-- Built on the excellent [eufy-security-ws](https://github.com/bropat/eufy-security-ws) foundation
-- Powered by [Scrypted](https://www.scrypted.app/) for home automation
-- Community contributions and feedback
+### Special Thanks
+
+**[@bropat](https://github.com/bropat)** - Author of [eufy-security-ws](https://github.com/bropat/eufy-security-ws), the foundation this plugin is built upon. Without their excellent work on reverse-engineering Eufy's protocols, this integration would not be possible.
+
+### Additional Thanks
+
+- **[Scrypted](https://www.scrypted.app/)** - Powerful home automation platform that makes this integration possible
+- **Community contributors** - Bug reports, feature requests, and testing help improve the plugin
+- **Eufy Security** - For providing the devices we all love to integrate
