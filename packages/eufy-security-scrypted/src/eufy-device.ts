@@ -229,6 +229,11 @@ export class EufyDevice
     // Subscribe to state changes from the state service
     this.stateService.onStateChange((change) => {
       this.logger.debug(`State changed: ${change.interface} = ${change.value}`);
+
+      // Update device properties from state service (for Scrypted framework)
+      this.syncStateToProperties();
+
+      // Notify Scrypted of the change
       this.onDeviceEvent(change.interface, change.value);
     });
 
@@ -263,23 +268,33 @@ export class EufyDevice
   }
 
   /**
+   * Sync state from state service to device properties
+   * Required because ScryptedDeviceBase properties need to be updated
+   */
+  private syncStateToProperties() {
+    const state = this.stateService.getState();
+    if (state.motionDetected !== undefined)
+      this.motionDetected = state.motionDetected;
+    if (state.brightness !== undefined) this.brightness = state.brightness;
+    if (state.on !== undefined) this.on = state.on;
+    if (state.batteryLevel !== undefined)
+      this.batteryLevel = state.batteryLevel;
+    if (state.chargeState !== undefined) this.chargeState = state.chargeState;
+    if (state.sensors) this.sensors = state.sensors as any;
+  }
+
+  /**
    * Update device state from properties using DeviceStateService
    * This delegates to the state service which manages state conversion and notifications
    */
   private updateStateFromProperties(properties?: DeviceProperties) {
     if (!properties) return;
-    
+
     // Delegate to state service for conversion and notifications
     this.stateService.updateFromProperties(properties);
-    
-    // Sync state back to device properties (for backward compatibility)
-    const state = this.stateService.getState();
-    if (state.motionDetected !== undefined) this.motionDetected = state.motionDetected;
-    if (state.brightness !== undefined) this.brightness = state.brightness;
-    if (state.on !== undefined) this.on = state.on;
-    if (state.batteryLevel !== undefined) this.batteryLevel = state.batteryLevel;
-    if (state.chargeState !== undefined) this.chargeState = state.chargeState;
-    if (state.sensors) this.sensors = state.sensors as any;
+
+    // Sync state to device properties once
+    this.syncStateToProperties();
   }
   // =================== EVENTs ===================
 
@@ -309,21 +324,17 @@ export class EufyDevice
 
     // Delegate to state service for state updates and notifications
     // The state service will call onDeviceEvent via our subscription
+    // State is now accessed via getters, no need to sync back
     this.stateService.updateProperty(name, value);
-    
-    // Sync state back to device properties (for backward compatibility)
-    const state = this.stateService.getState();
-    if (state.motionDetected !== undefined) this.motionDetected = state.motionDetected;
-    if (state.brightness !== undefined) this.brightness = state.brightness;
-    if (state.on !== undefined) this.on = state.on;
-    if (state.batteryLevel !== undefined) this.batteryLevel = state.batteryLevel;
-    if (state.chargeState !== undefined) this.chargeState = state.chargeState;
-    if (state.sensors) this.sensors = state.sensors as any;
   }
 
+  /**
+   * Handle motion detected events
+   * Updates state via state service which handles notifications
+   */
   private handleMotionDetectedEvent(event: DeviceMotionDetectedEventPayload) {
-    this.motionDetected = event.state;
-    this.onDeviceEvent(ScryptedInterface.MotionSensor, this.motionDetected);
+    // Update state service - it will notify via onStateChange callback
+    this.stateService.updateProperty("motionDetected", event.state);
   }
 
   // =================== SETTINGS INTERFACE ===================
@@ -357,7 +368,7 @@ export class EufyDevice
         const adjustedValue = metadata
           ? PropertyMapper.adjustValueForAPI(settingValue, metadata)
           : settingValue;
-        
+
         this.latestProperties = this.latestProperties && {
           ...this.latestProperties,
           [propertyName]: adjustedValue,
@@ -378,7 +389,7 @@ export class EufyDevice
       this.info?.metadata || {},
       onSuccess
     );
-    
+
     // Settings service will notify via onSettingsChange callback
   }
 
@@ -424,24 +435,28 @@ export class EufyDevice
 
   // =================== LIGHT INTERFACE ===================
 
-  turnOn(): Promise<void> {
-    return this.api.setProperty("light", true).then(() => {
-      this.on = true;
-    });
+  /**
+   * Turn light on - state will be updated via property change event
+   */
+  async turnOn(): Promise<void> {
+    await this.api.setProperty("light", true);
+    // State updated via property change event from WebSocket
   }
 
-  turnOff(): Promise<void> {
-    return this.api.setProperty("light", false).then(() => {
-      this.on = false;
-    });
+  /**
+   * Turn light off - state will be updated via property change event
+   */
+  async turnOff(): Promise<void> {
+    await this.api.setProperty("light", false);
+    // State updated via property change event from WebSocket
   }
 
-  setBrightness(brightness: number): Promise<void> {
-    return this.api
-      .setProperty("lightSettingsBrightnessManual", brightness)
-      .then(() => {
-        this.brightness = brightness;
-      });
+  /**
+   * Set brightness - state will be updated via property change event
+   */
+  async setBrightness(brightness: number): Promise<void> {
+    await this.api.setProperty("lightSettingsBrightnessManual", brightness);
+    // State updated via property change event from WebSocket
   }
 
   // =================== VIDEO CAMERA INTERFACE ===================
