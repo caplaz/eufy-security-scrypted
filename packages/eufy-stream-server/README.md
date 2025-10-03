@@ -10,7 +10,7 @@ A simplified TCP streaming server for raw H.264 video streams from Eufy security
 - **Connection Management**: Handles multiple client connections with automatic cleanup
 - **Statistics**: Basic streaming and connection statistics
 - **Automatic Camera Control**: Automatically starts/stops camera streaming based on client connections
-- **Zero Audio Complexity**: Completely removed audio processing from the legacy implementation
+- **Zero Audio Complexity**: Focused purely on video streaming without audio processing overhead
 
 ## Installation
 
@@ -200,24 +200,6 @@ const server2 = new StreamServer({
 - `isKeyFrame(data: Buffer): boolean` - Check if data contains key frame
 - `extractVideoMetadata(data: Buffer): VideoMetadata | null` - Extract basic metadata
 - `validateH264Data(data: Buffer): boolean` - Validate H.264 data structure
-
-## Differences from Legacy Implementation
-
-This simplified version removes the following complexity from the legacy eufy-stream-server:
-
-- ❌ **Audio Processing**: No audio codec detection, AAC handling, or audio/video synchronization
-- ❌ **MP4 Fragmentation**: No MP4 container creation or fragmentation
-- ❌ **Complex Error Recovery**: No audio error recovery or extensive diagnostics
-- ❌ **MPEG-TS Support**: No MPEG-TS muxing capabilities
-- ❌ **Advanced Diagnostics**: No corruption detection or extensive monitoring
-
-Instead, it focuses on:
-
-- ✅ **Raw H.264 Only**: Direct streaming of raw H.264 video data
-- ✅ **Simple TCP Server**: Basic TCP connection management
-- ✅ **NAL Unit Parsing**: Essential H.264 structure parsing
-- ✅ **Key Frame Detection**: Basic I-frame detection
-- ✅ **Connection Statistics**: Simple streaming metrics
 
 ## License
 
