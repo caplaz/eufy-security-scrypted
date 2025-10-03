@@ -7,12 +7,12 @@ import {
   EufyWebSocketClient,
   DeviceProperties,
 } from "@caplaz/eufy-security-client";
-import { ConsoleLogger } from "../../../src/utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 
 describe("DevicePropertyService", () => {
   let service: DevicePropertyService;
   let mockWsClient: jest.Mocked<EufyWebSocketClient>;
-  let mockLogger: jest.Mocked<ConsoleLogger>;
+  let mockLogger: jest.Mocked<Logger<ILogObj>>;
   let mockEventListeners: Map<string, Function>;
 
   const serialNumber = "TEST-DEVICE-123";
@@ -33,6 +33,9 @@ describe("DevicePropertyService", () => {
       info: jest.fn(),
       warn: jest.fn(),
       error: jest.fn(),
+      fatal: jest.fn(),
+      silly: jest.fn(),
+      trace: jest.fn(),
     } as any;
 
     const mockApi = {

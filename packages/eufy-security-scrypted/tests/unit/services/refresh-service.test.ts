@@ -6,12 +6,12 @@ import {
   RefreshService,
   IDeviceRefreshAPI,
 } from "../../../src/services/device/refresh-service";
-import { ConsoleLogger } from "../../../src/utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 import { DeviceProperties } from "@caplaz/eufy-security-client";
 
 describe("RefreshService", () => {
   let service: RefreshService;
-  let mockLogger: jest.Mocked<ConsoleLogger>;
+  let mockLogger: jest.Mocked<Logger<ILogObj>>;
   let mockDeviceAPI: jest.Mocked<IDeviceRefreshAPI>;
 
   beforeEach(() => {
@@ -20,6 +20,9 @@ describe("RefreshService", () => {
       info: jest.fn(),
       warn: jest.fn(),
       error: jest.fn(),
+      fatal: jest.fn(),
+      silly: jest.fn(),
+      trace: jest.fn(),
     } as any;
 
     mockDeviceAPI = {

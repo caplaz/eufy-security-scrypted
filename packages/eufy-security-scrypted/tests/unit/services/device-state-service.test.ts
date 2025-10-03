@@ -19,13 +19,13 @@ jest.mock("@scrypted/sdk", () => ({
 }));
 
 import { DeviceStateService } from "../../../src/services/device/device-state-service";
-import { ConsoleLogger } from "../../../src/utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 import { DeviceProperties, ChargingStatus } from "@caplaz/eufy-security-client";
 import { ScryptedInterface, ChargeState } from "@scrypted/sdk";
 
 describe("DeviceStateService", () => {
   let service: DeviceStateService;
-  let mockLogger: jest.Mocked<ConsoleLogger>;
+  let mockLogger: jest.Mocked<Logger<ILogObj>>;
 
   beforeEach(() => {
     mockLogger = {
@@ -33,6 +33,9 @@ describe("DeviceStateService", () => {
       info: jest.fn(),
       warn: jest.fn(),
       error: jest.fn(),
+      fatal: jest.fn(),
+      silly: jest.fn(),
+      trace: jest.fn(),
     } as any;
 
     service = new DeviceStateService(mockLogger);

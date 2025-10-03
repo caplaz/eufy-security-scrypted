@@ -6,7 +6,7 @@
 
 import { AuthenticationService } from "../../../src/services/authentication/authentication-service";
 import { EufyWebSocketClient } from "@caplaz/eufy-security-client";
-import { createConsoleLogger } from "../../../src/utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 
 // Mock WebSocket client
 const createMockWsClient = () => {
@@ -69,11 +69,19 @@ const createMockWsClient = () => {
 describe("AuthenticationService", () => {
   let service: AuthenticationService;
   let mockWsClient: ReturnType<typeof createMockWsClient>;
-  let mockLogger: ReturnType<typeof createConsoleLogger>;
+  let mockLogger: jest.Mocked<Logger<ILogObj>>;
 
   beforeEach(() => {
     mockWsClient = createMockWsClient();
-    mockLogger = createConsoleLogger("Test");
+    mockLogger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      fatal: jest.fn(),
+      silly: jest.fn(),
+      trace: jest.fn(),
+    } as any;
     service = new AuthenticationService(mockWsClient, mockLogger);
   });
 

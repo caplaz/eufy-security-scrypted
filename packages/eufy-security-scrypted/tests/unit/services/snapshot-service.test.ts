@@ -4,7 +4,7 @@
 
 import { SnapshotService } from "../../../src/services/device/snapshot-service";
 import { IStreamServer } from "../../../src/services/device/types";
-import { ConsoleLogger } from "../../../src/utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 import { FFmpegUtils } from "../../../src/utils/ffmpeg-utils";
 import { MediaObject } from "@scrypted/sdk";
 import sdk from "@scrypted/sdk";
@@ -25,7 +25,7 @@ jest.mock("../../../src/utils/ffmpeg-utils");
 describe("SnapshotService", () => {
   let service: SnapshotService;
   let mockStreamServer: jest.Mocked<IStreamServer>;
-  let mockLogger: jest.Mocked<ConsoleLogger>;
+  let mockLogger: jest.Mocked<Logger<ILogObj>>;
 
   const serialNumber = "TEST-DEVICE-123";
   const mockH264Data = Buffer.from([0x00, 0x00, 0x00, 0x01, 0x65]); // H.264 NAL unit
@@ -37,6 +37,9 @@ describe("SnapshotService", () => {
       info: jest.fn(),
       warn: jest.fn(),
       error: jest.fn(),
+      fatal: jest.fn(),
+      silly: jest.fn(),
+      trace: jest.fn(),
     } as any;
 
     mockStreamServer = {

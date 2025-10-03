@@ -9,6 +9,7 @@ import {
   PanTiltDirection,
   getDeviceCapabilities,
 } from "@caplaz/eufy-security-client";
+import { Logger, ILogObj } from "tslog";
 
 // Mock the ScryptedDeviceBase
 jest.mock("@scrypted/sdk", () => ({
@@ -57,8 +58,30 @@ describe("EufyDevice PTZ Functionality", () => {
   let mockWsClient: jest.Mocked<EufyWebSocketClient>;
   let device: EufyDevice;
   let mockDeviceCommands: any;
+  let mockLogger: jest.Mocked<Logger<ILogObj>>;
 
   beforeEach(() => {
+    // Create mock logger
+    mockLogger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      fatal: jest.fn(),
+      silly: jest.fn(),
+      trace: jest.fn(),
+      getSubLogger: jest.fn().mockReturnValue({
+        debug: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+        fatal: jest.fn(),
+        silly: jest.fn(),
+        trace: jest.fn(),
+        attachTransport: jest.fn(),
+      }),
+    } as any;
+
     // Create mock device commands
     mockDeviceCommands = {
       panAndTilt: jest.fn().mockResolvedValue(undefined),
@@ -81,7 +104,7 @@ describe("EufyDevice PTZ Functionality", () => {
     } as any;
 
     // Create device instance
-    device = new EufyDevice("test-device", mockWsClient);
+    device = new EufyDevice("test-device", mockWsClient, mockLogger);
   });
 
   afterEach(() => {

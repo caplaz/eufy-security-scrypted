@@ -4,7 +4,7 @@
 
 import { StreamService } from "../../../src/services/device/stream-service";
 import { IStreamServer } from "../../../src/services/device/types";
-import { ConsoleLogger } from "../../../src/utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 import { VideoQuality } from "@caplaz/eufy-security-client";
 import { MediaObject } from "@scrypted/sdk";
 import sdk from "@scrypted/sdk";
@@ -22,7 +22,7 @@ jest.mock("@scrypted/sdk", () => ({
 describe("StreamService", () => {
   let service: StreamService;
   let mockStreamServer: jest.Mocked<IStreamServer>;
-  let mockLogger: jest.Mocked<ConsoleLogger>;
+  let mockLogger: jest.Mocked<Logger<ILogObj>>;
 
   const serialNumber = "TEST-DEVICE-123";
   const mockPort = 12345;
@@ -33,6 +33,9 @@ describe("StreamService", () => {
       info: jest.fn(),
       warn: jest.fn(),
       error: jest.fn(),
+      fatal: jest.fn(),
+      silly: jest.fn(),
+      trace: jest.fn(),
     } as any;
 
     mockStreamServer = {

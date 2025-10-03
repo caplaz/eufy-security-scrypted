@@ -6,7 +6,7 @@ import {
   DeviceSettingsService,
   IDeviceCommandAPI,
 } from "../../../src/services/device/device-settings-service";
-import { ConsoleLogger } from "../../../src/utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 import { DeviceProperties } from "@caplaz/eufy-security-client";
 
 // Mock PropertyMapper
@@ -28,7 +28,7 @@ jest.mock("../../../src/utils/property-mapper", () => ({
 describe("DeviceSettingsService", () => {
   let service: DeviceSettingsService;
   let mockDeviceApi: jest.Mocked<IDeviceCommandAPI>;
-  let mockLogger: jest.Mocked<ConsoleLogger>;
+  let mockLogger: jest.Mocked<Logger<ILogObj>>;
 
   const mockProperties: DeviceProperties = {
     name: "Test Camera",
@@ -60,6 +60,9 @@ describe("DeviceSettingsService", () => {
       info: jest.fn(),
       warn: jest.fn(),
       error: jest.fn(),
+      fatal: jest.fn(),
+      silly: jest.fn(),
+      trace: jest.fn(),
     } as any;
 
     mockDeviceApi = {
