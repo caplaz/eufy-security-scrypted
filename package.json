@@ -14,7 +14,6 @@
   "scripts": {
     "build": "lerna run build",
     "clean": "lerna clean",
-    "publish": "lerna publish",
     "test": "lerna run test",
     "lint": "npx eslint \"packages/eufy-security-scrypted/src/**/*.ts\" \"packages/eufy-security-client/src/**/*.ts\" \"packages/eufy-stream-server/src/**/*.ts\" \"packages/eufy-security-cli/src/**/*.ts\" --max-warnings 0",
     "lint:fix": "lerna run lint:fix",
