@@ -6,48 +6,51 @@ A modern monorepo providing comprehensive Eufy Security camera integration throu
 
 ## 🤔 Why This Plugin?
 
-### The Challenge
+### The Technical Challenge
 
-Eufy Security cameras use proprietary protocols and legacy encryption that modern applications can't directly access. While Eufy provides a mobile app and basic web interface, integrating with home automation platforms like Scrypted requires bridging this compatibility gap.
+**Eufy Security uses legacy encryption that modern Node.js cannot handle.** Eufy cameras and devices were designed years ago with older security protocols that are incompatible with current Node.js versions. This creates a fundamental compatibility barrier for modern home automation platforms.
 
-### The Solution
+### Why We Need a Separate Server
 
-This plugin provides a complete bridge between Eufy Security systems and Scrypted, enabling:
+Modern Node.js runtimes (18+) have removed support for the deprecated OpenSSL encryption methods that Eufy's older firmware relies on. This means:
 
-- **Full Device Control** - Manage cameras, doorbells, and sensors through Scrypted's interface
-- **Live Streaming** - Real-time video feeds with optimized performance
-- **Automation Integration** - Trigger Scrypted automations on motion, doorbell presses, and security events
-- **Modern Architecture** - Built with TypeScript, WebSocket communication, and modular design
+- ❌ **Direct integration impossible** - Can't connect to Eufy devices from modern Node.js applications
+- ❌ **Security risks** - Using older Node.js versions introduces vulnerabilities
+- ❌ **Maintenance burden** - Would require maintaining outdated, insecure runtimes
 
-### How It Works
+### The Solution: Separate Container Architecture
+
+This plugin uses a **two-tier architecture** with a dedicated `eufy-security-ws` server that handles the legacy protocol communication:
 
 ```
-Your Home Network          Eufy Cloud          Scrypted Server
-     │                          │                     │
-     │     1. Discovery         │                     │
-     ├─────────────────────────►│                     │
-     │                          │◄────────────────────┤
-     │                          │    2. Authentication│
-     │                          │                     │
-     │◄─────────────────────────┼─────────────────────┼─ Device Control
-     │    3. Video Stream       │                     │
-     │                          │                     │
-     │◄─────────────────────────┼─────────────────────┼─ Motion Events
-     │    4. Real-time Events   │                     │
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Scrypted      │    │  Eufy Security   │    │  Eufy Devices   │
+│   (Modern)      │◄──►│  WS Server       │◄──►│  (Legacy)       │
+│                 │    │  (Legacy Node)   │    │                 │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
-1. **Device Discovery** - Plugin automatically finds all your Eufy devices
-2. **Secure Authentication** - Handles Eufy account authentication and session management
-3. **Video Streaming** - Optimized H.264 streaming with connection management
-4. **Event Integration** - Real-time motion detection, doorbell alerts, and sensor events
+**The `eufy-security-ws` server:**
 
-### Key Benefits
+- Runs on Node.js with legacy OpenSSL support
+- Handles all direct communication with Eufy devices
+- Provides a modern WebSocket API for secure integration
+- Isolated in a container for security and compatibility
 
-- ✅ **No Vendor Lock-in** - Works with any Scrypted installation
-- ✅ **High Performance** - Optimized streaming with minimal latency
-- ✅ **Type Safe** - Full TypeScript coverage prevents runtime errors
-- ✅ **Well Tested** - 206+ tests ensure reliability
-- ✅ **Open Source** - Transparent, auditable, and community-driven
+**This Scrypted plugin:**
+
+- Runs on your modern Scrypted server
+- Communicates with the WS server via secure WebSocket
+- Provides the Scrypted integration layer
+- Enables full home automation features
+
+### Key Benefits of This Approach
+
+- ✅ **Security First** - Modern, secure Node.js for the main application
+- ✅ **Compatibility** - Works with all Eufy device generations
+- ✅ **Performance** - Optimized streaming and event handling
+- ✅ **Maintainable** - Clear separation of concerns
+- ✅ **Future-Proof** - Can adapt as Eufy updates their protocols
 
 ### Documentation Links
 
