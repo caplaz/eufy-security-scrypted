@@ -7,6 +7,8 @@
 
 > **Complete Eufy Security integration for Scrypted with streaming support**
 
+![Eufy Security Plugin for Scrypted](images/banner.png)
+
 A modern monorepo providing comprehensive Eufy Security camera integration through multiple complementary packages. Stream live video, control devices, and manage your security system with Scrypted's powerful automation platform.
 
 ## 🤔 Why This Plugin?
