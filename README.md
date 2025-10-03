@@ -1,5 +1,10 @@
 # Eufy Security Plugin for Scrypted
 
+[![CI](https://github.com/caplaz/eufy-security-scrypted/actions/workflows/ci.yml/badge.svg)](https://github.com/caplaz/eufy-security-scrypted/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/@caplaz/eufy-security-scrypted.svg)](https://www.npmjs.com/package/@caplaz/eufy-security-scrypted)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
+
 > **Complete Eufy Security integration for Scrypted with streaming support**
 
 A modern monorepo providing comprehensive Eufy Security camera integration through multiple complementary packages. Stream live video, control devices, and manage your security system with Scrypted's powerful automation platform.
