@@ -36,6 +36,17 @@ export * from "./types/events";
 export * from "./types/schema";
 export * from "./types/shared";
 
+// ================= AUTHENTICATION =================
+export {
+  AUTH_STATE,
+  AuthenticationManager,
+  type AuthState,
+  type AuthStateChangeCallback,
+  type CaptchaData,
+  type DeviceRegistrationCallback,
+  type MfaData,
+} from "./authentication-manager";
+
 // ================= UTILITIES =================
 export { WebSocketMessageProcessor } from "./utils/websocket-message-processor";
 export * from "./utils/device-detection";

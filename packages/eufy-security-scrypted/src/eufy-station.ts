@@ -119,6 +119,8 @@ export class EufyStation
     }
   }
 
+  // =================== PROPERTY MANAGEMENT ===================
+
   private updateStateFromProperties(properties?: StationProperties) {
     if (!properties) return;
   }

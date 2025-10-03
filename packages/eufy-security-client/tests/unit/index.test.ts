@@ -242,6 +242,9 @@ describe("EufyClient Module Exports", () => {
         "getDeviceCapabilities",
         "getProductName",
         "getDeviceTypeName",
+        // Authentication module exports
+        "AUTH_STATE",
+        "AuthenticationManager",
         // Driver module exports
         "DRIVER_EVENTS",
         "StorageType",
