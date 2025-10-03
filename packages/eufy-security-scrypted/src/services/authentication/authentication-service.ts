@@ -12,13 +12,40 @@ import {
   StartListeningResponse,
 } from "@caplaz/eufy-security-client";
 import { ConsoleLogger } from "../../utils/console-logger";
-import {
-  AuthenticationState,
-  CaptchaData,
-  MfaData,
-  AuthenticationResult,
-  AuthenticationEventCallback,
-} from "../../types";
+
+/**
+ * Authentication state representing the current authentication challenge status
+ */
+export type AuthenticationState = "none" | "captcha_required" | "mfa_required";
+
+/**
+ * CAPTCHA challenge data received from the server
+ */
+export interface CaptchaData {
+  captchaId: string;
+  captcha: string;
+}
+
+/**
+ * Multi-factor authentication data
+ */
+export interface MfaData {
+  methods: string[];
+}
+
+/**
+ * Result of an authentication attempt
+ */
+export interface AuthenticationResult {
+  success: boolean;
+  driverConnected: boolean;
+  error?: string;
+}
+
+/**
+ * Authentication event listener callback
+ */
+export type AuthenticationEventCallback = (state: AuthenticationState) => void;
 
 /**
  * AuthenticationService handles all authentication-related operations

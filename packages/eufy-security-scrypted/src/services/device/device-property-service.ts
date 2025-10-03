@@ -15,7 +15,14 @@ import {
   EVENT_SOURCES,
 } from "@caplaz/eufy-security-client";
 import { ConsoleLogger } from "../../utils/console-logger";
-import { DevicePropertyUpdate } from "../../types";
+
+/**
+ * Device property change event
+ */
+export interface DevicePropertyUpdate {
+  name: keyof DeviceProperties;
+  value: any;
+}
 
 /**
  * Callback for property change events
