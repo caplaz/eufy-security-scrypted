@@ -1,4 +1,3 @@
-````markdown
 # @caplaz/eufy-security-client
 
 A TypeScript WebSocket client for Eufy security devices via the `eufy-security-ws` server. Provides type-safe commands, event handling, and streaming for Eufy cameras and doorbells.
@@ -471,4 +470,3 @@ MIT License - see [LICENSE](LICENSE) file
 - [`@caplaz/eufy-security-cli`](../eufy-security-cli) - Command-line interface
 - [`@caplaz/eufy-security-scrypted`](../eufy-security-scrypted) - Scrypted plugin
 - [`@caplaz/eufy-stream-server`](../eufy-stream-server) - H.264/AAC streaming server
-````
