@@ -15,7 +15,7 @@ import {
 import { VideoClip, MediaObject } from "@scrypted/sdk";
 import sdk from "@scrypted/sdk";
 import { ConsoleLogger } from "../../utils/console-logger";
-import { VideoClipMetadata, VideoClipQuery } from "../../types";
+import { VideoClipMetadata, VideoClipQuery } from "./types";
 
 /**
  * VideoClipsService handles all video clip operations including:

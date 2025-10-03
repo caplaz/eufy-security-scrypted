@@ -26,9 +26,9 @@ export interface IStreamServer {
 
   /**
    * Get the TCP port the server is listening on
-   * @returns Port number or null if not started
+   * @returns Port number or undefined if not started
    */
-  getPort(): number | null;
+  getPort(): number | undefined;
 
   /**
    * Check if the stream server is currently running

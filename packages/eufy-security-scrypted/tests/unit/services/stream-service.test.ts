@@ -150,7 +150,7 @@ describe("StreamService", () => {
     });
 
     it("should throw error if port is not available", async () => {
-      mockStreamServer.getPort.mockReturnValueOnce(null);
+      mockStreamServer.getPort.mockReturnValueOnce(undefined);
 
       await expect(service.getVideoStream(VideoQuality.HIGH)).rejects.toThrow(
         "Failed to get stream server port"

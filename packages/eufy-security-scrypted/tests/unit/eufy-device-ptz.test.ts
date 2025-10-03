@@ -222,9 +222,11 @@ describe("EufyDevice PTZ Functionality", () => {
       });
     });
 
-    test("should throw error for unsupported commands", () => {
+    test("should throw error for unsupported commands", async () => {
       // Execute command with no pan or tilt values
-      expect(() => device.ptzCommand({})).toThrow("Method not implemented.");
+      await expect(device.ptzCommand({})).rejects.toThrow(
+        "Method not implemented."
+      );
     });
 
     test("should prioritize tilt over pan when both are provided", async () => {
