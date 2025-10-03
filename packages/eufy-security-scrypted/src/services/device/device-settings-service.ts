@@ -7,7 +7,7 @@
  * @module services/device
  */
 
-import { Setting, SettingValue, ScryptedInterface } from "@scrypted/sdk";
+import { Setting, SettingValue } from "@scrypted/sdk";
 import { DeviceProperties } from "@caplaz/eufy-security-client";
 import { Logger, ILogObj } from "tslog";
 import { PropertyMapper } from "../../utils/property-mapper";
@@ -199,7 +199,7 @@ export class DeviceSettingsService {
    */
   private getGenericDeviceInfo(
     deviceInfo: DeviceInfo,
-    metadata: Record<string, any>
+    _metadata: Record<string, any>
   ): Setting[] {
     const settings: Setting[] = [];
 

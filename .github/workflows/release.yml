@@ -39,9 +39,8 @@ jobs:
 
       - name: Publish packages
         run: |
-          # Only publish the main Scrypted plugin
-          cd packages/eufy-security-scrypted
-          npm publish --tag latest --access public
+          # Publish only changed packages (only the Scrypted plugin should be published since others are private)
+          npx lerna publish from-package --yes --dist-tag latest
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

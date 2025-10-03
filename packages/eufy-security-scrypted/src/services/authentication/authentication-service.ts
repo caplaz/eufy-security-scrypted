@@ -7,10 +7,7 @@
  * @module services/authentication
  */
 
-import {
-  EufyWebSocketClient,
-  StartListeningResponse,
-} from "@caplaz/eufy-security-client";
+import { EufyWebSocketClient } from "@caplaz/eufy-security-client";
 import { Logger, ILogObj } from "tslog";
 
 /**

@@ -1,6 +1,6 @@
 {
   "name": "@caplaz/eufy-security-cli",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": true,
   "description": "Command-line interface for Eufy Security camera control and streaming",
   "main": "dist/index.js",
@@ -64,8 +64,8 @@
     "url": "https://github.com/acerbetti/eufy-security-scrypted/issues"
   },
   "dependencies": {
-    "@caplaz/eufy-stream-server": "file:../eufy-stream-server",
     "@caplaz/eufy-security-client": "file:../eufy-security-client",
+    "@caplaz/eufy-stream-server": "file:../eufy-stream-server",
     "tslog": "^4.9.3"
   },
   "devDependencies": {
