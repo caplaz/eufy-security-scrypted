@@ -9,7 +9,7 @@
 
 import { Setting, SettingValue, ScryptedInterface } from "@scrypted/sdk";
 import { DeviceProperties } from "@caplaz/eufy-security-client";
-import { ConsoleLogger } from "../../utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 import { PropertyMapper } from "../../utils/property-mapper";
 
 /**
@@ -47,7 +47,7 @@ export class DeviceSettingsService {
 
   constructor(
     private deviceApi: IDeviceCommandAPI,
-    private logger: ConsoleLogger
+    private logger: Logger<ILogObj>
   ) {}
 
   /**

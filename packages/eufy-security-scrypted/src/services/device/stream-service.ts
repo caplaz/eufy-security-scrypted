@@ -15,7 +15,7 @@ import {
 } from "@scrypted/sdk";
 import sdk from "@scrypted/sdk";
 import { VideoQuality } from "@caplaz/eufy-security-client";
-import { ConsoleLogger } from "../../utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 import { IStreamServer } from "./types";
 
 /**
@@ -50,7 +50,7 @@ export class StreamService {
   constructor(
     private serialNumber: string,
     private streamServer: IStreamServer,
-    private logger: ConsoleLogger
+    private logger: Logger<ILogObj>
   ) {}
 
   /**

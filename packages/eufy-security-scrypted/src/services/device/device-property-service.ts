@@ -14,7 +14,7 @@ import {
   DevicePropertyChangedEventPayload,
   EVENT_SOURCES,
 } from "@caplaz/eufy-security-client";
-import { ConsoleLogger } from "../../utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 
 /**
  * Device property change event
@@ -41,7 +41,7 @@ export class DevicePropertyService {
   constructor(
     private wsClient: EufyWebSocketClient,
     private serialNumber: string,
-    private logger: ConsoleLogger
+    private logger: Logger<ILogObj>
   ) {
     this.propertiesLoadedPromise = this.loadInitialProperties();
     this.setupPropertyChangeListener();

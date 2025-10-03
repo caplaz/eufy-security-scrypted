@@ -9,7 +9,7 @@
 
 import { ChargeState, ScryptedInterface } from "@scrypted/sdk";
 import { ChargingStatus, DeviceProperties } from "@caplaz/eufy-security-client";
-import { ConsoleLogger } from "../../utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 
 /**
  * Device state that maps to Scrypted interfaces
@@ -49,7 +49,7 @@ export class DeviceStateService {
   private state: DeviceState = {};
   private stateChangeCallbacks = new Set<StateChangeCallback>();
 
-  constructor(private logger: ConsoleLogger) {}
+  constructor(private logger: Logger<ILogObj>) {}
 
   /**
    * Get current device state

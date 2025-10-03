@@ -11,7 +11,7 @@ import {
   PanTiltDirection,
 } from "@caplaz/eufy-security-client";
 import { PanTiltZoomCommand } from "@scrypted/sdk";
-import { ConsoleLogger } from "../../utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 
 /**
  * PTZControlHandler manages pan, tilt, and zoom operations
@@ -20,7 +20,7 @@ export class PTZControlHandler {
   constructor(
     private wsClient: EufyWebSocketClient,
     private serialNumber: string,
-    private logger: ConsoleLogger
+    private logger: Logger<ILogObj>
   ) {}
 
   /**

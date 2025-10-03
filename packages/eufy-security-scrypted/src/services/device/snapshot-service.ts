@@ -9,7 +9,7 @@
 
 import { MediaObject, RequestPictureOptions } from "@scrypted/sdk";
 import sdk from "@scrypted/sdk";
-import { ConsoleLogger } from "../../utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 import { FFmpegUtils } from "../../utils/ffmpeg-utils";
 import { IStreamServer } from "./types";
 
@@ -23,7 +23,7 @@ export class SnapshotService {
   constructor(
     private serialNumber: string,
     private streamServer: IStreamServer,
-    private logger: ConsoleLogger
+    private logger: Logger<ILogObj>
   ) {}
 
   /**

@@ -8,7 +8,7 @@
  */
 
 import { DeviceProperties } from "@caplaz/eufy-security-client";
-import { ConsoleLogger } from "../../utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 
 /**
  * Device command API interface for refresh operations
@@ -43,7 +43,7 @@ export class RefreshService {
 
   constructor(
     private deviceApi: IDeviceRefreshAPI,
-    private logger: ConsoleLogger
+    private logger: Logger<ILogObj>
   ) {}
 
   /**

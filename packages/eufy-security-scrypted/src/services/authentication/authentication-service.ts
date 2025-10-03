@@ -11,7 +11,7 @@ import {
   EufyWebSocketClient,
   StartListeningResponse,
 } from "@caplaz/eufy-security-client";
-import { ConsoleLogger } from "../../utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 
 /**
  * Authentication state representing the current authentication challenge status
@@ -59,7 +59,7 @@ export class AuthenticationService {
 
   constructor(
     private wsClient: EufyWebSocketClient,
-    private logger: ConsoleLogger
+    private logger: Logger<ILogObj>
   ) {
     this.setupEventListeners();
   }

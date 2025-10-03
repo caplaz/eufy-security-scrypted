@@ -47,13 +47,38 @@ import {
   EufyWebSocketClient,
   StartListeningResponse,
 } from "@caplaz/eufy-security-client";
-import { Logger, ILogObj } from "tslog";
+import { Logger, ILogObj, ILogObjMeta } from "tslog";
 import { EufyStation } from "./eufy-station";
-import { ConsoleLogger, createRootLogger } from "./utils/console-logger";
 import { DeviceUtils } from "./utils/device-utils";
 import { MemoryManager } from "./utils/memory-manager";
 
 const { deviceManager } = sdk;
+
+/**
+ * Create a transport function for routing tslog output to a Scrypted console
+ */
+function createConsoleTransport(console: Console) {
+  return (logObj: ILogObj & ILogObjMeta) => {
+    const meta = (logObj as any)._meta;
+    if (!meta) return;
+    const prefix = meta.name ? `[${meta.name}] ` : "";
+
+    // Extract all non-meta properties as the log arguments
+    const args = Object.keys(logObj)
+      .filter((key) => key !== "_meta" && key !== "toJSON")
+      .map((key) => (logObj as any)[key]);
+
+    const msg = args
+      .map((a: any) => (typeof a === "object" ? JSON.stringify(a) : String(a)))
+      .join(" ");
+
+    const level = meta.logLevelName?.toLowerCase();
+    if (level === "warn") console.warn(`${prefix}${msg}`);
+    else if (level === "error" || level === "fatal")
+      console.error(`${prefix}${msg}`);
+    else console.log(`${prefix}${msg}`);
+  };
+}
 
 export class EufySecurityProvider
   extends ScryptedDeviceBase
@@ -62,7 +87,7 @@ export class EufySecurityProvider
   // Core dependencies
   wsClient: EufyWebSocketClient;
   wsLogger: Logger<ILogObj>;
-  private logger: ConsoleLogger;
+  private logger: Logger<ILogObj>;
 
   // Device management
   stations = new Map<string, EufyStation>();
@@ -90,17 +115,17 @@ export class EufySecurityProvider
     // Initialize the root logger with this provider's console
     // This controls the global debug setting for all sublogs
     this.debugLogging = this.storage.getItem("debugLogging") === "true";
-    this.logger = createRootLogger(
-      this.console,
-      "EufySecurity",
-      this.debugLogging
-    );
+    this.logger = new Logger<ILogObj>({
+      name: "EufySecurity",
+      minLevel: this.debugLogging ? 0 : 3, // 0=all, 3=info+
+      type: "hidden",
+    });
+    this.logger.attachTransport(createConsoleTransport(this.console));
 
     // Create a logger for the WebSocket client using the same console
     // (WebSocket events are part of the provider's responsibility)
-    this.wsLogger = this.logger.createSubLogger(this.console, {
-      name: "WebSocketClient",
-    });
+    this.wsLogger = this.logger.getSubLogger({ name: "WebSocketClient" });
+    this.wsLogger.attachTransport(createConsoleTransport(this.console));
     this.wsClient = new EufyWebSocketClient(
       this.storage.getItem("wsUrl") || "ws://localhost:3000",
       this.wsLogger
@@ -111,15 +136,13 @@ export class EufySecurityProvider
       50,
       parseInt(this.storage.getItem("memoryThresholdMB") || "120")
     );
-    const memoryLogger = this.logger.createSubLogger(this.console, {
-      name: "MemoryManager",
-    });
+    const memoryLogger = this.logger.getSubLogger({ name: "Memory" });
+    memoryLogger.attachTransport(createConsoleTransport(this.console));
     MemoryManager.setMemoryThreshold(memoryThreshold, memoryLogger);
 
     // Initialize authentication manager
-    const authLogger = this.logger.createSubLogger(this.console, {
-      name: "Auth",
-    });
+    const authLogger = this.logger.getSubLogger({ name: "Auth" });
+    authLogger.attachTransport(createConsoleTransport(this.console));
     this.authManager = new AuthenticationManager(
       this.wsClient,
       authLogger,
@@ -636,9 +659,8 @@ export class EufySecurityProvider
     } else if (key === "memoryThresholdMB") {
       const memMB = Math.max(50, parseInt(value as string) || 120);
       this.storage.setItem("memoryThresholdMB", memMB.toString());
-      const memoryLogger = this.logger.createSubLogger(this.console, {
-        name: "MemoryManager",
-      });
+      const memoryLogger = this.logger.getSubLogger({ name: "MemoryManager" });
+      memoryLogger.attachTransport(createConsoleTransport(this.console));
       MemoryManager.setMemoryThreshold(memMB, memoryLogger);
       this.logger.info(`Memory threshold updated to ${memMB}MB`);
       this.onDeviceEvent(ScryptedInterface.Settings, undefined);

@@ -14,7 +14,7 @@ import {
 } from "@caplaz/eufy-security-client";
 import { VideoClip, MediaObject } from "@scrypted/sdk";
 import sdk from "@scrypted/sdk";
-import { ConsoleLogger } from "../../utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 import { VideoClipMetadata, VideoClipQuery } from "./types";
 
 /**
@@ -30,7 +30,7 @@ export class VideoClipsService {
 
   constructor(
     private wsClient: EufyWebSocketClient,
-    private logger: ConsoleLogger
+    private logger: Logger<ILogObj>
   ) {}
 
   /**

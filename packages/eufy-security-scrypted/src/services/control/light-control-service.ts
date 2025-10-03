@@ -7,7 +7,7 @@
  * @module services/control
  */
 
-import { ConsoleLogger } from "../../utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 import { DeviceApi } from "./types";
 
 /**
@@ -25,7 +25,7 @@ import { DeviceApi } from "./types";
 export class LightControlService {
   constructor(
     private deviceApi: DeviceApi,
-    private logger: ConsoleLogger
+    private logger: Logger<ILogObj>
   ) {}
 
   /**

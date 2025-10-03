@@ -66,7 +66,7 @@ import {
   EventCallbackForType,
 } from "@caplaz/eufy-security-client";
 
-import { ConsoleLogger } from "./utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 import { StreamServer } from "@caplaz/eufy-stream-server";
 
 // Device Services
@@ -80,6 +80,30 @@ import {
 import { PropertyMapper } from "./utils/property-mapper";
 import { VideoClipsService } from "./services/video";
 import { PtzControlService, LightControlService } from "./services/control";
+
+// Helper to create a transport function for routing tslog to Scrypted console
+function createConsoleTransport(console: Console) {
+  return (logObj: any) => {
+    const meta = logObj._meta;
+    if (!meta) return;
+    const prefix = meta.name ? `[${meta.name}] ` : "";
+
+    // Extract all non-meta properties as the log arguments
+    const args = Object.keys(logObj)
+      .filter((key) => key !== "_meta" && key !== "toJSON")
+      .map((key) => logObj[key]);
+
+    const msg = args
+      .map((a: any) => (typeof a === "object" ? JSON.stringify(a) : String(a)))
+      .join(" ");
+
+    const level = meta.logLevelName?.toLowerCase();
+    if (level === "warn") console.warn(`${prefix}${msg}`);
+    else if (level === "error" || level === "fatal")
+      console.error(`${prefix}${msg}`);
+    else console.log(`${prefix}${msg}`);
+  };
+}
 
 /**
  * EufyDevice - TCP server implementation for VideoCamera
@@ -101,7 +125,7 @@ export class EufyDevice
     Refresh
 {
   private wsClient: EufyWebSocketClient;
-  private logger: ConsoleLogger;
+  private logger: Logger<ILogObj>;
 
   // Device info and state
   private latestProperties?: DeviceProperties;
@@ -138,16 +162,16 @@ export class EufyDevice
   constructor(
     nativeId: string,
     wsClient: EufyWebSocketClient,
-    parentLogger: ConsoleLogger
+    parentLogger: Logger<ILogObj>
   ) {
     super(nativeId);
     this.wsClient = wsClient;
 
     // Create a sub-logger with this device's console
     // This ensures device logs appear in the device's log window in Scrypted
-    this.logger = parentLogger.createSubLogger(this.console, {
-      name: nativeId,
-    });
+    const loggerName = nativeId.charAt(0).toUpperCase() + nativeId.slice(1);
+    this.logger = parentLogger.getSubLogger({ name: loggerName });
+    this.logger.attachTransport(createConsoleTransport(this.console));
 
     this.logger.info(`Created EufyDevice for ${nativeId}`);
 
@@ -595,7 +619,7 @@ export class EufyDevice
     this.streamServer = new StreamServer({
       port: 0, // Let the system assign a free port
       host: "127.0.0.1", // Only allow connections from localhost
-      logger: this.logger, // Pass the ConsoleLogger instance for consistent logging (handles debug level)
+      logger: this.logger, // Pass tslog Logger directly
       wsClient: this.wsClient,
       serialNumber: this.serialNumber,
     });

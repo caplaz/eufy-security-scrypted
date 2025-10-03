@@ -8,7 +8,7 @@
  */
 
 import { EufyWebSocketClient } from "@caplaz/eufy-security-client";
-import { ConsoleLogger } from "../../utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 
 /**
  * LightControlHandler manages light-related operations
@@ -17,7 +17,7 @@ export class LightControlHandler {
   constructor(
     private wsClient: EufyWebSocketClient,
     private serialNumber: string,
-    private logger: ConsoleLogger
+    private logger: Logger<ILogObj>
   ) {}
 
   /**

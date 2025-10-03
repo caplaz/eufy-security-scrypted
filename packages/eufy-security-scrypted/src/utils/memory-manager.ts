@@ -15,7 +15,7 @@
  * 4. Components handle their own cleanup logic based on the requested level
  */
 
-import { ConsoleLogger } from "./console-logger";
+import { Logger, ILogObj } from "tslog";
 
 /**
  * Memory cleanup severity levels for progressive cleanup strategies
@@ -80,7 +80,7 @@ interface CleanupRegistration {
 export class MemoryManager {
   private static instance?: MemoryManager;
 
-  private readonly logger: ConsoleLogger;
+  private readonly logger: Logger<ILogObj>;
   private readonly config: MemoryManagerConfig;
   private readonly cleanupCallbacks = new Map<string, CleanupRegistration>();
   private monitorInterval?: ReturnType<typeof setTimeout>;
@@ -89,7 +89,7 @@ export class MemoryManager {
   private lastCleanupLevel?: CleanupLevel;
 
   private constructor(
-    logger: ConsoleLogger,
+    logger: Logger<ILogObj>,
     config: Partial<MemoryManagerConfig> = {}
   ) {
     this.logger = logger;
@@ -110,7 +110,7 @@ export class MemoryManager {
    * @returns The singleton MemoryManager instance
    */
   static getInstance(
-    logger: ConsoleLogger,
+    logger: Logger<ILogObj>,
     config?: Partial<MemoryManagerConfig>
   ): MemoryManager {
     if (!MemoryManager.instance) {
@@ -136,7 +136,10 @@ export class MemoryManager {
    * @param thresholdMB New threshold in MB
    * @param logger Optional logger for creating instance if needed
    */
-  static setMemoryThreshold(thresholdMB: number, logger?: ConsoleLogger): void {
+  static setMemoryThreshold(
+    thresholdMB: number,
+    logger?: Logger<ILogObj>
+  ): void {
     if (MemoryManager.instance) {
       MemoryManager.instance.updateThreshold(thresholdMB);
     } else if (logger) {
@@ -422,7 +425,7 @@ export class MemoryManager {
  * @returns The MemoryManager singleton
  */
 export function getMemoryManager(
-  logger: ConsoleLogger,
+  logger: Logger<ILogObj>,
   config?: Partial<MemoryManagerConfig>
 ): MemoryManager {
   return MemoryManager.getInstance(logger, config);

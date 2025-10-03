@@ -12,7 +12,7 @@ import {
   PanTiltDirection,
   getDeviceCapabilities,
 } from "@caplaz/eufy-security-client";
-import { ConsoleLogger } from "../../utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 import { DeviceApi, PtzCapabilities } from "./types";
 
 /**
@@ -27,7 +27,7 @@ export class PtzControlService {
   constructor(
     private deviceApi: DeviceApi,
     private getDeviceType: () => number | undefined,
-    private logger: ConsoleLogger
+    private logger: Logger<ILogObj>
   ) {}
 
   /**

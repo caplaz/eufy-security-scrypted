@@ -6,13 +6,17 @@
  * @module utils
  */
 
-import { ConsoleLogger, createConsoleLogger } from "./console-logger";
+import { Logger, ILogObj } from "tslog";
 
 /**
  * FFmpegUtils provides utilities for video/image processing using FFmpeg
  */
 export class FFmpegUtils {
-  private static logger: ConsoleLogger = createConsoleLogger("FFmpegUtils");
+  private static logger: Logger<ILogObj> = new Logger<ILogObj>({
+    name: "FFmpegUtils",
+    type: "hidden",
+    minLevel: 3,
+  });
 
   /**
    * Convert H.264 video data to JPEG image

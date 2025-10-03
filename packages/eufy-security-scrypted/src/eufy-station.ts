@@ -31,13 +31,37 @@ import {
   StationPropertyChangedEventPayload,
 } from "@caplaz/eufy-security-client";
 
-import { ConsoleLogger } from "./utils/console-logger";
+import { Logger, ILogObj } from "tslog";
 import { EufyDevice } from "./eufy-device";
 import {
   alarmModeMap,
   DeviceUtils,
   securitySystemMap,
 } from "./utils/device-utils";
+
+// Helper to create a transport function for routing tslog to Scrypted console
+function createConsoleTransport(console: Console) {
+  return (logObj: any) => {
+    const meta = logObj._meta;
+    if (!meta) return;
+    const prefix = meta.name ? `[${meta.name}] ` : "";
+
+    // Extract all non-meta properties as the log arguments
+    const args = Object.keys(logObj)
+      .filter((key) => key !== "_meta" && key !== "toJSON")
+      .map((key) => logObj[key]);
+
+    const msg = args
+      .map((a: any) => (typeof a === "object" ? JSON.stringify(a) : String(a)))
+      .join(" ");
+
+    const level = meta.logLevelName?.toLowerCase();
+    if (level === "warn") console.warn(`${prefix}${msg}`);
+    else if (level === "error" || level === "fatal")
+      console.error(`${prefix}${msg}`);
+    else console.log(`${prefix}${msg}`);
+  };
+}
 
 /**
  * EufyStation - Barebone station implementation
@@ -48,7 +72,7 @@ export class EufyStation
 {
   private wsClient: EufyWebSocketClient;
   private childDevices = new Map<string, EufyDevice>();
-  private logger: ConsoleLogger;
+  private logger: Logger<ILogObj>;
 
   // Device info and state
   private latestProperties?: StationProperties;
@@ -79,16 +103,16 @@ export class EufyStation
   constructor(
     nativeId: string,
     wsClient: EufyWebSocketClient,
-    parentLogger: ConsoleLogger
+    parentLogger: Logger<ILogObj>
   ) {
     super(nativeId);
     this.wsClient = wsClient;
 
     // Create a sub-logger with this station's console
     // This ensures station logs appear in the station's log window
-    this.logger = parentLogger.createSubLogger(this.console, {
-      name: nativeId,
-    });
+    const loggerName = nativeId.charAt(0).toUpperCase() + nativeId.slice(1);
+    this.logger = parentLogger.getSubLogger({ name: loggerName });
+    this.logger.attachTransport(createConsoleTransport(this.console));
 
     this.logger.info(`Created EufyStation for ${nativeId}`);
 
