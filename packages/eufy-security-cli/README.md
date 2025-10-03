@@ -1,635 +1,433 @@
-# @scrypted/eufy-security-cli
+# @caplaz/eufy-security-cli
 
-A command-line interface for Eufy Security camera control and streaming. Stream live video directly from your Eufy cameras to media players like ffplay, VLC, and MPV.
+> **Command-line interface for Eufy Security cameras**
 
-## Why This Package Exists
+Stream live video from your Eufy cameras directly to media players. Control devices, check status, and manage your Eufy security system from the terminal.
 
-Modern Node.js versions don't support the deprecated security encryption used by Eufy cameras. This CLI connects to an external `eufy-security-ws` server that handles the legacy encryption, providing a clean interface for streaming camera feeds.
+## 🎯 Quick Start
 
-## Installation
+### Prerequisites
+
+1. **Node.js ≥18.0.0** - Modern Node.js runtime
+2. **eufy-security-ws Server** - Running instance ([setup guide](https://github.com/bropat/eufy-security-ws))
+3. **Media Player** - ffplay, VLC, or MPV for viewing streams
+
+### Installation
 
 ```bash
-npm install -g @scrypted/eufy-security-cli
+npm install -g @caplaz/eufy-security-cli
 ```
 
-## Requirements
+### Quick Example
 
-- Node.js 18.0.0 or higher
-- A running `eufy-security-ws` server instance
-- Media player (ffplay, VLC, MPV, etc.) for viewing streams
+```bash
+# Check server status
+eufy-security-cli driver status --ws-host 192.168.1.100:3000
 
-## Quick Start
+# List your cameras
+eufy-security-cli device list --ws-host 192.168.1.100:3000
 
-1. **Check driver status:**
+# Start streaming
+eufy-security-cli device stream --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789
 
-   ```bash
-   eufy-security-cli driver status --ws-host 192.168.1.100:3000
-   ```
+# In another terminal, connect with ffplay
+ffplay tcp://localhost:45123
+```
 
-2. **List available devices:**
+---
 
-   ```bash
-   eufy-security-cli device list --ws-host 192.168.1.100:3000
-   ```
+## 💡 Why This CLI
 
-3. **Start streaming:**
+Modern Node.js versions don't support the deprecated encryption used by Eufy cameras. This CLI connects to an external `eufy-security-ws` server that handles the legacy protocol, giving you a simple command-line interface for your cameras.
 
-   ```bash
-   eufy-security-cli device stream --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789
-   ```
+### Benefits
 
-4. **Connect with a media player:**
-   ```bash
-   # The CLI will show the actual port, e.g., "TCP Server: localhost:45123"
-   ffplay tcp://localhost:45123
-   ```
+- ✅ **Easy to Use** - Simple commands for common tasks
+- ✅ **Direct Streaming** - Stream to any media player via TCP
+- ✅ **Cross-Platform** - Works on Linux, macOS, and Windows
+- ✅ **Scriptable** - Perfect for automation and scripts
+- ✅ **No GUI Required** - Great for headless servers
 
-## Commands
+---
 
-### `driver status`
+## 📋 Commands
 
-Check the connection status of the Eufy Security WebSocket server.
+### `driver` Commands
+
+Manage the connection to eufy-security-ws server.
+
+#### `driver status`
+
+Check server connection and authentication status.
 
 ```bash
 eufy-security-cli driver status --ws-host <host>
 ```
 
 **Options:**
-
-- `--ws-host, -w <host>` - WebSocket server host (required)
-- `--verbose, -v` - Enable verbose logging
+- `--ws-host, -w <host>` - WebSocket server (e.g., `localhost:3000` or `192.168.1.100:3000`)
+- `--verbose, -v` - Enable detailed logging
 - `--help, -h` - Show help
 
 **Example:**
-
 ```bash
 eufy-security-cli driver status --ws-host 192.168.1.100:3000
 ```
 
-### `driver connect`
+**Output:**
+```
+✅ Connected to eufy-security-ws
+📡 Server: ws://192.168.1.100:3000
+🔐 Authenticated: Yes
+📊 API Version: 1.7.1
+```
 
-Connect to the Eufy Security WebSocket server and verify authentication.
+#### `driver connect`
+
+Test connection and verify authentication.
 
 ```bash
 eufy-security-cli driver connect --ws-host <host>
 ```
 
 **Options:**
-
-- `--ws-host, -w <host>` - WebSocket server host (required)
-- `--verbose, -v` - Enable verbose logging
+- `--ws-host, -w <host>` - WebSocket server
+- `--verbose, -v` - Enable detailed logging
 - `--help, -h` - Show help
 
 **Example:**
-
 ```bash
 eufy-security-cli driver connect --ws-host 192.168.1.100:3000
 ```
 
-### `device list`
+---
 
-List all available camera devices from your Eufy account.
+### `device` Commands
+
+Interact with your Eufy devices.
+
+#### `device list`
+
+List all devices in your Eufy account.
 
 ```bash
 eufy-security-cli device list --ws-host <host>
 ```
 
 **Options:**
-
-- `--ws-host, -w <host>` - WebSocket server host (required)
-- `--verbose, -v` - Enable verbose logging
+- `--ws-host, -w <host>` - WebSocket server (required)
+- `--verbose, -v` - Enable detailed logging
 - `--help, -h` - Show help
 
 **Example:**
-
 ```bash
 eufy-security-cli device list --ws-host 192.168.1.100:3000
 ```
 
 **Output:**
-
 ```
-📋 Available Eufy Security Devices
-================================================================================
+📹 Found 3 cameras:
 
-📱 Cameras (2):
-----------------------------------------
-1. Front Door Camera
-   Serial: T8210N20123456789
-   Model: T8210
-   Station: T8010P20123456789
-   Hardware: 1.0.0.1
-   Software: 2.1.7.9
-
-2. Backyard Camera
-   Serial: T8410P20987654321
-   Model: T8410P
-   Station: T8010P20123456789
-   Hardware: 1.0.0.2
-   Software: 2.1.7.9
-
-📊 Total: 2 device(s) found
+┌──────────────────┬──────────────────┬───────────────┬────────┐
+│ Name             │ Serial           │ Model         │ Online │
+├──────────────────┼──────────────────┼───────────────┼────────┤
+│ Front Door       │ T8210N2012345678 │ T8210         │ ✅ Yes │
+│ Backyard         │ T8210N2087654321 │ T8210         │ ✅ Yes │
+│ Garage           │ T8410P2011111111 │ T8410P20      │ ❌ No  │
+└──────────────────┴──────────────────┴───────────────┴────────┘
 ```
 
-### `device info`
+#### `device stream`
 
-Show detailed information about a specific device.
+Start streaming from a camera.
 
 ```bash
-eufy-security-cli device info --ws-host <host> --camera-serial <serial>
+eufy-security-cli device stream --ws-host <host> --camera-serial <serial>
 ```
 
 **Options:**
-
-- `--ws-host, -w <host>` - WebSocket server host (required)
+- `--ws-host, -w <host>` - WebSocket server (required)
 - `--camera-serial, -c <serial>` - Camera serial number (required)
-- `--verbose, -v` - Enable verbose logging
+- `--tcp-port, -p <port>` - TCP server port (default: random)
+- `--verbose, -v` - Enable detailed logging
 - `--help, -h` - Show help
 
 **Example:**
-
 ```bash
-eufy-security-cli device info --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789
+eufy-security-cli device stream \
+  --ws-host 192.168.1.100:3000 \
+  --camera-serial T8210N2012345678 \
+  --tcp-port 8080
 ```
 
-### `device stream`
+**Output:**
+```
+🎥 Starting stream from: Front Door (T8210N2012345678)
+📡 TCP Server: localhost:8080
 
-Start streaming from a camera device to a TCP server that media players can connect to.
+✅ Stream started!
+   Connect with: ffplay tcp://localhost:8080
+              or: vlc tcp://localhost:8080
+              or: mpv tcp://localhost:8080
 
-```bash
-eufy-security-cli device stream --ws-host <host> --camera-serial <serial> [options]
+📊 Stats:
+   Frames: 1234
+   Data: 15.3 MB
+   Clients: 1
+
+Press Ctrl+C to stop...
 ```
 
-**Options:**
+---
 
-- `--ws-host, -w <host>` - WebSocket server host (required)
-- `--camera-serial, -c <serial>` - Camera serial number (required)
-- `--port, -p <port>` - TCP server port (default: random available port)
-- `--verbose, -v` - Enable verbose logging
-- `--help, -h` - Show help
+## 🎬 Streaming Workflows
 
-**Examples:**
+### Basic Streaming
 
 ```bash
-# Basic streaming
-eufy-security-cli device stream --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789
-
-# Stream with specific port
-eufy-security-cli device stream -w 192.168.1.100:3000 -c T8210N20123456789 -p 8080
-
-# Stream with verbose logging
-eufy-security-cli device stream -w 192.168.1.100:3000 -c T8210N20123456789 -v
-```
-
-### `device monitor`
-
-Monitor camera connection status and streaming health.
-
-```bash
-eufy-security-cli device monitor --ws-host <host> --camera-serial <serial>
-```
-
-**Options:**
-
-- `--ws-host, -w <host>` - WebSocket server host (required)
-- `--camera-serial, -c <serial>` - Camera serial number (required)
-- `--verbose, -v` - Enable verbose logging
-- `--help, -h` - Show help
-
-## Output Formats
-
-The CLI supports streaming raw H.264 video data over TCP. This is optimized for low-latency live streaming applications.
-
-## Media Player Integration
-
-### ffplay (Recommended)
-
-**Basic usage:**
-
-```bash
-ffplay tcp://localhost:<port>
-```
-
-**Optimized for live streaming:**
-
-```bash
-ffplay -fflags nobuffer -flags low_delay tcp://localhost:<port>
-```
-
-### VLC Media Player
-
-```bash
-vlc tcp://localhost:<port>
-```
-
-Or through VLC GUI:
-
-1. Open VLC
-2. Media → Open Network Stream
-3. Enter: `tcp://localhost:<port>`
-4. Click Play
-
-### MPV
-
-```bash
-mpv tcp://localhost:<port>
-```
-
-### Custom Applications
-
-The CLI provides a standard TCP server that any application can connect to:
-
-```python
-# Python example
-import socket
-
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sock.connect(('localhost', port))
-
-while True:
-    data = sock.recv(4096)
-    if not data:
-        break
-    # Process H.264 data
-    process_video_data(data)
-```
-
-## Stream Lifecycle
-
-1. **Startup:** CLI connects to WebSocket server and discovers the camera
-2. **TCP Server:** Starts and waits for media player connections
-3. **Auto-Start:** When a player connects, camera streaming begins automatically
-4. **Multi-Client:** Multiple players can connect to the same stream
-5. **Auto-Stop:** Stream stops 30 seconds after the last player disconnects
-6. **Cleanup:** Resources are cleaned up when CLI is terminated
-
-## Advanced Usage
-
-### Environment Variables
-
-Set default values using environment variables:
-
-```bash
-export EUFY_WS_HOST=192.168.1.100:3000
-export EUFY_CAMERA_SERIAL=T8210N20123456789
-
-# Now you can use shorter commands
-eufy-security-cli stream
-```
-
-### Scripting and Automation
-
-**Automated recording script:**
-
-```bash
-#!/bin/bash
-CAMERA_SERIAL="T8210N20123456789"
-WS_HOST="192.168.1.100:3000"
-DURATION=300  # 5 minutes
-
-# Start streaming in background
-eufy-security-cli device stream -w $WS_HOST -c $CAMERA_SERIAL -p 8080 &
-CLI_PID=$!
-
-# Wait for server to start
-sleep 3
-
-# Record for specified duration
-timeout $DURATION ffmpeg -i tcp://localhost:8080 -c copy recording_$(date +%Y%m%d_%H%M%S).h264
-
-# Stop the CLI
-kill $CLI_PID
-```
-
-**Health monitoring script:**
-
-```bash
-#!/bin/bash
-while true; do
-    eufy-security-cli device monitor -w 192.168.1.100:3000 -c T8210N20123456789
-    if [ $? -ne 0 ]; then
-        echo "Camera connection failed, retrying in 30 seconds..."
-        sleep 30
-    else
-        break
-    fi
-done
-```
-
-### Multiple Camera Streaming
-
-Stream from multiple cameras simultaneously:
-
-```bash
-# Terminal 1
-eufy-security-cli device stream -w 192.168.1.100:3000 -c CAMERA1_SERIAL -p 8081
-
-# Terminal 2
-eufy-security-cli device stream -w 192.168.1.100:3000 -c CAMERA2_SERIAL -p 8082
-
-# Terminal 3
-eufy-security-cli device stream -w 192.168.1.100:3000 -c CAMERA3_SERIAL -p 8083
-```
-
-Then connect media players to each port:
-
-```bash
-ffplay tcp://localhost:8081  # Camera 1
-ffplay tcp://localhost:8082  # Camera 2
-ffplay tcp://localhost:8083  # Camera 3
-```
-
-## Troubleshooting
-
-### Connection Issues
-
-**Problem:** `❌ Failed to connect to WebSocket server`
-
-**Solutions:**
-
-1. Verify the server is running:
-
-   ```bash
-   curl -I http://192.168.1.100:3000
-   ```
-
-2. Check the WebSocket URL format:
-
-   ```bash
-   # Correct formats:
-   eufy-security-cli list-devices -w 192.168.1.100:3000
-   eufy-security-cli list-devices -w ws://192.168.1.100:3000
-   ```
-
-3. Test network connectivity:
-   ```bash
-   ping 192.168.1.100
-   telnet 192.168.1.100 3000
-   ```
-
-**Problem:** `❌ Timeout waiting for client to be ready`
-
-**Solutions:**
-
-1. Check server logs for authentication issues
-2. Verify Eufy account credentials in server configuration
-3. Ensure server has internet access to reach Eufy's servers
-
-### Device Issues
-
-**Problem:** `❌ Camera device not found`
-
-**Solutions:**
-
-1. List available devices to verify serial number:
-
-   ```bash
-   eufy-security-cli device list -w 192.168.1.100:3000
-   ```
-
-2. Check serial number format (should be 10-20 alphanumeric characters)
-3. Ensure device is online in the Eufy app
-
-**Problem:** `❌ No devices found on the server`
-
-**Solutions:**
-
-1. Check server configuration and Eufy account credentials
-2. Verify devices are properly set up in the Eufy Security app
-3. Check server logs for connection issues with Eufy services
-
-### Streaming Issues
-
-**Problem:** `❌ Port already in use`
-
-**Solutions:**
-
-1. Use a different port:
-
-   ```bash
-   eufy-security-cli device stream -w 192.168.1.100:3000 -c SERIAL -p 8081
-   ```
-
-2. Use automatic port assignment:
-
-   ```bash
-   eufy-security-cli device stream -w 192.168.1.100:3000 -c SERIAL -p 0
-   ```
-
-3. Find and stop the process using the port:
-   ```bash
-   lsof -ti:8080 | xargs kill
-   ```
-
-**Problem:** Media player can't connect or shows no video
-
-**Solutions:**
-
-1. Verify the TCP server is running (check CLI output for port number)
-2. Try different media player commands:
-
-   ```bash
-   # Basic
-   ffplay tcp://localhost:<port>
-
-   # With buffering disabled
-   ffplay -fflags nobuffer -flags low_delay tcp://localhost:<port>
-   ```
-
-3. Check firewall settings (ensure localhost connections are allowed)
-
-### Performance Issues
-
-**Problem:** High CPU usage or memory consumption
-
-**Solutions:**
-
-1. Limit concurrent connections by using specific ports
-2. Monitor with verbose logging to identify bottlenecks:
-   ```bash
-   eufy-security-cli device stream -w HOST -c SERIAL -v
-   ```
-
-**Problem:** Stream lag or buffering
-
-**Solutions:**
-
-1. Use optimized ffplay settings:
-
-   ```bash
-   ffplay -fflags nobuffer -flags low_delay -framedrop tcp://localhost:<port>
-   ```
-
-2. Check network connectivity between CLI and server
-3. Ensure sufficient bandwidth for video streaming
-
-### Debug Mode
-
-Enable verbose logging for detailed troubleshooting:
-
-```bash
-eufy-security-cli device stream -w 192.168.1.100:3000 -c T8210N20123456789 -v
-```
-
-This will show:
-
-- WebSocket connection details
-- Device discovery process
-- TCP server startup
-- Video codec detection
-- Stream data flow
-- Error details and stack traces
-
-## Examples
-
-### Basic Device Discovery
-
-```bash
-# List all devices
-eufy-security-cli device list --ws-host 192.168.1.100:3000
-
-# Get detailed info about a specific device
-eufy-security-cli device info --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789
-```
-
-### Simple Streaming
-
-```bash
-# Start streaming (system assigns port)
-eufy-security-cli device stream --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789
-
-# Connect with ffplay (use the port shown in CLI output)
+# Terminal 1: Start the stream
+eufy-security-cli device stream \
+  --ws-host 192.168.1.100:3000 \
+  --camera-serial T8210N2012345678
+
+# Terminal 2: View with ffplay
 ffplay tcp://localhost:45123
 ```
 
-### Advanced Streaming
+### Record to File
 
 ```bash
-# Stream with specific port
-eufy-security-cli device stream -w 192.168.1.100:3000 -c T8210N20123456789 -p 8080
+# Terminal 1: Start the stream
+eufy-security-cli device stream \
+  --ws-host 192.168.1.100:3000 \
+  --camera-serial T8210N2012345678 \
+  --tcp-port 8080
 
-# Connect with optimized ffplay settings
-ffplay -fflags nobuffer -flags low_delay tcp://localhost:8080
+# Terminal 2: Record with ffmpeg
+ffmpeg -i tcp://localhost:8080 \
+  -c copy \
+  -t 60 \
+  recording.mp4
 ```
 
-### Recording to File
+### View with VLC
 
 ```bash
-# Start streaming
-eufy-security-cli device stream -w 192.168.1.100:3000 -c T8210N20123456789 -p 8080 &
+# Terminal 1: Start the stream
+eufy-security-cli device stream \
+  --ws-host 192.168.1.100:3000 \
+  --camera-serial T8210N2012345678 \
+  --tcp-port 8080
 
-# Record for 5 minutes
-timeout 300 ffmpeg -i tcp://localhost:8080 -c copy recording.h264
-
-# Stop streaming
-pkill -f eufy-security
+# Terminal 2: Open in VLC
+vlc tcp://localhost:8080
 ```
 
-### Multiple Camera Setup
+### View with MPV
 
 ```bash
-# Create a script to start multiple streams
-cat > start_cameras.sh << 'EOF'
+# Terminal 1: Start the stream
+eufy-security-cli device stream \
+  --ws-host 192.168.1.100:3000 \
+  --camera-serial T8210N2012345678 \
+  --tcp-port 8080
+
+# Terminal 2: Open in MPV
+mpv tcp://localhost:8080 --profile=low-latency
+```
+
+---
+
+## 🔍 Troubleshooting
+
+### Connection Issues
+
+**Problem**: Cannot connect to eufy-security-ws
+
+**Solutions**:
+
+1. ✅ Verify server is running: `docker ps` or `systemctl status eufy-security-ws`
+2. ✅ Check hostname/IP is correct
+3. ✅ Test with curl: `curl http://192.168.1.100:3000/health`
+4. ✅ Check firewall rules
+5. ✅ Try with `--verbose` flag for detailed logs
+
+### No Devices Found
+
+**Problem**: `device list` shows no devices
+
+**Solutions**:
+
+1. ✅ Verify eufy-security-ws has valid credentials
+2. ✅ Check server logs: `docker logs eufy-security-ws`
+3. ✅ Ensure devices are online in Eufy app
+4. ✅ Wait 30 seconds after server start for initialization
+5. ✅ Try reconnecting: `driver connect`
+
+### Stream Not Starting
+
+**Problem**: Stream command fails or hangs
+
+**Solutions**:
+
+1. ✅ Verify camera serial number is correct (use `device list`)
+2. ✅ Check camera is online
+3. ✅ Ensure camera supports streaming (not all sensors do)
+4. ✅ Check eufy-security-ws logs for errors
+5. ✅ Try a different TCP port with `--tcp-port`
+
+### Media Player Issues
+
+**Problem**: ffplay/VLC won't connect
+
+**Solutions**:
+
+1. ✅ Wait for "Stream started!" message before connecting
+2. ✅ Use the exact URL shown in CLI output
+3. ✅ Try different player: ffplay, VLC, or MPV
+4. ✅ Check TCP port isn't blocked by firewall
+5. ✅ Use explicit port with `--tcp-port 8080`
+
+---
+
+## 🎛️ Advanced Usage
+
+### Custom Configuration
+
+Create a config file to avoid repeating options:
+
+```bash
+# ~/.eufy-cli-config
+export EUFY_WS_HOST="192.168.1.100:3000"
+export EUFY_TCP_PORT="8080"
+```
+
+```bash
+# Load config
+source ~/.eufy-cli-config
+
+# Use without flags
+eufy-security-cli device list --ws-host $EUFY_WS_HOST
+```
+
+### Scripting
+
+```bash
 #!/bin/bash
-eufy-security-cli device stream -w 192.168.1.100:3000 -c FRONT_DOOR_SERIAL -p 8081 &
-eufy-security-cli device stream -w 192.168.1.100:3000 -c BACKYARD_SERIAL -p 8082 &
-eufy-security-cli device stream -w 192.168.1.100:3000 -c GARAGE_SERIAL -p 8083 &
-wait
-EOF
+# monitor-front-door.sh
 
-chmod +x start_cameras.sh
-./start_cameras.sh
+WS_HOST="192.168.1.100:3000"
+CAMERA="T8210N2012345678"
+OUTPUT_DIR="/recordings"
+
+# Start streaming in background
+eufy-security-cli device stream \
+  --ws-host "$WS_HOST" \
+  --camera-serial "$CAMERA" \
+  --tcp-port 8080 &
+
+STREAM_PID=$!
+
+# Wait for stream to start
+sleep 5
+
+# Record for 1 hour
+ffmpeg -i tcp://localhost:8080 \
+  -c copy \
+  -t 3600 \
+  "$OUTPUT_DIR/front-door-$(date +%Y%m%d-%H%M%S).mp4"
+
+# Stop stream
+kill $STREAM_PID
 ```
 
-## Integration with Other Tools
-
-### Home Assistant
-
-Use the CLI in Home Assistant automations:
-
-```yaml
-# configuration.yaml
-shell_command:
-  start_front_door_stream: "eufy-security-cli device stream -w 192.168.1.100:3000 -c T8210N20123456789 -p 8080 &"
-  stop_front_door_stream: "pkill -f 'eufy-security.*T8210N20123456789'"
-
-camera:
-  - platform: ffmpeg
-    name: "Front Door Camera"
-    input: "tcp://localhost:8080"
-```
-
-### Docker
-
-Run the CLI in a Docker container:
-
-```dockerfile
-FROM node:18-alpine
-RUN npm install -g @scrypted/eufy-security-cli
-EXPOSE 8080
-CMD ["eufy-security-cli", "device", "stream", "--ws-host", "host.docker.internal:3000", "--camera-serial", "T8210N20123456789", "--port", "8080"]
-```
-
-### Systemd Service
-
-Create a systemd service for automatic startup:
-
-```ini
-# /etc/systemd/system/eufy-security.service
-[Unit]
-Description=Eufy Camera Stream
-After=network.target
-
-[Service]
-Type=simple
-User=eufy
-ExecStart=/usr/bin/eufy-security-cli device stream --ws-host 192.168.1.100:3000 --camera-serial T8210N20123456789 --port 8080
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start:
+### Multiple Cameras
 
 ```bash
-sudo systemctl enable eufy-security.service
-sudo systemctl start eufy-security.service
+#!/bin/bash
+# stream-all-cameras.sh
+
+# Get all camera serials
+CAMERAS=$(eufy-security-cli device list --ws-host 192.168.1.100:3000 | grep T8210 | awk '{print $2}')
+
+PORT=8080
+for SERIAL in $CAMERAS; do
+  echo "Starting stream for $SERIAL on port $PORT"
+  
+  eufy-security-cli device stream \
+    --ws-host 192.168.1.100:3000 \
+    --camera-serial "$SERIAL" \
+    --tcp-port $PORT &
+  
+  ((PORT++))
+  sleep 2
+done
+
+wait
 ```
 
-## API Reference
+---
 
-The CLI is built on top of the `@scrypted/eufy-security-client` library. For programmatic access, you can use the client library directly:
+## 📊 Command Reference
 
-```typescript
-import { EufySecurityClient } from "@scrypted/eufy-security-client";
+### Global Options
 
-const client = new EufySecurityClient({
-  wsUrl: "ws://192.168.1.100:3000",
-});
+Available for all commands:
 
-await client.connect();
-const devices = await client.getDevices();
-await client.startStream("T8210N20123456789");
-```
+| Option             | Short | Description                  |
+| ------------------ | ----- | ---------------------------- |
+| `--verbose`        | `-v`  | Enable verbose logging       |
+| `--help`           | `-h`  | Show command help            |
 
-## Contributing
+### Driver Commands
+
+| Command          | Description                     |
+| ---------------- | ------------------------------- |
+| `driver status`  | Check server status             |
+| `driver connect` | Test connection                 |
+
+### Device Commands
+
+| Command         | Description                      |
+| --------------- | -------------------------------- |
+| `device list`   | List all devices                 |
+| `device stream` | Start streaming from camera      |
+
+---
+
+## 🤝 Related Packages
+
+- **[@caplaz/eufy-security-client](../eufy-security-client)** - TypeScript client library
+- **[@caplaz/eufy-stream-server](../eufy-stream-server)** - TCP streaming server
+- **[@caplaz/eufy-security-scrypted](../eufy-security-scrypted)** - Scrypted plugin
+
+---
+
+## 📄 License
+
+MIT License - See [LICENSE](../../LICENSE) file for details
+
+---
+
+## 🙏 Credits
+
+Built on top of:
+
+- [eufy-security-ws](https://github.com/bropat/eufy-security-ws) by @bropat
+- [@caplaz/eufy-security-client](../eufy-security-client) - WebSocket client library
+
+---
+
+## 🎉 Contributing
+
+Contributions welcome! Please:
 
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Run the test suite: `npm test`
-6. Submit a pull request
+3. Add tests for new features
+4. Ensure tests pass: `npm test`
+5. Submit a pull request
 
-## License
+---
 
-MIT License - see LICENSE file for details.
-
-## Related Packages
-
-- `@scrypted/eufy-security-client` - WebSocket client library (used internally)
-- `@scrypted/eufy-security-scrypted` - Scrypted plugin integration
-- `@scrypted/eufy-stream-server` - TCP streaming server (used internally)
-- `@scrypted/eufy-stream-testing-validation` - Testing and validation utilities
+**Made with ❤️ for the Eufy community**

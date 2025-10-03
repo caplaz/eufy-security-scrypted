@@ -1,27 +1,23 @@
 # @caplaz/eufy-security-client
 
-A TypeScript WebSocket client for Eufy security devices via the `eufy-security-ws` server. Provides type-safe commands, event handling, and streaming for Eufy cameras and doorbells.
+> **TypeScript WebSocket client for Eufy security devices**
 
-## Why This Package
+Connect to Eufy cameras, doorbells, and security systems through the `eufy-security-ws` server. Provides type-safe commands, real-time events, and video streaming capabilities.
 
-Modern Node.js versions (≥18.19.1) **cannot directly communicate with Eufy security devices** due to deprecated cryptographic protocols that have been removed for security reasons. This package solves the problem by connecting to an external `eufy-security-ws` server that handles the legacy encryption.
+## 🎯 Quick Start
 
-**📖 For a detailed explanation**, see **[WHY_THIS_PACKAGE](./WHY_THIS_PACKAGE.md)** which covers:
+### Prerequisites
 
-- Node.js compatibility matrix and technical details
-- Architecture benefits and design principles
-- Server setup options (Docker, local)
-- Performance benchmarks and platform-specific notes
+1. **Node.js ≥18.0.0** - Modern Node.js runtime
+2. **eufy-security-ws Server** - Running instance ([setup guide](https://github.com/bropat/eufy-security-ws))
 
-## Installation
+### Installation
 
 ```bash
 npm install @caplaz/eufy-security-client
 ```
 
-**Requirements:** Node.js ≥18.0.0, running `eufy-security-ws` server
-
-## Quick Start
+### Basic Example
 
 ```typescript
 import { EufySecurityClient } from "@caplaz/eufy-security-client";
@@ -36,6 +32,7 @@ try {
 
   // Get devices
   const devices = await client.getDevices();
+  console.log(`Found ${devices.length} devices`);
 
   // Start streaming
   await client.startStream("T8210N20123456789");
@@ -53,278 +50,516 @@ try {
 }
 ```
 
-## Core API
+---
 
-### EufySecurityClient
+## 💡 Why This Package
 
-High-level client for device management and streaming.
+Modern Node.js versions (≥18.19.1) **cannot directly communicate with Eufy security devices** due to deprecated cryptographic protocols that have been removed for security reasons.
 
-**Constructor**
+### The Solution
+
+This package solves the problem by connecting to an external `eufy-security-ws` server that handles the legacy encryption, while providing a clean, modern TypeScript API.
+
+```
+Your App → @caplaz/eufy-security-client → eufy-security-ws → Eufy Cloud/Devices
+```
+
+### Benefits
+
+- ✅ **Type-Safe** - Full TypeScript support with comprehensive types
+- ✅ **Event-Driven** - Real-time device events and streaming
+- ✅ **Modern API** - Clean async/await interface
+- ✅ **Well-Tested** - 80%+ test coverage
+- ✅ **Production Ready** - Used in Scrypted plugin
+
+**📖 For detailed technical information**, see **[WHY_THIS_PACKAGE.md](./WHY_THIS_PACKAGE.md)**
+
+---
+
+## 🔌 Connection Management
+
+### Connecting
 
 ```typescript
 const client = new EufySecurityClient({
   wsUrl: "ws://localhost:3000",     // Required: WebSocket server URL
   logger?: Logger<ILogObj>           // Optional: Custom tslog logger
 });
+
+await client.connect();
 ```
 
-**Methods**
-
-| Method                | Description                                |
-| --------------------- | ------------------------------------------ |
-| `connect()`           | Connect to WebSocket server and initialize |
-| `disconnect()`        | Close connection and cleanup resources     |
-| `isConnected()`       | Check if client is ready for operations    |
-| `getDevices()`        | Get all devices from Eufy account          |
-| `startStream(serial)` | Start livestreaming from device            |
-| `stopStream(serial)`  | Stop livestreaming from device             |
-
-**Events**
+### Connection Events
 
 ```typescript
-client.on("streamStarted", (event) => {
-  // Stream began: { serialNumber, timestamp }
+client.on("connected", () => {
+  console.log("Connected to eufy-security-ws");
 });
+
+client.on("disconnected", () => {
+  console.log("Disconnected from server");
+});
+
+client.on("error", (error) => {
+  console.error("Connection error:", error);
+});
+```
+
+### Connection States
+
+| State          | Description                           |
+| -------------- | ------------------------------------- |
+| `disconnected` | Not connected to server               |
+| `connecting`   | Establishing WebSocket connection     |
+| `connected`    | WebSocket connected                   |
+| `negotiating`  | Negotiating API schema                |
+| `ready`        | Fully initialized and ready           |
+
+### Checking Status
+
+```typescript
+if (client.isConnected()) {
+  console.log("Client is ready for operations");
+}
+
+const state = client.getConnectionState();
+console.log(`Current state: ${state}`);
+```
+
+---
+
+## 📹 Device Management
+
+### Getting Devices
+
+```typescript
+// Get all devices
+const devices = await client.getDevices();
+
+devices.forEach(device => {
+  console.log(`${device.name} (${device.serial_number})`);
+  console.log(`  Type: ${device.type}`);
+  console.log(`  Model: ${device.model}`);
+  console.log(`  Online: ${device.state === 1 ? "Yes" : "No"}`);
+});
+```
+
+### Device Information
+
+Each device object includes:
+
+```typescript
+interface Device {
+  serial_number: string;        // Unique device identifier
+  name: string;                 // User-friendly name
+  model: string;                // Device model
+  type: number;                 // Device type code
+  station_serial_number: string;// Parent station serial
+  state: number;                // Online status (1 = online)
+  // ... additional properties
+}
+```
+
+### Getting Stations
+
+```typescript
+// Get all base stations
+const stations = await client.getStations();
+
+stations.forEach(station => {
+  console.log(`${station.name} (${station.serial_number})`);
+  console.log(`  Model: ${station.model}`);
+  console.log(`  Guard Mode: ${station.guard_mode}`);
+});
+```
+
+---
+
+## 🎥 Video Streaming
+
+### Starting a Stream
+
+```typescript
+// Start livestream from a camera
+await client.startStream("T8210N20123456789");
+
+client.on("streamStarted", (event) => {
+  console.log(`Stream started: ${event.serialNumber}`);
+});
+```
+
+### Handling Stream Data
+
+```typescript
+client.on("streamData", (data) => {
+  console.log(`Received ${data.type} data`);
+  console.log(`  Device: ${data.deviceSerial}`);
+  console.log(`  Size: ${data.buffer.length} bytes`);
+  
+  if (data.metadata) {
+    console.log(`  Metadata:`, data.metadata);
+  }
+  
+  // Process the video/audio buffer
+  processStreamData(data.buffer, data.type);
+});
+```
+
+### Stream Data Types
+
+```typescript
+interface StreamData {
+  type: "video" | "audio";      // Data type
+  buffer: Buffer;               // Raw stream data
+  deviceSerial: string;         // Source device
+  metadata?: {                  // Optional metadata
+    videoWidth?: number;
+    videoHeight?: number;
+    videoFPS?: number;
+    // ... codec info
+  };
+}
+```
+
+### Stopping a Stream
+
+```typescript
+await client.stopStream("T8210N20123456789");
 
 client.on("streamStopped", (event) => {
-  // Stream ended: { serialNumber, timestamp }
-});
-
-client.on("streamData", (data) => {
-  // Video/audio data received
-  // { type: "video"|"audio", buffer: Buffer, deviceSerial: string, metadata?: {...} }
+  console.log(`Stream stopped: ${event.serialNumber}`);
 });
 ```
 
-**Device Info**
+---
+
+## 🎬 Complete Streaming Example
 
 ```typescript
-interface DeviceInfo {
-  name: string; // Human-readable name
-  serialNumber: string; // Unique identifier
-  type: string; // "Camera", "Doorbell", etc.
-  stationSerial?: string; // Associated station
-  model?: string; // Device model
-  hardwareVersion?: string; // Hardware version
-  softwareVersion?: string; // Firmware version
-}
-```
+import { EufySecurityClient } from "@caplaz/eufy-security-client";
+import fs from "fs";
 
-## Advanced Usage
+async function streamCamera(serialNumber: string, duration: number) {
+  const client = new EufySecurityClient({
+    wsUrl: "ws://localhost:3000",
+  });
 
-### Enhanced Command API
+  const videoFile = fs.createWriteStream("output.h264");
+  const audioFile = fs.createWriteStream("output.aac");
 
-Use fluent command builders for type-safe operations:
+  try {
+    // Connect
+    await client.connect();
+    console.log("✅ Connected to server");
 
-```typescript
-// Device commands
-await client.commands.device("T8210N20123456789").getProperties();
-await client.commands.device("T8210N20123456789").startLivestream();
-await client.commands.device("T8210N20123456789").setProperty("enabled", true);
+    // Get device info
+    const devices = await client.getDevices();
+    const camera = devices.find(d => d.serial_number === serialNumber);
+    console.log(`📹 Found camera: ${camera?.name}`);
 
-// Station commands
-await client.commands.station("STATION_001").getProperties();
-await client.commands.station("STATION_001").reboot();
+    // Handle stream data
+    client.on("streamData", (data) => {
+      if (data.type === "video") {
+        videoFile.write(data.buffer);
+      } else if (data.type === "audio") {
+        audioFile.write(data.buffer);
+      }
+    });
 
-// Driver commands
-await client.commands.driver().connect();
-await client.commands.driver().isConnected();
+    // Start streaming
+    await client.startStream(serialNumber);
+    console.log("🎥 Streaming started...");
 
-// Server commands
-await client.commands.server().startListening();
-```
+    // Stream for specified duration
+    await new Promise(resolve => setTimeout(resolve, duration));
 
-### Authentication Manager
+    // Stop streaming
+    await client.stopStream(serialNumber);
+    console.log("⏹️  Streaming stopped");
 
-Handle CAPTCHA and 2FA challenges:
-
-```typescript
-import {
-  AuthenticationManager,
-  AUTH_STATE,
-} from "@caplaz/eufy-security-client";
-
-const authManager = new AuthenticationManager(
-  apiManager,
-  logger,
-  () => updateUI(), // State change callback
-  async (result) => await loadDevices(result) // Device registration callback
-);
-
-// Check for authentication challenges
-await authManager.checkPendingAuth();
-
-// Handle CAPTCHA
-if (authManager.getAuthState() === AUTH_STATE.CAPTCHA_REQUIRED) {
-  const captcha = authManager.getCaptchaData();
-  console.log("CAPTCHA image:", captcha.captcha);
-
-  authManager.updateCaptchaCode(userInput);
-  await authManager.submitCaptcha();
+  } finally {
+    videoFile.close();
+    audioFile.close();
+    await client.disconnect();
+    console.log("👋 Disconnected");
+  }
 }
 
-// Handle 2FA
-if (authManager.getAuthState() === AUTH_STATE.MFA_REQUIRED) {
-  const mfa = authManager.getMfaData();
-  console.log("2FA methods:", mfa.methods);
-
-  authManager.updateVerifyCode(userCode);
-  await authManager.submitVerifyCode();
-}
-
-// Get user-friendly status
-const status = authManager.getAuthStatusMessage(isDriverConnected);
-// Returns: "✅ Authenticated" or "🔐 CAPTCHA required" etc.
+// Stream for 30 seconds
+streamCamera("T8210N20123456789", 30000);
 ```
 
-### Low-Level APIs
+---
 
-For advanced control, use the underlying components:
+## 🎛️ Device Commands
 
-**ApiManager** - Direct WebSocket API with full command control
+### Camera Commands
 
 ```typescript
-import { ApiManager } from "@caplaz/eufy-security-client";
+// Take snapshot
+await client.setCommandWithString("T8210N20123456789", "camera.snapshot");
 
-const api = new ApiManager("ws://localhost:3000", logger);
-await api.connect();
-await api.connectDriver();
-await api.startListening();
+// Enable/disable motion detection
+await client.setCommandWithBool("T8210N20123456789", "camera.motionDetection", true);
 
-// Type-safe commands
-const result = await api.sendCommand(DEVICE_COMMANDS.GET_PROPERTIES, {
-  serialNumber: "T8210N20123456789",
+// Control floodlight
+await client.setCommandWithBool("T8210N20123456789", "camera.light", true);
+```
+
+### Station Commands
+
+```typescript
+// Set guard mode
+await client.setCommandWithString("T8210N...", "station.guardMode", "away");
+
+// Reboot station
+await client.setCommandWithString("T8210N...", "station.reboot");
+```
+
+### PTZ Control
+
+```typescript
+// Pan camera
+await client.setCommandWithString("T8210N20123456789", "camera.panLeft");
+await client.setCommandWithString("T8210N20123456789", "camera.panRight");
+
+// Tilt camera
+await client.setCommandWithString("T8210N20123456789", "camera.tiltUp");
+await client.setCommandWithString("T8210N20123456789", "camera.tiltDown");
+```
+
+---
+
+## 📡 Real-Time Events
+
+### Property Changes
+
+```typescript
+client.on("propertyChanged", (event) => {
+  console.log(`Property changed: ${event.name}`);
+  console.log(`  Device: ${event.serialNumber}`);
+  console.log(`  New value: ${event.value}`);
+});
+```
+
+### Device Events
+
+```typescript
+client.on("deviceAdded", (device) => {
+  console.log(`New device: ${device.name}`);
 });
 
-// Event listeners with filters
-api.addEventListener(
-  "motion_detected",
-  (event) => {
-    console.log("Motion:", event);
-  },
-  { source: "device", serialNumber: "T8210N20123456789" }
-);
+client.on("deviceRemoved", (serialNumber) => {
+  console.log(`Device removed: ${serialNumber}`);
+});
 ```
 
-**WebSocketClient** - Raw WebSocket connection
+### Station Events
 
 ```typescript
-import {
-  WebSocketClient,
-  ClientStateManager,
-} from "@caplaz/eufy-security-client";
+client.on("stationGuardModeChanged", (event) => {
+  console.log(`Guard mode: ${event.guardMode}`);
+  console.log(`  Station: ${event.serialNumber}`);
+});
 
-const stateManager = new ClientStateManager(logger);
-const wsClient = new WebSocketClient(
-  "ws://localhost:3000",
-  stateManager,
-  logger
-);
-await wsClient.connect();
+client.on("stationAlarmEvent", (event) => {
+  console.log(`⚠️  ALARM: ${event.type}`);
+});
 ```
 
-## Configuration
+---
+
+## 🔍 Troubleshooting
+
+### Connection Issues
+
+**Problem**: Cannot connect to eufy-security-ws
+
+**Solutions**:
+
+1. ✅ Verify server is running: `docker ps` or check process
+2. ✅ Check URL is correct: `ws://localhost:3000` (not `http://`)
+3. ✅ Test server health: `curl http://localhost:3000/health`
+4. ✅ Check firewall settings
+5. ✅ Enable debug logging: `logger: new Logger({ minLevel: 2 })`
+
+### Streaming Issues
+
+**Problem**: Stream not starting or no data received
+
+**Solutions**:
+
+1. ✅ Verify device is online: Check `device.state === 1`
+2. ✅ Check device supports streaming: Some sensors don't stream
+3. ✅ Wait for `streamStarted` event before expecting data
+4. ✅ Check eufy-security-ws logs for errors
+5. ✅ Try restarting the stream: `stopStream()` then `startStream()`
+
+### Command Failures
+
+**Problem**: Device commands not working
+
+**Solutions**:
+
+1. ✅ Ensure client is connected: `isConnected()` returns `true`
+2. ✅ Check command name spelling and format
+3. ✅ Verify device supports the command (check device type)
+4. ✅ Check eufy-security-ws server version compatibility
+5. ✅ Review server logs for detailed error messages
+
+### Memory Leaks
+
+**Problem**: Memory usage growing over time
+
+**Solutions**:
+
+1. ✅ Always call `disconnect()` when done
+2. ✅ Remove event listeners when no longer needed
+3. ✅ Don't accumulate stream data in memory indefinitely
+4. ✅ Process stream chunks immediately or write to disk
+5. ✅ Use streaming libraries for large video files
+
+---
+
+## 🏗️ Architecture
+
+### Component Diagram
+
+```
+┌─────────────────┐
+│   Your App      │
+└────────┬────────┘
+         │ import
+         ▼
+┌─────────────────────────┐
+│ EufySecurityClient      │
+│ - connect()             │
+│ - getDevices()          │
+│ - startStream()         │
+└────────┬────────────────┘
+         │ WebSocket
+         ▼
+┌─────────────────────────┐
+│  eufy-security-ws       │
+│  - Handles legacy       │
+│    encryption           │
+│  - Device management    │
+└────────┬────────────────┘
+         │ HTTP/P2P
+         ▼
+┌─────────────────────────┐
+│  Eufy Cloud/Devices     │
+└─────────────────────────┘
+```
+
+### Key Components
+
+- **EufySecurityClient** - High-level API for device operations
+- **WebSocketClient** - Low-level WebSocket communication
+- **ApiManager** - Command execution and response handling
+- **Event System** - Real-time event processing
+
+---
+
+## 📊 API Reference
+
+### EufySecurityClient
+
+#### Constructor Options
+
+```typescript
+interface ClientOptions {
+  wsUrl: string;              // WebSocket server URL (required)
+  logger?: Logger<ILogObj>;   // Optional tslog logger
+}
+```
+
+#### Connection Methods
+
+| Method                         | Returns             | Description                     |
+| ------------------------------ | ------------------- | ------------------------------- |
+| `connect()`                    | `Promise<void>`     | Connect to WebSocket server     |
+| `disconnect()`                 | `Promise<void>`     | Disconnect and cleanup          |
+| `isConnected()`                | `boolean`           | Check if ready for operations   |
+| `getConnectionState()`         | `ConnectionState`   | Get current connection state    |
+
+#### Device Methods
+
+| Method                         | Returns             | Description                     |
+| ------------------------------ | ------------------- | ------------------------------- |
+| `getDevices()`                 | `Promise<Device[]>` | Get all devices                 |
+| `getStations()`                | `Promise<Station[]>`| Get all base stations           |
+| `getDevice(serial)`            | `Device \| null`    | Get device by serial number     |
+| `getStation(serial)`           | `Station \| null`   | Get station by serial number    |
+
+#### Streaming Methods
+
+| Method                         | Returns             | Description                     |
+| ------------------------------ | ------------------- | ------------------------------- |
+| `startStream(serial)`          | `Promise<void>`     | Start device livestream         |
+| `stopStream(serial)`           | `Promise<void>`     | Stop device livestream          |
+
+#### Command Methods
+
+| Method                                    | Description                    |
+| ----------------------------------------- | ------------------------------ |
+| `setCommandWithString(serial, cmd, val?)` | Execute string command         |
+| `setCommandWithNumber(serial, cmd, val)`  | Execute numeric command        |
+| `setCommandWithBool(serial, cmd, val)`    | Execute boolean command        |
+
+#### Events
+
+| Event                  | Payload                      | Description                |
+| ---------------------- | ---------------------------- | -------------------------- |
+| `connected`            | `void`                       | WebSocket connected        |
+| `disconnected`         | `void`                       | WebSocket disconnected     |
+| `ready`                | `void`                       | Client fully initialized   |
+| `error`                | `Error`                      | Connection error occurred  |
+| `streamStarted`        | `StreamEvent`                | Stream began               |
+| `streamStopped`        | `StreamEvent`                | Stream ended               |
+| `streamData`           | `StreamData`                 | Video/audio data received  |
+| `propertyChanged`      | `PropertyChangedEvent`       | Device property updated    |
+| `deviceAdded`          | `Device`                     | New device discovered      |
+| `deviceRemoved`        | `string`                     | Device removed             |
+| `stationGuardModeChanged` | `GuardModeEvent`          | Station guard mode changed |
+| `stationAlarmEvent`    | `AlarmEvent`                 | Alarm triggered            |
+
+---
+
+## 🧪 Testing
+
+This package has comprehensive test coverage (80%+):
+
+```bash
+# Run tests
+npm test
+
+# Run tests with coverage
+npm run test:coverage
+
+# Run specific test file
+npm test -- authentication-manager
+```
+
+### Test Categories
+
+- **Unit Tests** - Component isolation testing
+- **Integration Tests** - Full workflow testing
+- **Mock Server** - Simulated eufy-security-ws responses
+
+---
+
+## 📚 Advanced Usage
 
 ### Custom Logger
-
-```typescript
-import { EufySecurityClient } from "@caplaz/eufy-security-client";
-import { Logger } from "tslog";
-
-// Use tslog
-const logger = new Logger({ name: "EufyClient", minLevel: 3 });
-const client = new EufySecurityClient({
-  wsUrl: "ws://localhost:3000",
-  logger,
-});
-
-// Or implement custom logger interface
-const customLogger = {
-  info: (msg, ...args) => console.log(`[INFO] ${msg}`, ...args),
-  warn: (msg, ...args) => console.warn(`[WARN] ${msg}`, ...args),
-  error: (msg, ...args) => console.error(`[ERROR] ${msg}`, ...args),
-  debug: (msg, ...args) => console.debug(`[DEBUG] ${msg}`, ...args),
-};
-```
-
-### Error Handling
-
-```typescript
-import { EufySecurityClient } from "@caplaz/eufy-security-client";
-
-const client = new EufySecurityClient({ wsUrl: "ws://localhost:3000" });
-
-try {
-  await client.connect();
-} catch (error) {
-  if (error.message.includes("timeout")) {
-    console.error("Connection timeout - is server running?");
-  } else if (error.message.includes("Schema incompatibility")) {
-    console.error("Version mismatch - update client or server");
-  } else {
-    console.error("Connection failed:", error.message);
-  }
-  process.exit(1);
-}
-
-// Handle runtime errors
-client.on("error", (error) => {
-  console.error("Runtime error:", error);
-});
-
-// Always cleanup on exit
-process.on("SIGINT", async () => {
-  await client.disconnect();
-  process.exit(0);
-});
-```
-
-### Stream Processing
-
-```typescript
-import { createWriteStream } from "fs";
-
-const videoFile = createWriteStream("stream.h264");
-const audioFile = createWriteStream("stream.aac");
-
-client.on("streamData", (data) => {
-  const file = data.type === "video" ? videoFile : audioFile;
-  file.write(data.buffer);
-
-  // Log video metadata when available
-  if (data.type === "video" && data.metadata) {
-    console.log(`Video: ${data.metadata.width}x${data.metadata.height}`);
-  }
-});
-
-// Cleanup on disconnect
-client.on("streamStopped", () => {
-  videoFile.end();
-  audioFile.end();
-});
-```
-
-## Troubleshooting
-
-| Problem                       | Solution                                                                                                                                |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| **Connection failed**         | • Check `eufy-security-ws` server is running<br>• Verify WebSocket URL (ws://host:port)<br>• Test with: `curl -I http://localhost:3000` |
-| **Timeout waiting for ready** | • Check server logs for auth issues<br>• Verify Eufy credentials in server config<br>• Ensure network connectivity to Eufy cloud        |
-| **Device not found**          | • List devices: `await client.getDevices()`<br>• Verify device serial number<br>• Check device is online in Eufy app                    |
-| **No stream data**            | • Set up listeners before starting stream<br>• Check `streamStarted` event fired<br>• Verify device supports streaming                  |
-| **High memory usage**         | • Process data immediately, don't buffer<br>• Always call `stopStream()` when done<br>• Call `disconnect()` to cleanup                  |
-| **Schema incompatibility**    | • Update client or server to matching version<br>• Check version compatibility                                                          |
-
-### Debug Logging
-
-Enable detailed logging to diagnose issues:
 
 ```typescript
 import { Logger } from "tslog";
 
 const logger = new Logger({
   name: "EufyClient",
-  minLevel: 0, // 0=silly, 1=trace, 2=debug, 3=info, 4=warn, 5=error
+  minLevel: 2, // 0=trace, 1=debug, 2=info
+  type: "pretty",
 });
 
 const client = new EufySecurityClient({
@@ -333,140 +568,79 @@ const client = new EufySecurityClient({
 });
 ```
 
-## Examples
-
-### List All Devices
+### Error Handling
 
 ```typescript
-import { EufySecurityClient } from "@caplaz/eufy-security-client";
-
-async function listDevices() {
-  const client = new EufySecurityClient({ wsUrl: "ws://localhost:3000" });
-
-  try {
-    await client.connect();
-    const devices = await client.getDevices();
-
-    console.log(`Found ${devices.length} devices:`);
-    devices.forEach((d, i) => {
-      console.log(`${i + 1}. ${d.name} (${d.type})`);
-      console.log(`   Serial: ${d.serialNumber}`);
-      console.log(`   Model: ${d.model} v${d.softwareVersion}`);
-    });
-  } finally {
-    await client.disconnect();
+try {
+  await client.connect();
+} catch (error) {
+  if (error.message.includes("ECONNREFUSED")) {
+    console.error("Server not running");
+  } else if (error.message.includes("timeout")) {
+    console.error("Connection timeout");
+  } else {
+    console.error("Unknown error:", error);
   }
 }
-
-listDevices();
 ```
 
-### Record Stream to File
+### Stream Processing Pipeline
 
 ```typescript
-import { EufySecurityClient } from "@caplaz/eufy-security-client";
-import { createWriteStream } from "fs";
+import { Transform } from "stream";
 
-async function recordStream(deviceSerial: string, durationMs: number) {
-  const client = new EufySecurityClient({ wsUrl: "ws://localhost:3000" });
-  const videoFile = createWriteStream(`${deviceSerial}.h264`);
-  const audioFile = createWriteStream(`${deviceSerial}.aac`);
-
-  try {
-    await client.connect();
-
-    // Write stream data to files
-    client.on("streamData", (data) => {
-      (data.type === "video" ? videoFile : audioFile).write(data.buffer);
-    });
-
-    // Start recording
-    await client.startStream(deviceSerial);
-    console.log(`Recording for ${durationMs / 1000}s...`);
-
-    // Stop after duration
-    await new Promise((resolve) => setTimeout(resolve, durationMs));
-    await client.stopStream(deviceSerial);
-
-    console.log("Recording complete");
-  } finally {
-    videoFile.end();
-    audioFile.end();
-    await client.disconnect();
+// Create processing pipeline
+const videoProcessor = new Transform({
+  transform(chunk, encoding, callback) {
+    // Process H.264 chunk
+    const processed = processH264(chunk);
+    callback(null, processed);
   }
-}
+});
 
-recordStream("T8210N20123456789", 30000);
-```
-
-### Monitor Multiple Devices
-
-```typescript
-import { EufySecurityClient } from "@caplaz/eufy-security-client";
-
-async function monitorDevices(serials: string[]) {
-  const client = new EufySecurityClient({ wsUrl: "ws://localhost:3000" });
-
-  try {
-    await client.connect();
-
-    // Set up event monitoring
-    client.on("streamStarted", (e) =>
-      console.log(`▶️  Stream started: ${e.serialNumber}`)
-    );
-
-    client.on("streamStopped", (e) =>
-      console.log(`⏹️  Stream stopped: ${e.serialNumber}`)
-    );
-
-    // Start all streams
-    await Promise.all(serials.map((s) => client.startStream(s)));
-
-    // Keep running...
-    await new Promise(() => {}); // Run indefinitely
-  } finally {
-    await client.disconnect();
+client.on("streamData", (data) => {
+  if (data.type === "video") {
+    videoProcessor.write(data.buffer);
   }
-}
+});
 
-monitorDevices(["T8210N20123456789", "T8210N20987654321"]);
+videoProcessor.pipe(outputStream);
 ```
 
-## Architecture
+---
 
-```
-EufySecurityClient (High-level API)
-    ↓
-ApiManager (Command execution & events)
-    ↓
-WebSocketClient (Connection & messaging)
-    ↓
-eufy-security-ws server (Legacy encryption handling)
-    ↓
-Eufy Cloud API
-```
+## 🤝 Related Packages
 
-## API Compatibility
+- **[@caplaz/eufy-security-scrypted](../eufy-security-scrypted)** - Scrypted plugin using this client
+- **[@caplaz/eufy-stream-server](../eufy-stream-server)** - TCP streaming server
+- **[@caplaz/eufy-security-cli](../eufy-security-cli)** - Command-line interface
 
-| Client Version | Server Schema | Status            |
-| -------------- | ------------- | ----------------- |
-| 0.1.x          | 13-21         | ✅ Supported      |
-| 0.1.x          | <13           | ❌ Not compatible |
+---
 
-## Contributing
+## 📄 License
+
+MIT License - See [LICENSE](../../LICENSE) file for details
+
+---
+
+## 🙏 Credits
+
+Built on top of:
+
+- [eufy-security-ws](https://github.com/bropat/eufy-security-ws) by @bropat
+
+---
+
+## 🎉 Contributing
+
+Contributions welcome! Please:
 
 1. Fork the repository
-2. Create feature branch: `git checkout -b feature/my-feature`
-3. Add tests: `npm test`
-4. Ensure coverage ≥80%: `npm run test:coverage`
-5. Submit pull request
+2. Create a feature branch
+3. Add tests for new features
+4. Ensure tests pass: `npm test`
+5. Submit a pull request
 
-## License
+---
 
-MIT License - see [LICENSE](LICENSE) file
-
-## Related Packages
-
-- [`@caplaz/eufy-security-cli`](../eufy-security-cli) - Command-line interface
-- [`@caplaz/eufy-security-scrypted`](../eufy-security-scrypted) - Scrypted plugin
-- [`@caplaz/eufy-stream-server`](../eufy-stream-server) - H.264/AAC streaming server
+**Made with ❤️ for the Eufy community**
