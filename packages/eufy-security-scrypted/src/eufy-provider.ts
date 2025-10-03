@@ -102,6 +102,10 @@ export class EufySecurityProvider
   // Connection in progress flag (true during initial startup or reconnection)
   private isConnecting = true;
 
+  // Track if we've already logged the ready state to avoid spam
+  private hasLoggedReady = false;
+  private isWaitingForReady = false;
+
   // Authentication manager (handles all auth logic)
   private authManager: AuthenticationManager;
 
@@ -753,6 +757,9 @@ export class EufySecurityProvider
    * @returns {Promise<void>}
    */
   private async startConnection(): Promise<void> {
+    // Reset ready flags when starting a new connection
+    this.hasLoggedReady = false;
+    this.isWaitingForReady = false;
     await this.wsClient.connect();
     await this.waitForClientReady();
 
@@ -855,15 +862,24 @@ export class EufySecurityProvider
     const checkInterval = 500; // Check every 500ms
     let waitTime = 0;
 
-    this.logger.info(
-      "⏳ Waiting for WebSocket client to be ready for API calls..."
-    );
+    // Only log if we haven't already logged AND we're not currently waiting
+    if (!this.hasLoggedReady && !this.isWaitingForReady) {
+      this.logger.info(
+        "⏳ Waiting for WebSocket client to be ready for API calls..."
+      );
+      this.isWaitingForReady = true;
+    }
 
     return new Promise<void>((resolve, reject) => {
       const checkReady = () => {
         // Check if client is ready for API calls - isConnected() calls stateManager.isReady()
         if (this.wsClient.isConnected()) {
-          this.logger.info("✅ WebSocket client ready for API calls");
+          // Only log once when transitioning to ready
+          if (!this.hasLoggedReady) {
+            this.logger.info("✅ WebSocket client ready for API calls");
+            this.hasLoggedReady = true;
+            this.isWaitingForReady = false;
+          }
           resolve();
         } else if (waitTime >= maxWaitTime) {
           const state = this.wsClient.getState();
