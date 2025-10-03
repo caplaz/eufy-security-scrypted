@@ -38,6 +38,11 @@ jobs:
         run: npm run test
 
       - name: Publish packages
-        run: npx lerna publish from-package --yes
+        run: |
+          # Publish all packages that have changes
+          npx lerna publish from-package --yes
+          # Ensure eufy-security-scrypted is always published on release
+          cd packages/eufy-security-scrypted
+          npm publish --tag latest
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
