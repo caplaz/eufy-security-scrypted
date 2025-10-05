@@ -9,130 +9,7 @@
 
 This monorepo contains the complete Eufy Security integration for Scrypted, consisting of multiple packages that work together to provide comprehensive home security automation.
 
-## Packages
-
-### 📦 [@caplaz/eufy-security-scrypted](packages/eufy-security-scrypted/)
-
-**Main Scrypted Plugin** - The primary plugin that integrates Eufy devices with Scrypted
-
-- Complete device support (cameras, doorbells, sensors, hubs)
-- Real-time video streaming with H.264 support
-- Motion detection and event notifications
-- Device control (pan/tilt, lighting, security systems)
-- HomeKit Secure Video compatibility
-- User-friendly authentication handling (CAPTCHA, 2FA)
-
-### 🔗 [@caplaz/eufy-security-client](packages/eufy-security-client/)
-
-**WebSocket Client Library** - Core client for communicating with Eufy cloud services
-
-- Robust WebSocket connection management
-- Automatic reconnection with exponential backoff
-- Message correlation and timeout handling
-- Authentication state management
-- Event-driven architecture
-
-### 🌐 [@caplaz/eufy-stream-server](packages/eufy-stream-server/)
-
-**Streaming Server** - Dedicated TCP server for raw H.264 video streams
-
-- High-performance H.264 stream handling
-- TCP connection management
-- Stream parsing and validation
-- Memory-efficient processing
-
-### 🖥️ [@caplaz/eufy-security-cli](packages/eufy-security-cli/)
-
-**Command Line Interface** - CLI tools for Eufy device management
-
-- Device discovery and control
-- Stream testing and diagnostics
-- Configuration management
-- Batch operations
-
-## Quick Start
-
-### 1. Install Scrypted Plugin
-
-```bash
-# In Scrypted web interface
-# Go to Plugins → Install from NPM
-# Search for: @caplaz/eufy-security-scrypted
-```
-
-### 2. Set up WebSocket Server
-
-```bash
-# Install the companion WebSocket server
-npm install -g @caplaz/eufy-security-ws
-
-# Configure with your Eufy credentials
-eufy-security-ws --email your-email@example.com --password your-password
-```
-
-### 3. Configure Plugin
-
-- Open Scrypted web interface
-- Configure WebSocket URL (default: `ws://localhost:3000`)
-- Complete Eufy authentication
-- Start using your devices!
-
-## Development
-
-This project uses [Lerna](https://lerna.js.org/) for monorepo management.
-
-### Prerequisites
-
-- Node.js 18+
-- npm or yarn
-
-### Setup
-
-```bash
-# Install dependencies
-npm install
-
-# Build all packages
-npm run build
-
-# Run tests
-npm run test
-
-# Lint code
-npm run lint
-```
-
-### Package Scripts
-
-```bash
-# Build all packages
-npm run build
-
-# Run tests across all packages
-npm run test
-
-# Lint all packages
-npm run lint
-
-# Clean all packages
-npm run clean
-```
-
-## Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-## License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/caplaz/eufy-security-scrypted/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/caplaz/eufy-security-scrypted/discussions)
-- **Scrypted Community**: [Scrypted Forums](https://forums.scrypted.app)
-
-A modern monorepo providing comprehensive Eufy Security camera integration through multiple complementary packages. Stream live video, control devices, and manage your security system with Scrypted's powerful automation platform.
+The monorepo includes four specialized packages: the main Scrypted plugin for device integration, a WebSocket client library for communication, a streaming server for video delivery, and a command-line interface for testing and automation.
 
 ## 🤔 Why This Plugin?
 
@@ -204,12 +81,21 @@ All notable changes to this project are documented in the **[CHANGELOG](CHANGELO
 
 ## 🎯 Quick Start
 
-### Prerequisites
+### For Users
+
+```bash
+# Install via Scrypted's plugin system
+# Search for "Eufy Security" in Scrypted plugins
+```
+
+### For Developers
+
+#### Prerequisites
 
 - **Scrypted Server** - Home automation platform ([get started](https://docs.scrypted.app/))
 - **Eufy Account** - Active Eufy Security subscription
 
-### Installation
+#### Installation
 
 ```bash
 # Clone the monorepo
@@ -223,7 +109,7 @@ npm install
 npm run build
 ```
 
-### Deploy to Scrypted
+#### Deploy to Scrypted
 
 ```bash
 # Open the Scrypted package in VS Code
@@ -344,41 +230,7 @@ Simplified TCP server optimized for raw H.264 video streaming. Handles the compl
 
 ---
 
-## 🚀 Installation & Setup
-
-### For Users (Scrypted Plugin)
-
-```bash
-# Install via Scrypted's plugin system
-# Search for "Eufy Security" in Scrypted plugins
-```
-
-### For Developers
-
-```bash
-# Clone and setup
-git clone https://github.com/caplaz/eufy-security-scrypted.git
-cd eufy-security-scrypted
-npm install
-npm run build
-
-# Run tests
-npm run test
-```
-
-### Docker Development
-
-```bash
-# Use the included Docker environment
-cd docker
-cp .env.example .env
-# Edit .env with your credentials
-docker-compose up -d
-```
-
----
-
-## 🛠️ Development
+## ️ Development
 
 ### Building
 
