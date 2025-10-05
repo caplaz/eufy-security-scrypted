@@ -1,17 +1,9 @@
-# Eufy Security Scrypted
-
-<p align="center">
-  <strong>Complete Eufy Security ecosystem for Scrypted home automation</strong>
-</p>
-
-<p align="center">
   <a href="https://github.com/caplaz/eufy-security-scrypted/actions/workflows/release.yml">
     <img src="https://github.com/caplaz/eufy-security-scrypted/actions/workflows/release.yml/badge.svg" alt="Release Status"/>
   </a>
   <a href="https://github.com/caplaz/eufy-security-scrypted/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/caplaz/eufy-security-scrypted.svg" alt="License"/>
   </a>
-</p>
 
 ## Overview
 
