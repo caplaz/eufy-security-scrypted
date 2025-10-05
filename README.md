@@ -1,23 +1,144 @@
-# Eufy Security Plugin for Scrypted
+# Eufy Security Scrypted
 
-[![CI](https://github.com/caplaz/eufy-security-scrypted/actions/workflows/ci.yml/badge.svg)](https://github.com/caplaz/eufy-security-scrypted/actions/workflows/ci.yml)
-[![npm version](https://img.shields.io/npm/v/@caplaz/eufy-security-scrypted.svg)](https://www.npmjs.com/package/@caplaz/eufy-security-scrypted)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
+<p align="center">
+  <strong>Complete Eufy Security ecosystem for Scrypted home automation</strong>
+</p>
 
-> **⚠️ EARLY DEVELOPMENT WARNING**
->
-> **This plugin is in early development and should be considered experimental.**
->
-> - Many Eufy device models have not been tested
-> - Bugs and compatibility issues are expected
-> - Features may change without notice
-> - Use at your own risk in production environments
-> - Please report issues to help improve stability
+<p align="center">
+  <a href="https://github.com/caplaz/eufy-security-scrypted/actions/workflows/release.yml">
+    <img src="https://github.com/caplaz/eufy-security-scrypted/actions/workflows/release.yml/badge.svg" alt="Release Status"/>
+  </a>
+  <a href="https://github.com/caplaz/eufy-security-scrypted/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/caplaz/eufy-security-scrypted.svg" alt="License"/>
+  </a>
+</p>
 
-> **Complete Eufy Security integration for Scrypted with streaming support**
+## Overview
 
-![Eufy Security Plugin for Scrypted](images/banner.png)
+This monorepo contains the complete Eufy Security integration for Scrypted, consisting of multiple packages that work together to provide comprehensive home security automation.
+
+## Packages
+
+### 📦 [@caplaz/eufy-security-scrypted](packages/eufy-security-scrypted/)
+
+**Main Scrypted Plugin** - The primary plugin that integrates Eufy devices with Scrypted
+
+- Complete device support (cameras, doorbells, sensors, hubs)
+- Real-time video streaming with H.264 support
+- Motion detection and event notifications
+- Device control (pan/tilt, lighting, security systems)
+- HomeKit Secure Video compatibility
+- User-friendly authentication handling (CAPTCHA, 2FA)
+
+### 🔗 [@caplaz/eufy-security-client](packages/eufy-security-client/)
+
+**WebSocket Client Library** - Core client for communicating with Eufy cloud services
+
+- Robust WebSocket connection management
+- Automatic reconnection with exponential backoff
+- Message correlation and timeout handling
+- Authentication state management
+- Event-driven architecture
+
+### 🌐 [@caplaz/eufy-stream-server](packages/eufy-stream-server/)
+
+**Streaming Server** - Dedicated TCP server for raw H.264 video streams
+
+- High-performance H.264 stream handling
+- TCP connection management
+- Stream parsing and validation
+- Memory-efficient processing
+
+### 🖥️ [@caplaz/eufy-security-cli](packages/eufy-security-cli/)
+
+**Command Line Interface** - CLI tools for Eufy device management
+
+- Device discovery and control
+- Stream testing and diagnostics
+- Configuration management
+- Batch operations
+
+## Quick Start
+
+### 1. Install Scrypted Plugin
+
+```bash
+# In Scrypted web interface
+# Go to Plugins → Install from NPM
+# Search for: @caplaz/eufy-security-scrypted
+```
+
+### 2. Set up WebSocket Server
+
+```bash
+# Install the companion WebSocket server
+npm install -g @caplaz/eufy-security-ws
+
+# Configure with your Eufy credentials
+eufy-security-ws --email your-email@example.com --password your-password
+```
+
+### 3. Configure Plugin
+
+- Open Scrypted web interface
+- Configure WebSocket URL (default: `ws://localhost:3000`)
+- Complete Eufy authentication
+- Start using your devices!
+
+## Development
+
+This project uses [Lerna](https://lerna.js.org/) for monorepo management.
+
+### Prerequisites
+
+- Node.js 18+
+- npm or yarn
+
+### Setup
+
+```bash
+# Install dependencies
+npm install
+
+# Build all packages
+npm run build
+
+# Run tests
+npm run test
+
+# Lint code
+npm run lint
+```
+
+### Package Scripts
+
+```bash
+# Build all packages
+npm run build
+
+# Run tests across all packages
+npm run test
+
+# Lint all packages
+npm run lint
+
+# Clean all packages
+npm run clean
+```
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/caplaz/eufy-security-scrypted/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/caplaz/eufy-security-scrypted/discussions)
+- **Scrypted Community**: [Scrypted Forums](https://forums.scrypted.app)
 
 A modern monorepo providing comprehensive Eufy Security camera integration through multiple complementary packages. Stream live video, control devices, and manage your security system with Scrypted's powerful automation platform.
 

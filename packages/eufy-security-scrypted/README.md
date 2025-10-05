@@ -1,24 +1,162 @@
-# @caplaz/eufy-security-scrypted
+# Eufy Security Scrypted Plugin
 
-> **Complete integration for Eufy Security cameras, doorbells, and security systems with Scrypted**
+<p align="center">
+  <img src="banner.png" alt="Eufy Security Scrypted Plugin" width="600"/>
+</p>
 
-Connect your Eufy Security devices to Scrypted and unlock powerful home automation, video streaming, and security monitoring capabilities across all your favorite platforms like Home Assistant, HomeKit, Google Home, and Alexa.
+<p align="center">
+  <strong>Complete Eufy Security integration for Scrypted</strong>
+</p>
 
-## 🎯 Quick Start
+<p align="center">
+  <a href="https://github.com/caplaz/eufy-security-scrypted/actions/workflows/release.yml">
+    <img src="https://github.com/caplaz/eufy-security-scrypted/actions/workflows/release.yml/badge.svg" alt="Release Status"/>
+  </a>
+  <a href="https://www.npmjs.com/package/@caplaz/eufy-security-scrypted">
+    <img src="https://img.shields.io/npm/v/@caplaz/eufy-security-scrypted.svg" alt="npm version"/>
+  </a>
+  <a href="https://github.com/caplaz/eufy-security-scrypted/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/caplaz/eufy-security-scrypted.svg" alt="License"/>
+  </a>
+</p>
+
+> **⚠️ EARLY DEVELOPMENT WARNING**
+>
+> **This plugin is in early development and should be considered experimental.**
+>
+> - Many Eufy device models have not been tested
+> - Bugs and compatibility issues are expected
+> - Features may change without notice
+> - Use at your own risk in production environments
+> - Please report issues to help improve stability
+
+## Overview
+
+The Eufy Security Scrypted Plugin provides comprehensive integration between Eufy Security devices and the Scrypted home automation platform. This plugin enables seamless control and monitoring of Eufy cameras, doorbells, and security systems through Scrypted's unified interface.
+
+### Key Features
+
+- **Complete Device Support**: Cameras, doorbells, sensors, and hubs
+- **Real-time Streaming**: H.264 video streaming with audio support
+- **Motion Detection**: Live motion alerts and event notifications
+- **Device Control**: Pan/tilt, lighting, and security system control
+- **HomeKit Secure Video**: Compatible with HomeKit Secure Video
+- **User-friendly Setup**: CAPTCHA and 2FA authentication handling
+
+## Installation
 
 ### Prerequisites
 
-1. **Scrypted Server** - Install from [scrypted.app](https://scrypted.app)
-2. **eufy-security-ws Server** - Required backend service ([setup guide](https://github.com/bropat/eufy-security-ws))
+1. **Scrypted Server**: Install Scrypted on your system
+2. **Eufy Security WebSocket Server**: Set up the companion server
+   ```bash
+   npm install -g @caplaz/eufy-security-ws
+   ```
 
-### Installation
+### Plugin Installation
 
 1. Open Scrypted web interface
-2. Navigate to **Plugins** → **Install Plugin**
-3. Search for "Eufy Security"
-4. Click **Install**
+2. Go to Plugins → Install from NPM
+3. Search for `@caplaz/eufy-security-scrypted`
+4. Install and configure
 
-### Configuration
+## Configuration
+
+### WebSocket Server Setup
+
+The plugin requires a WebSocket server to communicate with Eufy cloud services:
+
+```bash
+# Install the WebSocket server
+npm install -g @caplaz/eufy-security-ws
+
+# Configure with your Eufy credentials
+eufy-security-ws --email your-email@example.com --password your-password
+```
+
+### Plugin Configuration
+
+After installation, configure the plugin with:
+
+- **WebSocket URL**: URL of your eufy-security-ws server (default: `ws://localhost:3000`)
+- **Debug Logging**: Enable verbose logging for troubleshooting
+- **Memory Management**: Configure memory thresholds for optimal performance
+
+## Device Support
+
+### Cameras
+
+- Live video streaming (H.264)
+- Audio recording and playback
+- Motion detection alerts
+- Pan/tilt control (where supported)
+- Night vision settings
+
+### Door Bells
+
+- Video calling with audio
+- Motion-triggered recording
+- Doorbell press notifications
+
+### Sensors
+
+- Motion sensors
+- Contact sensors
+- Temperature sensors
+
+### Hubs/Stations
+
+- Security system arming/disarming
+- Device management
+- Push notification handling
+
+## Authentication
+
+The plugin handles Eufy cloud authentication including:
+
+- **CAPTCHA Challenges**: Automatic handling with user-friendly UI
+- **2FA/MFA**: Support for email and SMS verification codes
+- **Session Management**: Automatic token refresh and reconnection
+
+## Troubleshooting
+
+### Common Issues
+
+**Connection Problems**
+
+- Verify eufy-security-ws server is running
+- Check WebSocket URL configuration
+- Ensure network connectivity to Eufy cloud
+
+**Authentication Issues**
+
+- Verify Eufy account credentials
+- Check for CAPTCHA or 2FA requirements
+- Review server logs for authentication errors
+
+**Performance Issues**
+
+- Adjust memory threshold settings
+- Enable debug logging for diagnostics
+- Check system resources
+
+### Debug Logging
+
+Enable debug logging in plugin settings to get detailed information for troubleshooting.
+
+## Contributing
+
+Contributions are welcome! Please see the main repository for contribution guidelines.
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/caplaz/eufy-security-scrypted/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/caplaz/eufy-security-scrypted/discussions)
+- **Scrypted Community**: [Scrypted Forums](https://forums.scrypted.app)
 
 1. Start the `eufy-security-ws` container with your Eufy credentials
 2. In Scrypted, go to the Eufy Security plugin settings
