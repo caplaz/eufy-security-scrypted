@@ -56,11 +56,22 @@ import {
 
 import {
   DEVICE_EVENTS,
+  DeviceCryingDetectedEventPayload,
+  DeviceDogDetectedEventPayload,
+  DeviceDogLickDetectedEventPayload,
+  DeviceDogPoopDetectedEventPayload,
   DeviceEventSource,
   DeviceEventType,
   DeviceMotionDetectedEventPayload,
+  DevicePersonDetectedEventPayload,
+  DevicePetDetectedEventPayload,
   DeviceProperties,
   DevicePropertyChangedEventPayload,
+  DeviceRadarMotionDetectedEventPayload,
+  DeviceRingsEventPayload,
+  DeviceSoundDetectedEventPayload,
+  DeviceStrangerPersonDetectedEventPayload,
+  DeviceVehicleDetectedEventPayload,
   EVENT_SOURCES,
   EufyWebSocketClient,
   EventCallbackForType,
@@ -105,6 +116,20 @@ function createConsoleTransport(console: Console) {
   };
 }
 
+type DetectionEventPayload =
+  | DeviceMotionDetectedEventPayload
+  | DevicePersonDetectedEventPayload
+  | DevicePetDetectedEventPayload
+  | DeviceVehicleDetectedEventPayload
+  | DeviceSoundDetectedEventPayload
+  | DeviceCryingDetectedEventPayload
+  | DeviceDogDetectedEventPayload
+  | DeviceDogLickDetectedEventPayload
+  | DeviceDogPoopDetectedEventPayload
+  | DeviceStrangerPersonDetectedEventPayload
+  | DeviceRadarMotionDetectedEventPayload
+  | DeviceRingsEventPayload;
+
 /**
  * EufyDevice - TCP server implementation for VideoCamera
  */
@@ -140,6 +165,8 @@ export class EufyDevice
   private streamService!: StreamService;
   private ptzControlService!: PtzControlService;
   private lightControlService!: LightControlService;
+
+  private motionResetTimeout?: NodeJS.Timeout;
 
   private streamServer!: StreamServer;
 
@@ -188,10 +215,7 @@ export class EufyDevice
       this.handlePropertyChangedEvent.bind(this)
     );
 
-    this.addEventListener(
-      DEVICE_EVENTS.MOTION_DETECTED,
-      this.handleMotionDetectedEvent.bind(this)
-    );
+    this.registerDetectionEventListeners();
 
     // Listen for stream started/stopped events
     this.wsClient.addEventListener(
@@ -356,12 +380,79 @@ export class EufyDevice
   }
 
   /**
-   * Handle motion detected events
-   * Updates state via state service which handles notifications
+   * Register listeners for all supported detection events that should
+   * trigger motion updates for HomeKit Secure Video
    */
-  private handleMotionDetectedEvent(event: DeviceMotionDetectedEventPayload) {
-    // Update state service - it will notify via onStateChange callback
-    this.stateService.updateProperty("motionDetected", event.state);
+  private registerDetectionEventListeners(): void {
+    const detectionEvents: DeviceEventType[] = [
+      DEVICE_EVENTS.MOTION_DETECTED,
+      DEVICE_EVENTS.PERSON_DETECTED,
+      DEVICE_EVENTS.PET_DETECTED,
+      DEVICE_EVENTS.VEHICLE_DETECTED,
+      DEVICE_EVENTS.SOUND_DETECTED,
+      DEVICE_EVENTS.CRYING_DETECTED,
+      DEVICE_EVENTS.DOG_DETECTED,
+      DEVICE_EVENTS.DOG_LICK_DETECTED,
+      DEVICE_EVENTS.DOG_POOP_DETECTED,
+      DEVICE_EVENTS.STRANGER_PERSON_DETECTED,
+      DEVICE_EVENTS.RADAR_MOTION_DETECTED,
+      DEVICE_EVENTS.RINGS,
+    ];
+
+    detectionEvents.forEach((eventType) =>
+      this.addEventListener(
+        eventType,
+        ((event: DetectionEventPayload) =>
+          this.handleDetectionEvent(event, eventType)) as any
+      )
+    );
+  }
+
+  /**
+   * Handle detection events and map them to the motion sensor state.
+   * This ensures that HKSV recordings start for all relevant triggers.
+   */
+  private handleDetectionEvent(
+    event: DetectionEventPayload,
+    eventType: DeviceEventType
+  ): void {
+    if (typeof event?.state !== "boolean") {
+      this.logger.debug(
+        `Detection event ${eventType} missing boolean state:`,
+        event
+      );
+      return;
+    }
+
+    this.updateMotionState(event.state, eventType);
+  }
+
+  /**
+   * Update the motion state on the device and reset it after a timeout so
+   * HomeKit receives a clear end-of-motion signal even if the cloud service
+   * omits a "false" notification.
+   */
+  private updateMotionState(state: boolean, source: DeviceEventType): void {
+    this.logger.debug(
+      `Motion state update from ${source}: ${state ? "active" : "inactive"}`
+    );
+
+    if (state) {
+      if (this.motionResetTimeout) clearTimeout(this.motionResetTimeout);
+
+      this.motionResetTimeout = setTimeout(() => {
+        this.logger.debug(
+          "Motion reset timeout elapsed, clearing motionDetected state"
+        );
+        this.motionResetTimeout = undefined;
+        this.stateService.updateProperty("motionDetected", false);
+      }, 15000);
+    } else if (this.motionResetTimeout) {
+      clearTimeout(this.motionResetTimeout);
+      this.motionResetTimeout = undefined;
+    }
+
+    this.stateService.updateProperty("motionDetected", state);
   }
 
   // =================== SETTINGS INTERFACE ===================
@@ -643,6 +734,11 @@ export class EufyDevice
       .catch((e: unknown) =>
         this.logger.warn(`Error disposing stream service: ${e}`)
       );
+
+    if (this.motionResetTimeout) {
+      clearTimeout(this.motionResetTimeout);
+      this.motionResetTimeout = undefined;
+    }
 
     // Clean up all event listeners for this device
     // This removes video data, and other device event listeners
