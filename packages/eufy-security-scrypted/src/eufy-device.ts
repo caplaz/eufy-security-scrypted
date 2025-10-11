@@ -28,6 +28,7 @@
 
 import {
   Battery,
+  BinarySensor,
   Brightness,
   Camera,
   Charger,
@@ -59,6 +60,7 @@ import {
   DeviceEventSource,
   DeviceEventType,
   DeviceMotionDetectedEventPayload,
+  DeviceRingsEventPayload,
   DeviceProperties,
   DevicePropertyChangedEventPayload,
   EVENT_SOURCES,
@@ -76,6 +78,7 @@ import {
   RefreshService,
   SnapshotService,
   StreamService,
+  StateChangeEvent,
 } from "./services/device";
 import { PropertyMapper } from "./utils/property-mapper";
 import { VideoClipsService } from "./services/video";
@@ -115,6 +118,7 @@ export class EufyDevice
     VideoClips,
     Camera,
     MotionSensor,
+    BinarySensor,
     Battery,
     Charger,
     PanTiltZoom,
@@ -193,6 +197,11 @@ export class EufyDevice
       this.handleMotionDetectedEvent.bind(this)
     );
 
+    this.addEventListener(
+      DEVICE_EVENTS.RINGS,
+      this.handleDoorbellRingsEvent.bind(this)
+    );
+
     // Listen for stream started/stopped events
     this.wsClient.addEventListener(
       DEVICE_EVENTS.LIVESTREAM_STARTED,
@@ -254,7 +263,7 @@ export class EufyDevice
     this.lightControlService = new LightControlService(deviceApi, this.logger);
 
     // Subscribe to state changes from the state service
-    this.stateService.onStateChange((change) => {
+    this.stateService.onStateChange((change: StateChangeEvent) => {
       this.logger.debug(`State changed: ${change.interface} = ${change.value}`);
 
       // Update device properties from state service (for Scrypted framework)
@@ -302,6 +311,7 @@ export class EufyDevice
     const state = this.stateService.getState();
     if (state.motionDetected !== undefined)
       this.motionDetected = state.motionDetected;
+    if (state.binaryState !== undefined) this.binaryState = state.binaryState;
     if (state.brightness !== undefined) this.brightness = state.brightness;
     if (state.on !== undefined) this.on = state.on;
     if (state.batteryLevel !== undefined)
@@ -362,6 +372,15 @@ export class EufyDevice
   private handleMotionDetectedEvent(event: DeviceMotionDetectedEventPayload) {
     // Update state service - it will notify via onStateChange callback
     this.stateService.updateProperty("motionDetected", event.state);
+  }
+
+  /**
+   * Handle doorbell rings events
+   * Updates binary state via state service which handles notifications
+   */
+  private handleDoorbellRingsEvent(event: DeviceRingsEventPayload) {
+    // Update state service - it will notify via onStateChange callback
+    this.stateService.updateState("binaryState", event.state);
   }
 
   // =================== SETTINGS INTERFACE ===================

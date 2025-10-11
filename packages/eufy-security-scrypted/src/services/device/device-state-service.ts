@@ -16,6 +16,7 @@ import { Logger, ILogObj } from "tslog";
  */
 export interface DeviceState {
   motionDetected?: boolean;
+  binaryState?: boolean;
   brightness?: number;
   on?: boolean;
   batteryLevel?: number;
@@ -246,6 +247,31 @@ export class DeviceStateService {
   onStateChange(callback: StateChangeCallback): () => void {
     this.stateChangeCallbacks.add(callback);
     return () => this.stateChangeCallbacks.delete(callback);
+  }
+
+  /**
+   * Update device state directly (not from properties)
+   * Used for events that don't correspond to device properties
+   */
+  updateState(stateKey: keyof DeviceState, value: any): void {
+    let change: StateChangeEvent | undefined;
+
+    switch (stateKey) {
+      case "binaryState":
+        this.state.binaryState = value as boolean;
+        change = {
+          interface: ScryptedInterface.BinarySensor,
+          value: this.state.binaryState,
+        };
+        break;
+
+      default:
+        this.logger.debug(`State key ${stateKey} not handled`);
+    }
+
+    if (change) {
+      this.notifyStateChange(change);
+    }
   }
 
   /**

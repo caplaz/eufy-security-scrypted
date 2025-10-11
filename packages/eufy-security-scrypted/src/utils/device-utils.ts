@@ -26,6 +26,7 @@ import {
 import {
   MODEL_NAMES,
   getDeviceCapabilities,
+  isDoorbell,
 } from "@caplaz/eufy-security-client";
 import { getScryptedDeviceType } from "./scrypted-device-detection";
 
@@ -298,6 +299,11 @@ export class DeviceUtils {
     // Add Pan/Tilt/Zoom interface for PTZ capable devices
     if (capabilities.panTilt) {
       interfaces.push(ScryptedInterface.PanTiltZoom);
+    }
+
+    // Add BinarySensor interface for doorbell devices
+    if (isDoorbell(properties.type)) {
+      interfaces.push(ScryptedInterface.BinarySensor);
     }
 
     if (properties.wifiRssi !== undefined) {
