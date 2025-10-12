@@ -5,6 +5,21 @@ All notable changes to the Eufy Security Scrypted monorepo will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2025-10-12
+
+### Added
+
+- **Custom README Interface**: Implemented dynamic README generation with real-time plugin status
+- **WebSocket Connection Monitoring**: Live connection status display with troubleshooting guidance
+- **Cloud Authentication Dashboard**: Current authentication state with setup instructions
+- **Memory Management Status**: Real-time memory usage monitoring and performance recommendations
+- **System Status Overview**: Push/MQTT connection status and debug settings display
+
+### Enhanced
+
+- **Plugin Documentation**: Replaced static README with dynamic, context-aware documentation
+- **User Experience**: Improved setup and troubleshooting with live status information
+
 ## [0.1.4] - 2025-10-12
 
 ### Added

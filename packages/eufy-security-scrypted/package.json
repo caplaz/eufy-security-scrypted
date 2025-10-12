@@ -1,6 +1,6 @@
 {
   "name": "@caplaz/eufy-security-scrypted",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Scrypted plugin for Eufy Security cameras with streaming support via eufy-security-ws server",
   "scripts": {
     "scrypted-setup-project": "scrypted-setup-project",
@@ -58,8 +58,8 @@
     ]
   },
   "dependencies": {
-    "@caplaz/eufy-security-client": "^0.1.4",
-    "@caplaz/eufy-stream-server": "^0.1.4",
+    "@caplaz/eufy-security-client": "^0.1.5",
+    "@caplaz/eufy-stream-server": "^0.1.5",
     "@scrypted/sdk": "latest",
     "tslog": "^4.9.3"
   },
