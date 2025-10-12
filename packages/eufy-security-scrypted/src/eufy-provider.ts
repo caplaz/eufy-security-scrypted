@@ -1007,7 +1007,64 @@ export class EufySecurityProvider
     const memoryUsage = memoryManager.getCurrentMemoryUsage();
     const memoryThreshold = MemoryManager.getMemoryThreshold();
 
-    return `# Eufy Security Plugin - Settings Guide
+    return `![Eufy Security Plugin](https://raw.githubusercontent.com/caplaz/eufy-security-scrypted/main/packages/eufy-security-scrypted/public/banner.png)
+
+## 🚀 Quick Setup
+
+### 1. Start the eufy-security-ws Server
+
+This plugin requires a companion WebSocket server to communicate with Eufy cloud services.
+
+#### Option A: Docker (Recommended)
+
+Create a \`docker-compose.yml\` file:
+
+\`\`\`yaml
+services:
+  eufy-security-ws:
+    image: bropat/eufy-security-ws:latest
+    container_name: eufy-security-ws
+    ports:
+      - "3000:3000"
+    environment:
+      - USERNAME=your_eufy_email@example.com
+      - PASSWORD=your_eufy_password
+      - COUNTRY=US
+    restart: unless-stopped
+\`\`\`
+
+Start the server:
+\`\`\`bash
+docker-compose up -d
+\`\`\`
+
+#### Option B: NPM Installation
+
+\`\`\`bash
+npm install -g eufy-security-ws
+\`\`\`
+
+Create a \`config.json\`:
+\`\`\`json
+{
+  "username": "your_eufy_email@example.com",
+  "password": "your_eufy_password",
+  "country": "US"
+}
+\`\`\`
+
+Run the server:
+\`\`\`bash
+eufy-security-ws
+\`\`\`
+
+### 2. Configure Plugin Settings
+
+After starting the server, configure the plugin:
+
+- **WebSocket URL**: \`ws://localhost:3000\` (default)
+- **Debug Logging**: Enable for troubleshooting
+- **Memory Management**: Configure memory thresholds
 
 ## 🔌 WebSocket Connection
 
