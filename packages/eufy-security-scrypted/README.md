@@ -1,7 +1,7 @@
 # Eufy Security Scrypted Plugin
 
 <p align="center">
-  <img src="public/banner.png" alt="Eufy Security Scrypted Plugin" width="600"/>
+  <img src="https://raw.githubusercontent.com/caplaz/eufy-security-scrypted/main/packages/eufy-security-scrypted/public/banner.png" alt="Eufy Security Scrypted Plugin" width="600"/>
 </p>
 
 <p align="center">
