@@ -5,6 +5,9 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -44,14 +47,38 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Extract changelog for this version
+          if [ -f CHANGELOG.md ]; then
+            # Get content between this version and next version header
+            awk '/^## '"${{ steps.version.outputs.version }}"'/{flag=1; next} /^## /{flag=0} flag' CHANGELOG.md > current_changelog.md
+
+            if [ -s current_changelog.md ]; then
+              echo "found_changelog=true" >> $GITHUB_OUTPUT
+            else
+              echo "found_changelog=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "found_changelog=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: ncipollo/release-action@v1
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
-          body: |
-            See [CHANGELOG.md](https://github.com/caplaz/eufy-security-scrypted/blob/main/CHANGELOG.md) for details.
+          tag: ${{ steps.version.outputs.tag }}
+          name: Release ${{ steps.version.outputs.tag }}
+          bodyFile: ${{ steps.changelog.outputs.found_changelog == 'true' && 'current_changelog.md' || '' }}
+          body: ${{ steps.changelog.outputs.found_changelog == 'false' && 'Release notes not available in CHANGELOG.md' || '' }}
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
