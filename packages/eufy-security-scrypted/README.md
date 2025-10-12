@@ -1,7 +1,7 @@
 # Eufy Security Scrypted Plugin
 
 <p align="center">
-  <img src="banner.png" alt="Eufy Security Scrypted Plugin" width="600"/>
+  <img src="public/banner.png" alt="Eufy Security Scrypted Plugin" width="600"/>
 </p>
 
 <p align="center">
