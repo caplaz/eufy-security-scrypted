@@ -5,7 +5,7 @@ All notable changes to the Eufy Security Scrypted monorepo will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.1.4 - 2025-10-12
+## [0.1.4] - 2025-10-12
 
 ### Added
 
@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Event Handling**: Consolidated motion detection events into unified handling system
 - **State Synchronization**: Updated state change logging to show detailed object values
 
-## 0.1.0 - 2025-10-03
+## [0.1.0] - 2025-10-03
 
 ### 🎉 Initial Release
 
@@ -79,7 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Documentation**: Standardized README files with consistent formatting and comprehensive examples
 - **CI/CD Pipeline**: GitHub Actions workflows for automated testing, building, and publishing
 
-## 0.0.1 - 2024-12-19
+## [0.0.1] - 2024-12-19
 
 ### Added
 
