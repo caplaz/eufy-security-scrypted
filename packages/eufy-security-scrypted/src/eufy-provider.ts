@@ -25,6 +25,7 @@
  * presenting a user-friendly interface through Scrypted's settings system.
  *
  * @implements {DeviceProvider}
+ * @implements {Readme}
  * @implements {Settings}
  * @implements {Refresh}
  * @public
@@ -33,6 +34,7 @@
 
 import sdk, {
   DeviceProvider,
+  Readme,
   Refresh,
   ScryptedDeviceBase,
   ScryptedInterface,
@@ -82,7 +84,7 @@ function createConsoleTransport(console: Console) {
 
 export class EufySecurityProvider
   extends ScryptedDeviceBase
-  implements DeviceProvider, Settings, Refresh
+  implements DeviceProvider, Readme, Settings, Refresh
 {
   // Core dependencies
   wsClient: EufyWebSocketClient;
@@ -993,6 +995,114 @@ export class EufySecurityProvider
       this.logger.info(
         "   You can now use other Scrypted features to interact with your devices."
       );
+    }
+  }
+
+  /**
+   * Generate a custom README focused on the main plugin settings and configuration
+   * @implements {Readme}
+   */
+  async getReadmeMarkdown(): Promise<string> {
+    const memoryManager = MemoryManager.getInstance(this.logger);
+    const memoryUsage = memoryManager.getCurrentMemoryUsage();
+    const memoryThreshold = MemoryManager.getMemoryThreshold();
+
+    return `# Eufy Security Plugin - Settings Guide
+
+## 🔌 WebSocket Connection
+
+**Status**: ${this.wsClient?.isConnected() ? "🟢 Connected" : "🔴 Disconnected"}
+
+Configure the connection to your eufy-security-ws server:
+
+- **WebSocket URL**: \`ws://localhost:3000\` (default)
+- **Connection State**: ${this.getConnectionStateDescription()}
+
+### Connection States
+- **🟢 Ready**: Fully connected and operational
+- **🟠 Connected**: WebSocket connected, waiting for auth
+- **🟡 Connecting**: Establishing connection
+- **🔴 Disconnected**: Not connected
+
+## ☁️ Cloud Account
+
+**Authentication Status**: ${this.getAuthStatusDescription()}
+
+### Authentication Flow
+1. Click **"Connect Account"** in plugin settings
+2. Complete CAPTCHA challenge (if required)
+3. Enter 2FA verification code (if enabled)
+4. Devices will automatically appear
+
+### Troubleshooting Authentication
+- **CAPTCHA Issues**: Refresh settings page if CAPTCHA doesn't appear
+- **2FA Problems**: Check email/SMS for verification codes
+- **Connection Errors**: Verify eufy-security-ws server is running
+
+## 🧠 Memory Management
+
+**Current Usage**: ${memoryUsage.heapMB} MB (RSS: ${memoryUsage.rssMB} MB)
+**Threshold**: ${memoryThreshold} MB
+**Status**: ${memoryUsage.heapMB < memoryThreshold ? "✅ Normal" : "⚠️ High"}
+
+### Memory Settings
+- **Automatic Cleanup**: Enabled when threshold exceeded
+- **Optimized Buffers**: Memory-conscious video streaming
+- **Crash Prevention**: Monitors and manages memory usage
+
+### Performance Tips
+- **Low Memory Systems** (≤4GB RAM): Set threshold to 80-100MB
+- **Normal Systems** (8GB RAM): Default 120-150MB threshold
+- **High Memory Systems** (≥16GB RAM): Can use 200-300MB threshold
+
+## 📊 System Status
+
+**Push Connected**: ${this.pushConnected ? "✅" : "❌"}
+**MQTT Connected**: ${this.mqttConnected ? "✅" : "❌"}
+**Debug Logging**: ${this.debugLogging ? "Enabled" : "Disabled"}
+
+## 🔧 Quick Actions
+
+- **Reconnect**: Use if connection is lost
+- **Refresh Devices**: Sync latest device list from Eufy
+- **Debug Toggle**: Enable for troubleshooting logs
+
+---
+
+*This README is dynamically generated based on your current plugin configuration.*`;
+  }
+
+  /**
+   * Get a human-readable description of the current connection state
+   */
+  private getConnectionStateDescription(): string {
+    if (!this.wsClient) return "Not initialized";
+
+    const wsConnected = this.wsClient.isConnected();
+    const driverConnected = this.wsClient.isDriverConnected();
+
+    if (wsConnected && driverConnected) return "Fully Connected";
+    if (wsConnected && !driverConnected)
+      return "WebSocket Connected (Auth Required)";
+    if (!wsConnected) return "Disconnected";
+
+    return "Unknown";
+  }
+
+  /**
+   * Get a human-readable description of the authentication status
+   */
+  private getAuthStatusDescription(): string {
+    const authState = this.authManager.getAuthState();
+    switch (authState) {
+      case AUTH_STATE.NONE:
+        return "Not Authenticated ❌";
+      case AUTH_STATE.CAPTCHA_REQUIRED:
+        return "CAPTCHA Required ⚠️";
+      case AUTH_STATE.MFA_REQUIRED:
+        return "2FA Required ⚠️";
+      default:
+        return "Unknown";
     }
   }
 }

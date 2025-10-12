@@ -53,7 +53,8 @@
     "interfaces": [
       "DeviceProvider",
       "Settings",
-      "Refresh"
+      "Refresh",
+      "Readme"
     ]
   },
   "dependencies": {
