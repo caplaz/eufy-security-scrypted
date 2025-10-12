@@ -47,31 +47,65 @@ The Eufy Security Scrypted Plugin provides comprehensive integration between Euf
 
 ### Prerequisites
 
-1. **Scrypted Server**: Install Scrypted on your system
-2. **Eufy Security WebSocket Server**: Set up the companion server
-   ```bash
-   npm install -g @caplaz/eufy-security-ws
-   ```
+1. **Scrypted Server**: Ensure Scrypted is installed and running on your system
+2. **Eufy Security WebSocket Server**: Set up the companion WebSocket server (see Configuration section below)
 
 ### Plugin Installation
 
-1. Open Scrypted web interface
-2. Go to Plugins → Install from NPM
-3. Search for `@caplaz/eufy-security-scrypted`
-4. Install and configure
+1. Open the Scrypted web interface
+2. Navigate to **Plugins** in the sidebar
+3. Click **Install** or search for plugins
+4. Search for **Eufy Security** or **@caplaz/eufy-security-scrypted**
+5. Click **Install** and follow the setup prompts
+6. Configure the plugin settings (see Configuration section)
 
 ## Configuration
 
 ### WebSocket Server Setup
 
-The plugin requires a WebSocket server to communicate with Eufy cloud services:
+The plugin requires a companion WebSocket server (`eufy-security-ws`) to communicate with Eufy cloud services. This server handles the low-level Eufy API interactions.
+
+#### Option 1: Docker (Recommended)
+
+1. Create a `docker-compose.yml` file with the following content:
+
+```yaml
+services:
+  eufy-security-ws:
+    image: bropat/eufy-security-ws:latest
+    container_name: eufy-security-ws
+    ports:
+      - "3000:3000"
+    environment:
+      - USERNAME=your_eufy_email@example.com
+      - PASSWORD=your_eufy_password
+      - COUNTRY=US # Change to your country code if needed
+    restart: unless-stopped
+```
+
+2. Start the container:
 
 ```bash
-# Install the WebSocket server
-npm install -g @caplaz/eufy-security-ws
+docker-compose up -d
+```
 
-# Configure with your Eufy credentials
-eufy-security-ws --email your-email@example.com --password your-password
+#### Option 2: NPM Installation
+
+If you prefer not to use Docker:
+
+```bash
+# Install globally
+npm install -g eufy-security-ws
+
+# Create a config.json file in your working directory
+{
+  "username": "your_eufy_email@example.com",
+  "password": "your_eufy_password",
+  "country": "US"
+}
+
+# Run the server (it will automatically find config.json in the current directory)
+eufy-security-ws
 ```
 
 ### Plugin Configuration
@@ -553,22 +587,6 @@ Adjust based on your system:
 - **Low Memory Systems** (≤4GB RAM): 80-100MB
 - **Normal Systems** (8GB RAM): 120-150MB (default)
 - **High Memory Systems** (≥16GB RAM): 200-300MB
-
-### Docker Compose Setup
-
-```yaml
-services:
-  eufy-security-ws:
-    image: bropat/eufy-security-ws:latest
-    container_name: eufy-security-ws
-    ports:
-      - "3000:3000"
-    environment:
-      - USERNAME=your_eufy_email
-      - PASSWORD=your_eufy_password
-      - COUNTRY=US
-    restart: unless-stopped
-```
 
 ### Network Optimization
 
