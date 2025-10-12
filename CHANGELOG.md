@@ -5,6 +5,24 @@ All notable changes to the Eufy Security Scrypted monorepo will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2025-10-12
+
+### Added
+
+- **Enhanced Dynamic README**: Added banner image and comprehensive eufy-security-ws server setup instructions
+- **Quick Setup Guide**: Step-by-step instructions for both Docker and NPM installation of eufy-security-ws
+- **Visual Branding**: Banner image display in the dynamic plugin documentation
+
+### Fixed
+
+- **Release Workflow**: Fixed GitHub Actions workflow to properly extract changelog from CHANGELOG.md format with square brackets
+- **Banner Image Path**: Corrected banner image URL to use GitHub raw content for proper display
+
+### Enhanced
+
+- **User Onboarding**: Improved setup experience with clear server configuration steps
+- **Documentation**: Better integration of setup instructions in the dynamic README interface
+
 ## [0.1.5] - 2025-10-12
 
 ### Added

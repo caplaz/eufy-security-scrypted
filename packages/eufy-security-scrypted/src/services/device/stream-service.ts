@@ -201,6 +201,10 @@ export class StreamService {
         "auto", // Enable hardware acceleration if available
         "-err_detect",
         "ignore_err+crccheck", // Selective error tolerance for battery cameras
+        "-c:v",
+        "h264", // Explicitly specify H.264 decoder
+        "-enable_er",
+        "1", // Enable error resilience for cameras using data partitioning (e.g., SoloCam S340)
         "-i",
         `tcp://127.0.0.1:${port}`, // TCP input source
       ],

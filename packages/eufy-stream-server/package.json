@@ -1,6 +1,6 @@
 {
   "name": "@caplaz/eufy-stream-server",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "description": "Simplified TCP streaming server for raw H.264 video streams from Eufy cameras",
   "main": "dist/index.js",
@@ -25,7 +25,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@caplaz/eufy-security-client": "^0.1.5",
+    "@caplaz/eufy-security-client": "^0.1.6",
     "tslog": "^4.9.2"
   },
   "devDependencies": {
