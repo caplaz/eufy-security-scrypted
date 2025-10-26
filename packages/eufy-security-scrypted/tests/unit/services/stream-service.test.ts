@@ -5,7 +5,7 @@
 import { StreamService } from "../../../src/services/device/stream-service";
 import { IStreamServer } from "../../../src/services/device/types";
 import { Logger, ILogObj } from "tslog";
-import { VideoQuality } from "@caplaz/eufy-security-client";
+import { VideoQuality, DeviceType } from "@caplaz/eufy-security-client";
 import { MediaObject } from "@scrypted/sdk";
 import sdk from "@scrypted/sdk";
 
@@ -346,7 +346,21 @@ describe("StreamService", () => {
       expect(args).toContain("h264");
     });
 
-    it("should include error resilience for data partitioning support", async () => {
+    it("should not include error resilience when device type is not set", async () => {
+      await service.getVideoStream(VideoQuality.HIGH);
+
+      const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
+        .calls[0][0];
+      const args = call.inputArguments;
+
+      expect(args).not.toContain("-enable_er");
+      expect(args).not.toContain("1");
+    });
+  });
+
+  describe("device type-specific FFmpeg configuration", () => {
+    it("should include error resilience for SoloCam S340 (OUTDOOR_PT_CAMERA)", async () => {
+      service.setDeviceType(DeviceType.OUTDOOR_PT_CAMERA);
       await service.getVideoStream(VideoQuality.HIGH);
 
       const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
@@ -355,6 +369,89 @@ describe("StreamService", () => {
 
       expect(args).toContain("-enable_er");
       expect(args).toContain("1");
+    });
+
+    it("should not include error resilience for other camera types", async () => {
+      service.setDeviceType(DeviceType.CAMERA); // Regular camera
+      await service.getVideoStream(VideoQuality.HIGH);
+
+      const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
+        .calls[0][0];
+      const args = call.inputArguments;
+
+      expect(args).not.toContain("-enable_er");
+      expect(args).not.toContain("1");
+    });
+
+    it("should not include error resilience when device type is not set", async () => {
+      // Device type not set (undefined)
+      await service.getVideoStream(VideoQuality.HIGH);
+
+      const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
+        .calls[0][0];
+      const args = call.inputArguments;
+
+      expect(args).not.toContain("-enable_er");
+      expect(args).not.toContain("1");
+    });
+
+    it("should not include error resilience for indoor cameras", async () => {
+      service.setDeviceType(DeviceType.INDOOR_CAMERA);
+      await service.getVideoStream(VideoQuality.HIGH);
+
+      const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
+        .calls[0][0];
+      const args = call.inputArguments;
+
+      expect(args).not.toContain("-enable_er");
+      expect(args).not.toContain("1");
+    });
+
+    it("should not include error resilience for battery doorbells", async () => {
+      service.setDeviceType(DeviceType.BATTERY_DOORBELL);
+      await service.getVideoStream(VideoQuality.HIGH);
+
+      const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
+        .calls[0][0];
+      const args = call.inputArguments;
+
+      expect(args).not.toContain("-enable_er");
+      expect(args).not.toContain("1");
+    });
+  });
+
+  describe("setDeviceType", () => {
+    it("should update device type", async () => {
+      service.setDeviceType(DeviceType.OUTDOOR_PT_CAMERA);
+      await service.getVideoStream(VideoQuality.HIGH);
+
+      const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
+        .calls[0][0];
+      const args = call.inputArguments;
+
+      // Should include error resilience for SoloCam S340
+      expect(args).toContain("-enable_er");
+      expect(args).toContain("1");
+    });
+
+    it("should allow changing device type dynamically", async () => {
+      // Start with SoloCam S340
+      service.setDeviceType(DeviceType.OUTDOOR_PT_CAMERA);
+      await service.getVideoStream(VideoQuality.HIGH);
+
+      let call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
+        .calls[0][0];
+      let args = call.inputArguments;
+      expect(args).toContain("-enable_er");
+
+      // Change to regular camera
+      service.setDeviceType(DeviceType.CAMERA);
+      await service.getVideoStream(VideoQuality.HIGH);
+
+      call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
+        .calls[1][0];
+      args = call.inputArguments;
+      expect(args).not.toContain("-enable_er");
     });
   });
 });

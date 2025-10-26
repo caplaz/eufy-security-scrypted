@@ -14,7 +14,10 @@ import {
   ResponseMediaStreamOptions,
 } from "@scrypted/sdk";
 import sdk from "@scrypted/sdk";
-import { VideoQuality } from "@caplaz/eufy-security-client";
+import {
+  VideoQuality,
+  requiresErrorResilience,
+} from "@caplaz/eufy-security-client";
 import { Logger, ILogObj } from "tslog";
 import { IStreamServer } from "./types";
 
@@ -50,8 +53,16 @@ export class StreamService {
   constructor(
     private serialNumber: string,
     private streamServer: IStreamServer,
-    private logger: Logger<ILogObj>
+    private logger: Logger<ILogObj>,
+    private deviceType?: number
   ) {}
+
+  /**
+   * Update the device type (called after properties are loaded)
+   */
+  setDeviceType(deviceType: number): void {
+    this.deviceType = deviceType;
+  }
 
   /**
    * Get video dimensions based on quality setting
@@ -203,8 +214,10 @@ export class StreamService {
         "ignore_err+crccheck", // Selective error tolerance for battery cameras
         "-c:v",
         "h264", // Explicitly specify H.264 decoder
-        "-enable_er",
-        "1", // Enable error resilience for cameras using data partitioning (e.g., SoloCam S340)
+        // Enable error resilience only for cameras that require it (e.g., SoloCam S340 with data partitioning)
+        ...(this.deviceType && requiresErrorResilience(this.deviceType)
+          ? ["-enable_er", "1"]
+          : []),
         "-i",
         `tcp://127.0.0.1:${port}`, // TCP input source
       ],

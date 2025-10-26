@@ -253,7 +253,8 @@ export class EufyDevice
     this.streamService = new StreamService(
       this.serialNumber,
       this.streamServer,
-      this.logger
+      this.logger,
+      this.latestProperties?.type
     );
     this.ptzControlService = new PtzControlService(
       deviceApi,
@@ -277,6 +278,7 @@ export class EufyDevice
     this.refreshService.onRefreshComplete((properties) => {
       this.logger.debug("Refresh completed successfully");
       this.latestProperties = properties;
+      this.streamService.setDeviceType(properties.type);
       this.stateService.updateFromProperties(properties);
       this.updatePtzCapabilities();
     });
@@ -296,6 +298,7 @@ export class EufyDevice
   private async loadInitialProperties() {
     try {
       this.latestProperties = (await this.api.getProperties()).properties;
+      this.streamService.setDeviceType(this.latestProperties.type);
       this.updateStateFromProperties(this.latestProperties);
       this.updatePtzCapabilities(); // Update PTZ capabilities based on device type
     } catch (e) {
