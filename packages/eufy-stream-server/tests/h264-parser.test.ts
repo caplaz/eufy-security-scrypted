@@ -96,5 +96,9 @@ describe("H264Parser", () => {
       expect(parser.getNALTypeName(8)).toBe("PPS");
       expect(parser.getNALTypeName(99)).toBe("Unknown(99)");
     });
+
+    it("should return 'Data Partitioning' for NAL type 14", () => {
+      expect(parser.getNALTypeName(14)).toBe("Data Partitioning");
+    });
   });
 });

@@ -334,5 +334,27 @@ describe("StreamService", () => {
       expect(args).toContain("-err_detect");
       expect(args).toContain("ignore_err+crccheck");
     });
+
+    it("should include H.264 decoder specification for SoloCam S340 compatibility", async () => {
+      await service.getVideoStream(VideoQuality.HIGH);
+
+      const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
+        .calls[0][0];
+      const args = call.inputArguments;
+
+      expect(args).toContain("-c:v");
+      expect(args).toContain("h264");
+    });
+
+    it("should include error resilience for data partitioning support", async () => {
+      await service.getVideoStream(VideoQuality.HIGH);
+
+      const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
+        .calls[0][0];
+      const args = call.inputArguments;
+
+      expect(args).toContain("-enable_er");
+      expect(args).toContain("1");
+    });
   });
 });
