@@ -242,6 +242,9 @@ describe("EufyClient Module Exports", () => {
         "getDeviceCapabilities",
         "getProductName",
         "getDeviceTypeName",
+        // Error resilience exports
+        "ERROR_RESILIENT_CAMERA_TYPES",
+        "requiresErrorResilience",
         // Authentication module exports
         "AUTH_STATE",
         "AuthenticationManager",
