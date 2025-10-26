@@ -1,6 +1,6 @@
 {
   "name": "@caplaz/eufy-security-cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Command-line interface for Eufy Security camera control and streaming",
   "main": "dist/index.js",

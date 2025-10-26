@@ -5,6 +5,24 @@ All notable changes to the Eufy Security Scrypted monorepo will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2025-10-26
+
+### Added
+
+- **Error Resilient Camera Types**: Added `ERROR_RESILIENT_CAMERA_TYPES` set for cameras requiring special FFmpeg handling
+- **Device-Specific FFmpeg Configuration**: Conditional application of `-enable_er 1` flag only for cameras that need H.264 error resilience
+- **requiresErrorResilience() Function**: Helper function to check if a device type requires error resilience settings
+- **Extensible Camera Support**: Framework for easily adding future cameras with similar H.264 data partitioning issues
+
+### Changed
+
+- **StreamService Refactoring**: Updated to use device type detection instead of hardcoded camera checks
+- **FFmpeg Configuration**: Made error resilience conditional based on device capabilities rather than global setting
+
+### Fixed
+
+- **Selective Error Resilience**: Prevented FFmpeg error resilience from being applied to cameras that don't need it, avoiding stream corruption on other devices
+
 ## [0.2.0] - 2025-10-26
 
 ### Fixed
