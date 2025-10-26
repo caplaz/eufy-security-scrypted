@@ -34,19 +34,7 @@
     "security",
     "camera",
     "cli",
-    "streaming",
-    "command-line",
-    "surveillance",
-    "video",
-    "tcp",
-    "websocket",
-    "scrypted",
-    "media-player",
-    "ffmpeg",
-    "vlc",
-    "iot",
-    "smart-home",
-    "home-security"
+    "streaming"
   ],
   "author": {
     "name": "Stefano Acerbetti",

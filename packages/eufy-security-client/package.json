@@ -31,15 +31,8 @@
     "security",
     "websocket",
     "client",
-    "scrypted",
-    "home-automation",
     "camera",
-    "doorbell",
-    "typescript",
-    "surveillance",
-    "iot",
-    "smart-home",
-    "video-streaming"
+    "typescript"
   ],
   "author": {
     "name": "Stefano Acerbetti",

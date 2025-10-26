@@ -33,12 +33,7 @@
     "security",
     "camera",
     "plugin",
-    "home-automation",
-    "surveillance",
-    "doorbell",
-    "video-streaming",
-    "smart-home",
-    "iot"
+    "home-automation"
   ],
   "author": {
     "name": "Stefano Acerbetti",
