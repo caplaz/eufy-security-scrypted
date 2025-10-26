@@ -5,6 +5,18 @@ All notable changes to the Eufy Security Scrypted monorepo will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2025-10-26
+
+### Fixed
+
+- **SoloCam S340 Video Streaming**: Fixed video streaming failures for Eufy SoloCam S340 cameras caused by H.264 data partitioning not being supported by FFmpeg
+- **FFmpeg Error Resilience**: Added `-enable_er` flag to FFmpeg commands for better handling of damaged or fragmented video frames
+- **H.264 NAL Type Support**: Added support for NAL type 14 (Data Partitioning) in the H.264 parser
+
+### Changed
+
+- **Package Metadata**: Updated author information and repository URLs in all package.json files for proper attribution and issue tracking
+
 ## [0.1.6] - 2025-10-12
 
 ### Added
