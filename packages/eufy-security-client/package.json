@@ -1,7 +1,6 @@
 {
   "name": "@caplaz/eufy-security-client",
   "version": "0.1.6",
-  "private": true,
   "description": "WebSocket client library for communicating with eufy-security-ws server with type-safe event handling and device management for Eufy security cameras",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -43,20 +42,20 @@
     "video-streaming"
   ],
   "author": {
-    "name": "Scrypted Team",
-    "email": "support@scrypted.app",
-    "url": "https://scrypted.app"
+    "name": "Stefano Acerbetti",
+    "email": "stefano@caplaz.com",
+    "url": "https://www.caplaz.com"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/acerbetti/eufy-security-scrypted.git",
+    "url": "https://github.com/caplaz/eufy-security-scrypted.git",
     "directory": "packages/eufy-security-client"
   },
   "bugs": {
-    "url": "https://github.com/acerbetti/eufy-security-scrypted/issues"
+    "url": "https://github.com/caplaz/eufy-security-scrypted/issues"
   },
-  "homepage": "https://github.com/acerbetti/eufy-security-scrypted/tree/main/packages/eufy-security-client#readme",
+  "homepage": "https://github.com/caplaz/eufy-security-scrypted/tree/main/packages/eufy-security-client#readme",
   "dependencies": {
     "tslog": "^4.9.3",
     "ws": "^8.18.2"

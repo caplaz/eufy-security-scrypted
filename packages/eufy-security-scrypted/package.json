@@ -41,11 +41,20 @@
     "iot"
   ],
   "author": {
-    "name": "Scrypted Team",
-    "email": "support@scrypted.app",
-    "url": "https://scrypted.app"
+    "name": "Stefano Acerbetti",
+    "email": "stefano@caplaz.com",
+    "url": "https://www.caplaz.com"
   },
   "license": "MIT",
+  "homepage": "https://github.com/caplaz/eufy-security-scrypted/tree/main/packages/eufy-security-scrypted#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/caplaz/eufy-security-scrypted.git",
+    "directory": "packages/eufy-security-scrypted"
+  },
+  "bugs": {
+    "url": "https://github.com/caplaz/eufy-security-scrypted/issues"
+  },
   "scrypted": {
     "rollup": false,
     "name": "Eufy Security Plugin",

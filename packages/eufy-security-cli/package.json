@@ -49,19 +49,19 @@
     "home-security"
   ],
   "author": {
-    "name": "Scrypted Team",
-    "email": "support@scrypted.app",
-    "url": "https://scrypted.app"
+    "name": "Stefano Acerbetti",
+    "email": "stefano@caplaz.com",
+    "url": "https://www.caplaz.com"
   },
   "license": "MIT",
-  "homepage": "https://github.com/acerbetti/eufy-security-scrypted/tree/main/packages/eufy-security-cli#readme",
+  "homepage": "https://github.com/caplaz/eufy-security-scrypted/tree/main/packages/eufy-security-cli#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/acerbetti/eufy-security-scrypted.git",
+    "url": "https://github.com/caplaz/eufy-security-scrypted.git",
     "directory": "packages/eufy-security-cli"
   },
   "bugs": {
-    "url": "https://github.com/acerbetti/eufy-security-scrypted/issues"
+    "url": "https://github.com/caplaz/eufy-security-scrypted/issues"
   },
   "dependencies": {
     "@caplaz/eufy-security-client": "file:../eufy-security-client",
