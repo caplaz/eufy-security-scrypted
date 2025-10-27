@@ -14,10 +14,7 @@ import {
   ResponseMediaStreamOptions,
 } from "@scrypted/sdk";
 import sdk from "@scrypted/sdk";
-import {
-  VideoQuality,
-  requiresErrorResilience,
-} from "@caplaz/eufy-security-client";
+import { VideoQuality } from "@caplaz/eufy-security-client";
 import { Logger, ILogObj } from "tslog";
 import { IStreamServer } from "./types";
 
@@ -53,16 +50,8 @@ export class StreamService {
   constructor(
     private serialNumber: string,
     private streamServer: IStreamServer,
-    private logger: Logger<ILogObj>,
-    private deviceType?: number
+    private logger: Logger<ILogObj>
   ) {}
-
-  /**
-   * Update the device type (called after properties are loaded)
-   */
-  setDeviceType(deviceType: number): void {
-    this.deviceType = deviceType;
-  }
 
   /**
    * Get video dimensions based on quality setting
@@ -170,9 +159,8 @@ export class StreamService {
   /**
    * Create an optimized MediaObject for FFmpeg streaming
    *
-   * Configures FFmpeg with low-latency H.264 settings optimized for
-   * Eufy camera streams, including special handling for battery cameras
-   * and front cameras that require longer analysis time.
+   * Configures FFmpeg with simplified settings for reliable Eufy camera streaming.
+   * Uses basic H.264 input with increased analysis time for header detection.
    *
    * @param port - TCP port where stream server is listening
    * @param quality - Video quality setting
@@ -186,40 +174,23 @@ export class StreamService {
   ): Promise<MediaObject> {
     const { width, height } = this.getVideoDimensions(quality);
 
-    // FFmpeg configuration optimized for low-latency H.264 streaming with balanced error handling
+    // Simplified FFmpeg configuration for reliable Eufy camera streaming
     const ffmpegInput: FFmpegInput = {
       url: undefined,
       inputArguments: [
-        "-f",
-        "h264", // Default to h264, will be updated when metadata is available
-        "-framerate",
-        "25", // Default framerate, will be updated when metadata is available
+        "-use_wallclock_as_timestamps",
+        "1", // Critical for Eufy streams - fixes timestamp issues
         "-analyzeduration",
-        "5000000", // Increased analysis time (5M) to find SPS/PPS for front camera
+        "5000000", // Increased analysis time to find SPS/PPS headers
         "-probesize",
-        "5000000", // Increased probe size (5M) to find SPS/PPS for front camera
-        "-fflags",
-        "+nobuffer+fastseek+flush_packets+discardcorrupt+igndts+genpts", // Low-latency flags + ignore timestamps
-        "-flags",
-        "low_delay", // Minimize buffering delay
-        "-avioflags",
-        "direct", // Direct I/O access
-        "-max_delay",
-        "1000", // Allow more delay for stream analysis
-        "-thread_queue_size",
-        "768", // Balanced thread queue size
-        "-hwaccel",
-        "auto", // Enable hardware acceleration if available
-        "-err_detect",
-        "ignore_err+crccheck", // Selective error tolerance for battery cameras
-        "-c:v",
-        "h264", // Explicitly specify H.264 decoder
-        // Enable error resilience only for cameras that require it (e.g., SoloCam S340 with data partitioning)
-        ...(this.deviceType && requiresErrorResilience(this.deviceType)
-          ? ["-enable_er", "1"]
-          : []),
+        "5000000", // Increased probe size to find SPS/PPS headers
+        "-f",
+        "h264", // Explicitly specify H.264 format
         "-i",
-        `tcp://127.0.0.1:${port}`, // TCP input source
+        `tcp://127.0.0.1:${port}`, // TCP input from local stream server
+        "-an", // Disable audio
+        "-sn", // Disable subtitles
+        "-dn", // Disable data streams
       ],
       mediaStreamOptions: {
         id: options?.id || "main",

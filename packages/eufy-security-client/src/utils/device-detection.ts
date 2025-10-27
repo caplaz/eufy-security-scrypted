@@ -330,14 +330,6 @@ export const SMART_DROP_TYPES = new Set<number>([DeviceType.SMART_DROP]);
 export const KEYPAD_TYPES = new Set<number>([DeviceType.KEYPAD]);
 
 /**
- * Camera device types that require FFmpeg error resilience for H.264 data partitioning.
- * Currently includes SoloCam S340, but may be extended to other cameras with similar issues.
- */
-export const ERROR_RESILIENT_CAMERA_TYPES = new Set<number>([
-  DeviceType.OUTDOOR_PT_CAMERA, // SoloCam S340
-]);
-
-/**
  * Device Detection Functions
  *
  * These functions provide efficient device type classification and capability detection
@@ -681,19 +673,6 @@ export function canPanTilt(deviceType: number): boolean {
  */
 export function isDeviceSupported(deviceType: number): boolean {
   return SUPPORTED_DEVICE_TYPES.has(deviceType);
-}
-
-/**
- * Determines if a device type requires FFmpeg error resilience for H.264 data partitioning.
- *
- * These cameras may have streaming issues with H.264 data partitioning that require
- * special FFmpeg flags (-enable_er 1) to handle corrupted or incomplete frames.
- *
- * @param deviceType - The Eufy device type identifier
- * @returns True if the device requires error resilience settings
- */
-export function requiresErrorResilience(deviceType: number): boolean {
-  return ERROR_RESILIENT_CAMERA_TYPES.has(deviceType);
 }
 
 /**
