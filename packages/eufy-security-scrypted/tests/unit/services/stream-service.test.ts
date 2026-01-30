@@ -5,7 +5,7 @@
 import { StreamService } from "../../../src/services/device/stream-service";
 import { IStreamServer } from "../../../src/services/device/types";
 import { Logger, ILogObj } from "tslog";
-import { VideoQuality, DeviceType } from "@caplaz/eufy-security-client";
+import { VideoQuality } from "@caplaz/eufy-security-client";
 import { MediaObject } from "@scrypted/sdk";
 import sdk from "@scrypted/sdk";
 
@@ -53,7 +53,7 @@ describe("StreamService", () => {
       mockMediaObject
     );
 
-    service = new StreamService(serialNumber, mockStreamServer, mockLogger);
+    service = new StreamService(serialNumber, mockStreamServer, mockLogger, () => undefined);
   });
 
   afterEach(async () => {
@@ -358,100 +358,163 @@ describe("StreamService", () => {
     });
   });
 
-  describe("device type-specific FFmpeg configuration", () => {
-    it("should include error resilience for SoloCam S340 (OUTDOOR_PT_CAMERA)", async () => {
-      service.setDeviceType(DeviceType.OUTDOOR_PT_CAMERA);
-      await service.getVideoStream(VideoQuality.HIGH);
+  describe("RTSP support", () => {
+    let serviceWithRTSP: StreamService;
+    let mockGetDeviceProperties: jest.Mock;
 
-      const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
-        .calls[0][0];
-      const args = call.inputArguments;
-
-      expect(args).toContain("-enable_er");
-      expect(args).toContain("1");
+    beforeEach(() => {
+      mockGetDeviceProperties = jest.fn();
+      serviceWithRTSP = new StreamService(
+        serialNumber,
+        mockStreamServer,
+        mockLogger,
+        mockGetDeviceProperties
+      );
     });
 
-    it("should not include error resilience for other camera types", async () => {
-      service.setDeviceType(DeviceType.CAMERA); // Regular camera
-      await service.getVideoStream(VideoQuality.HIGH);
-
-      const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
-        .calls[0][0];
-      const args = call.inputArguments;
-
-      expect(args).not.toContain("-enable_er");
-      expect(args).not.toContain("1");
+    afterEach(async () => {
+      await serviceWithRTSP.dispose();
     });
 
-    it("should not include error resilience when device type is not set", async () => {
-      // Device type not set (undefined)
-      await service.getVideoStream(VideoQuality.HIGH);
+    describe("supportsRTSP", () => {
+      it("should return true when RTSP is supported", () => {
+        mockGetDeviceProperties.mockReturnValue({
+          rtspStream: true,
+          rtspStreamUrl: "rtsp://192.168.1.100:554/live",
+        });
 
-      const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
-        .calls[0][0];
-      const args = call.inputArguments;
+        // Access private method for testing
+        const supportsRTSP = (serviceWithRTSP as any).supportsRTSP();
+        expect(supportsRTSP).toBe(true);
+      });
 
-      expect(args).not.toContain("-enable_er");
-      expect(args).not.toContain("1");
+      it("should return false when RTSP is not enabled", () => {
+        mockGetDeviceProperties.mockReturnValue({
+          rtspStream: false,
+          rtspStreamUrl: "rtsp://192.168.1.100:554/live",
+        });
+
+        const supportsRTSP = (serviceWithRTSP as any).supportsRTSP();
+        expect(supportsRTSP).toBe(false);
+      });
+
+      it("should return false when RTSP URL is missing", () => {
+        mockGetDeviceProperties.mockReturnValue({
+          rtspStream: true,
+          rtspStreamUrl: undefined,
+        });
+
+        const supportsRTSP = (serviceWithRTSP as any).supportsRTSP();
+        expect(supportsRTSP).toBe(false);
+      });
+
+      it("should return false when properties are undefined", () => {
+        mockGetDeviceProperties.mockReturnValue(undefined);
+
+        const supportsRTSP = (serviceWithRTSP as any).supportsRTSP();
+        expect(supportsRTSP).toBe(false);
+      });
     });
 
-    it("should not include error resilience for indoor cameras", async () => {
-      service.setDeviceType(DeviceType.INDOOR_CAMERA);
-      await service.getVideoStream(VideoQuality.HIGH);
+    describe("getVideoStreamOptions", () => {
+      it("should include RTSP option when supported", () => {
+        mockGetDeviceProperties.mockReturnValue({
+          rtspStream: true,
+          rtspStreamUrl: "rtsp://192.168.1.100:554/live",
+        });
 
-      const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
-        .calls[0][0];
-      const args = call.inputArguments;
+        const options = serviceWithRTSP.getVideoStreamOptions(VideoQuality.HIGH);
 
-      expect(args).not.toContain("-enable_er");
-      expect(args).not.toContain("1");
+        expect(options).toHaveLength(2);
+        expect(options[0]).toEqual({
+          id: "p2p",
+          name: "P2P Stream",
+          container: "h264",
+          video: {
+            codec: "h264",
+            width: 1920,
+            height: 1080,
+          },
+        });
+        expect(options[1]).toEqual({
+          id: "rtsp",
+          name: "RTSP Stream",
+          container: "rtsp",
+          video: {
+            codec: "h264",
+            width: 1920,
+            height: 1080,
+          },
+        });
+      });
+
+      it("should only include P2P option when RTSP not supported", () => {
+        mockGetDeviceProperties.mockReturnValue({
+          rtspStream: false,
+        });
+
+        const options = serviceWithRTSP.getVideoStreamOptions(VideoQuality.HIGH);
+
+        expect(options).toHaveLength(1);
+        expect(options[0].id).toBe("p2p");
+      });
     });
 
-    it("should not include error resilience for battery doorbells", async () => {
-      service.setDeviceType(DeviceType.BATTERY_DOORBELL);
-      await service.getVideoStream(VideoQuality.HIGH);
+    describe("getVideoStream RTSP", () => {
+      beforeEach(() => {
+        mockGetDeviceProperties.mockReturnValue({
+          rtspStream: true,
+          rtspStreamUrl: "rtsp://192.168.1.100:554/live",
+        });
+      });
 
-      const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
-        .calls[0][0];
-      const args = call.inputArguments;
+      it("should create RTSP stream when requested", async () => {
+        const result = await serviceWithRTSP.getVideoStream(VideoQuality.HIGH, {
+          id: "rtsp",
+        });
 
-      expect(args).not.toContain("-enable_er");
-      expect(args).not.toContain("1");
-    });
-  });
+        expect(result).toBeDefined();
+        expect(sdk.mediaManager.createFFmpegMediaObject).toHaveBeenCalledWith(
+          expect.objectContaining({
+            url: "rtsp://192.168.1.100:554/live",
+            inputArguments: expect.arrayContaining([
+              "-rtsp_transport",
+              "tcp",
+              "-i",
+              "rtsp://192.168.1.100:554/live",
+            ]),
+            mediaStreamOptions: expect.objectContaining({
+              id: "rtsp",
+              name: "Eufy RTSP Stream",
+              container: "rtsp",
+              video: expect.objectContaining({
+                codec: "h264",
+                width: 1920,
+                height: 1080,
+              }),
+            }),
+          })
+        );
+      });
 
-  describe("setDeviceType", () => {
-    it("should update device type", async () => {
-      service.setDeviceType(DeviceType.OUTDOOR_PT_CAMERA);
-      await service.getVideoStream(VideoQuality.HIGH);
+      it("should not start P2P stream server for RTSP requests", async () => {
+        await serviceWithRTSP.getVideoStream(VideoQuality.HIGH, {
+          id: "rtsp",
+        });
 
-      const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
-        .calls[0][0];
-      const args = call.inputArguments;
+        expect(mockStreamServer.start).not.toHaveBeenCalled();
+      });
 
-      // Should include error resilience for SoloCam S340
-      expect(args).toContain("-enable_er");
-      expect(args).toContain("1");
-    });
+      it("should throw error when RTSP URL is not available", async () => {
+        mockGetDeviceProperties.mockReturnValue({
+          rtspStream: true,
+          rtspStreamUrl: undefined,
+        });
 
-    it("should allow changing device type dynamically", async () => {
-      // Start with SoloCam S340
-      service.setDeviceType(DeviceType.OUTDOOR_PT_CAMERA);
-      await service.getVideoStream(VideoQuality.HIGH);
-
-      let call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
-        .calls[0][0];
-      let args = call.inputArguments;
-      expect(args).toContain("-enable_er");
-
-      // Change to regular camera
-      service.setDeviceType(DeviceType.CAMERA);
-      await service.getVideoStream(VideoQuality.HIGH);
-
-      call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
-        .calls[1][0];
-      args = call.inputArguments;
-      expect(args).not.toContain("-enable_er");
+        await expect(
+          serviceWithRTSP.getVideoStream(VideoQuality.HIGH, { id: "rtsp" })
+        ).rejects.toThrow("RTSP URL not available for this device");
+      });
     });
   });
 });

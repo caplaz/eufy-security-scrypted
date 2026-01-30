@@ -16,10 +16,10 @@ import {
 import sdk from "@scrypted/sdk";
 import {
   VideoQuality,
-  requiresErrorResilience,
 } from "@caplaz/eufy-security-client";
 import { Logger, ILogObj } from "tslog";
 import { IStreamServer } from "./types";
+import { DeviceProperties } from "@caplaz/eufy-security-client";
 
 /**
  * Video dimensions based on quality
@@ -54,14 +54,27 @@ export class StreamService {
     private serialNumber: string,
     private streamServer: IStreamServer,
     private logger: Logger<ILogObj>,
-    private deviceType?: number
+    private getDeviceProperties: () => DeviceProperties | undefined
   ) {}
 
   /**
-   * Update the device type (called after properties are loaded)
+   * Check if the device supports RTSP streaming
+   *
+   * @returns true if RTSP is supported and URL is available
    */
-  setDeviceType(deviceType: number): void {
-    this.deviceType = deviceType;
+  private supportsRTSP(): boolean {
+    const properties = this.getDeviceProperties();
+    return !!(properties?.rtspStream && properties?.rtspStreamUrl);
+  }
+
+  /**
+   * Get the RTSP URL for the device
+   *
+   * @returns RTSP URL if available, undefined otherwise
+   */
+  private getRTSPUrl(): string | undefined {
+    const properties = this.getDeviceProperties();
+    return properties?.rtspStreamUrl;
   }
 
   /**
@@ -93,19 +106,35 @@ export class StreamService {
    */
   getVideoStreamOptions(quality?: VideoQuality): ResponseMediaStreamOptions[] {
     const { width, height } = this.getVideoDimensions(quality);
+    const options: ResponseMediaStreamOptions[] = [];
 
-    return [
-      {
-        id: "p2p",
-        name: "P2P Stream",
-        container: "h264", // Raw H.264 stream (not MP4 container)
+    // Always include P2P stream option
+    options.push({
+      id: "p2p",
+      name: "P2P Stream",
+      container: "h264", // Raw H.264 stream (not MP4 container)
+      video: {
+        codec: "h264",
+        width,
+        height,
+      },
+    });
+
+    // Add RTSP stream option if supported
+    if (this.supportsRTSP()) {
+      options.push({
+        id: "rtsp",
+        name: "RTSP Stream",
+        container: "rtsp",
         video: {
           codec: "h264",
           width,
           height,
         },
-      },
-    ];
+      });
+    }
+
+    return options;
   }
 
   /**
@@ -122,7 +151,15 @@ export class StreamService {
     quality: VideoQuality | undefined,
     options?: RequestMediaStreamOptions
   ): Promise<MediaObject> {
-    this.logger.info("Getting video stream, starting stream server if needed");
+    // Check if RTSP stream is requested
+    if (options?.id === "rtsp") {
+      return this.getRTSPStream(quality, options);
+    }
+
+    // Default to P2P stream
+    this.logger.info(
+      "Getting P2P video stream, starting stream server if needed"
+    );
 
     if (!this.streamServerStarted) {
       this.logger.info("Starting stream server...");
@@ -142,6 +179,58 @@ export class StreamService {
     );
 
     return await this.createOptimizedMediaObject(port, quality, options);
+  }
+
+  /**
+   * Get RTSP video stream media object
+   *
+   * Creates a MediaObject that connects directly to the RTSP URL
+   * without using the P2P stream server.
+   *
+   * @param quality - Video quality setting
+   * @param options - Request options from Scrypted
+   * @returns MediaObject for RTSP streaming
+   */
+  private async getRTSPStream(
+    quality: VideoQuality | undefined,
+    options?: RequestMediaStreamOptions
+  ): Promise<MediaObject> {
+    const rtspUrl = this.getRTSPUrl();
+    if (!rtspUrl) {
+      throw new Error("RTSP URL not available for this device");
+    }
+
+    this.logger.info(`Getting RTSP video stream from: ${rtspUrl}`);
+
+    const { width, height } = this.getVideoDimensions(quality);
+
+    // FFmpeg configuration for RTSP streaming
+    const ffmpegInput: FFmpegInput = {
+      url: rtspUrl,
+      inputArguments: [
+        "-rtsp_transport",
+        "tcp", // Use TCP for RTSP transport
+        "-i",
+        rtspUrl,
+        "-an", // Disable audio
+        "-sn", // Disable subtitles
+        "-dn", // Disable data streams
+      ],
+      mediaStreamOptions: {
+        id: options?.id || "rtsp",
+        name: options?.name || "Eufy RTSP Stream",
+        container: options?.container || "rtsp",
+        video: {
+          codec: "h264",
+          width,
+          height,
+          ...options?.video, // Use provided video options
+        },
+        // Audio support can be added later when needed
+      },
+    };
+
+    return await sdk.mediaManager.createFFmpegMediaObject(ffmpegInput);
   }
 
   /**
@@ -214,10 +303,6 @@ export class StreamService {
         "ignore_err+crccheck", // Selective error tolerance for battery cameras
         "-c:v",
         "h264", // Explicitly specify H.264 decoder
-        // Enable error resilience only for cameras that require it (e.g., SoloCam S340 with data partitioning)
-        ...(this.deviceType && requiresErrorResilience(this.deviceType)
-          ? ["-enable_er", "1"]
-          : []),
         "-i",
         `tcp://127.0.0.1:${port}`, // TCP input source
       ],
