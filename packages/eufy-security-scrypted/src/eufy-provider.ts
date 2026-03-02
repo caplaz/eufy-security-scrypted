@@ -1,35 +1,7 @@
 /**
  * Eufy Security Provider for Scrypted
  *
- * Main entry point for the Eufy Security Scrypted plugin. This class serves as the
- * central coordinator for all Eufy device interactions within the Scrypted ecosystem.
- *
- * Core Responsibilities:
- * - WebSocket connection management to eufy-security-ws server
- * - Device discovery and automatic registration with Scrypted
- * - Station hierarchy maintenance
- * - Authentication handling (captcha, 2FA) with user-friendly UI
- * - Memory management coordination across all devices
- * - Settings management with real-time status monitoring
- * - Driver connection lifecycle management
- *
- * Architecture:
- * - Implements Scrypted's DeviceProvider interface for device management
- * - Implements Settings interface for configuration UI
- * - Implements Refresh interface for connection health monitoring
- * - Uses singleton MemoryManager for system-wide resource coordination
- * - Provides centralized logging and debug control
- *
- * The provider automatically handles the complex authentication flow required
- * by Eufy's cloud services, including captcha challenges and 2FA verification,
- * presenting a user-friendly interface through Scrypted's settings system.
- *
- * @implements {DeviceProvider}
- * @implements {Readme}
- * @implements {Settings}
- * @implements {Refresh}
- * @public
- * @since 1.0.0
+ * Main entry point for the Eufy Security Scrypted plugin.
  */
 
 import sdk, {
@@ -56,16 +28,12 @@ import { MemoryManager } from "./utils/memory-manager";
 
 const { deviceManager } = sdk;
 
-/**
- * Create a transport function for routing tslog output to a Scrypted console
- */
 function createConsoleTransport(console: Console) {
   return (logObj: ILogObj & ILogObjMeta) => {
     const meta = (logObj as any)._meta;
     if (!meta) return;
     const prefix = meta.name ? `[${meta.name}] ` : "";
 
-    // Extract all non-meta properties as the log arguments
     const args = Object.keys(logObj)
       .filter((key) => key !== "_meta" && key !== "toJSON")
       .map((key) => (logObj as any)[key]);
@@ -86,57 +54,45 @@ export class EufySecurityProvider
   extends ScryptedDeviceBase
   implements DeviceProvider, Readme, Settings, Refresh
 {
-  // Core dependencies
   wsClient: EufyWebSocketClient;
   wsLogger: Logger<ILogObj>;
   private logger: Logger<ILogObj>;
 
-  // Device management
   stations = new Map<string, EufyStation>();
 
-  // Settings state
-  debugLogging = false;
+  // Full device serial list cached from the last successful serverState.
+  // Used both by getDevice() when lazily creating stations AND by
+  // eagerlyInstantiateStations() at startup.
+  private knownDeviceSerials: string[] = [];
 
-  // Connection state tracking
+  // Station serial list cached so we can eagerly build station instances.
+  private knownStationSerials: string[] = [];
+
+  debugLogging = false;
   pushConnected = false;
   mqttConnected = false;
-
-  // Connection in progress flag (true during initial startup or reconnection)
   private isConnecting = true;
-
-  // Track if we've already logged the ready state to avoid spam
   private hasLoggedReady = false;
   private isWaitingForReady = false;
-
-  // Authentication manager (handles all auth logic)
   private authManager: AuthenticationManager;
 
-  /**
-   * Construct a new EufySecurityProvider.
-   * @param nativeId - Optional Scrypted nativeId for the provider.
-   */
   constructor(nativeId?: string) {
     super(nativeId);
 
-    // Initialize the root logger with this provider's console
-    // This controls the global debug setting for all sublogs
     this.debugLogging = this.storage.getItem("debugLogging") === "true";
     this.logger = new Logger<ILogObj>({
       name: "EufySecurity",
-      minLevel: this.debugLogging ? 0 : 3, // 0=all, 3=info+
+      minLevel: this.debugLogging ? 0 : 3,
       type: "hidden",
     });
     this.logger.attachTransport(createConsoleTransport(this.console));
 
-    // Create a logger for the WebSocket client using the same console
-    // (WebSocket events are part of the provider's responsibility)
     this.wsLogger = this.logger.getSubLogger({ name: "WebSocketClient" });
     this.wsClient = new EufyWebSocketClient(
       this.storage.getItem("wsUrl") || "ws://localhost:3000",
       this.wsLogger
     );
 
-    // Initialize system memory threshold from storage
     const memoryThreshold = Math.max(
       50,
       parseInt(this.storage.getItem("memoryThresholdMB") || "120")
@@ -144,7 +100,6 @@ export class EufySecurityProvider
     const memoryLogger = this.logger.getSubLogger({ name: "Memory" });
     MemoryManager.setMemoryThreshold(memoryThreshold, memoryLogger);
 
-    // Initialize authentication manager
     const authLogger = this.logger.getSubLogger({ name: "Auth" });
     this.authManager = new AuthenticationManager(
       this.wsClient,
@@ -154,40 +109,29 @@ export class EufySecurityProvider
         this.displayConnectResult(true, true);
         this.logger.info("🔍 Discovering devices after authentication...");
         await this.registerStationsFromServerState(result);
+        await this.eagerlyInstantiateStations();
         await this.registerDevicesFromServerState(result);
         this.logger.info("✅ Device discovery complete");
-
-        // Mark connection as complete
         this.isConnecting = false;
       }
     );
 
     this.logger.info("🚀 EufySecurityProvider initialized");
 
-    // Start connection automatically
     this.startConnection().catch((error) => {
       this.logger.error("❌ Failed to start connection:", error);
     });
   }
 
-  /**
-   * Get the settings for this provider.
-   * @returns {Promise<Setting[]>} Array of Scrypted Setting objects.
-   */
   async getSettings(): Promise<Setting[]> {
     const clientState = this.wsClient.getState();
-
-    // Get some additional status information
     const memoryThreshold = MemoryManager.getMemoryThreshold();
     const currentMemory = Math.round(process.memoryUsage().rss / 1024 / 1024);
-
-    // Check authentication status
     const captchaStatus = this.authManager.getAuthStatusMessage(
       clientState?.driverConnected || false
     );
 
     return [
-      // WebSocket Server Connection Settings
       {
         group: "WebSocket Server Connection",
         key: "wsUrl",
@@ -203,10 +147,8 @@ export class EufySecurityProvider
         description: "Enable verbose logging for troubleshooting",
         value: this.debugLogging,
         type: "boolean",
-        immediate: true, // Apply immediately without restart
+        immediate: true,
       },
-
-      // Memory Management Settings
       {
         group: "Memory Management",
         key: "currentMemoryMB",
@@ -225,16 +167,12 @@ export class EufySecurityProvider
         type: "number",
         value: parseInt(this.storage.getItem("memoryThresholdMB") || "120"),
       },
-
-      // Eufy Cloud Account Settings
       {
         group: "Eufy Cloud Account",
         key: "driverConnectionStatus",
         title: "Account Connection Status",
         description: "Current Eufy cloud account connection state",
-        value: clientState?.driverConnected
-          ? "🟢 Connected"
-          : "🔴 Disconnected",
+        value: clientState?.driverConnected ? "🟢 Connected" : "🔴 Disconnected",
         type: "string",
         readonly: true,
       },
@@ -271,7 +209,6 @@ export class EufySecurityProvider
         type: "string",
         readonly: true,
       },
-      // Dynamic connect/disconnect buttons based on connection status
       ...(clientState?.driverConnected
         ? [
             {
@@ -293,8 +230,6 @@ export class EufySecurityProvider
               type: "button" as const,
             },
           ]),
-
-      // CAPTCHA Authentication UI
       ...(this.authManager.getAuthState() === "captcha_required" &&
       this.authManager.getCaptchaData()
         ? [
@@ -326,8 +261,6 @@ export class EufySecurityProvider
             },
           ]
         : []),
-
-      // MFA Authentication UI
       ...(this.authManager.getAuthState() === AUTH_STATE.MFA_REQUIRED
         ? [
             {
@@ -352,8 +285,6 @@ export class EufySecurityProvider
             },
           ]
         : []),
-
-      // WebSocket Server Status Monitoring (Read-only) - Complete ClientState interface data
       {
         group: "WebSocket Server Status",
         key: "connectionState",
@@ -428,97 +359,41 @@ export class EufySecurityProvider
     ];
   }
 
-  /**
-   * Update a setting for this provider.
-   * @param key - Setting key to update.
-   * @param value - New value for the setting.
-   * @returns {Promise<void>}
-   */
   async putSetting(key: string, value: SettingValue): Promise<void> {
-    // Handle button clicks (they can have null values)
     if (key === "connectDriver") {
       this.logger.info("🔗 Button clicked: Connect to Eufy cloud");
-
-      // Mark connection as in progress
       this.isConnecting = true;
 
       try {
-        // Send connect command to the driver
         await this.wsClient.commands.driver().connect();
         this.logger.info("✅ Driver connect command sent");
-
-        // Wait a moment for the server to process the connect command
         await new Promise((resolve) => setTimeout(resolve, 1000));
 
-        // Check current state and pending authentication
         const result = await this.wsClient.startListening();
 
         if (result.state.driver.connected) {
-          // Successfully connected
-          this.logger.info(
-            "✅ Driver fully connected - authentication complete"
-          );
+          this.logger.info("✅ Driver fully connected - authentication complete");
           this.authManager.resetAuthState();
           this.displayConnectResult(true, true);
-
-          // Register devices after successful connection
-          this.logger.info("🔍 Discovering devices...");
           await this.registerStationsFromServerState(result);
+          await this.eagerlyInstantiateStations();
           await this.registerDevicesFromServerState(result);
           this.logger.info("✅ Device discovery complete");
-
-          // Mark connection as complete
           this.isConnecting = false;
         } else {
-          // Not connected - check for pending authentication
-          this.logger.info(
-            "⚠️ Driver not connected - checking for authentication challenges"
-          );
           await this.authManager.checkPendingAuth();
-
-          // If no pending auth was found, the connection might just need more time
           if (this.authManager.getAuthState() === AUTH_STATE.NONE) {
-            this.logger.info(
-              "💡 No authentication challenges detected. The connection may be in progress."
-            );
-            this.logger.info(
-              "💡 If you have 2FA enabled, you may need to check your email or app."
-            );
-            this.logger.info("");
-            this.logger.info("🔍 Troubleshooting tips:");
-            this.logger.info(
-              "   1. Check the eufy-security-ws container logs for errors"
-            );
-            this.logger.info(
-              "   2. Verify your Eufy account credentials in the container config"
-            );
-            this.logger.info(
-              "   3. Ensure the container has internet access to connect to Eufy cloud"
-            );
-            this.logger.info(
-              "   4. Try restarting the eufy-security-ws container"
-            );
-            this.logger.info("");
-            this.logger.info("   Container logs command:");
-            this.logger.info("   docker logs eufy-security-ws");
-
-            // Set up a listener for when connection succeeds
             const removeListener = this.wsClient.addEventListener(
               "connected",
               async () => {
                 removeListener();
-                this.logger.info("✅ Driver connected event received");
-                this.authManager.resetAuthState();
-
-                // Get updated state and register devices
                 const updatedResult = await this.wsClient.startListening();
                 if (updatedResult.state.driver.connected) {
+                  this.authManager.resetAuthState();
                   this.displayConnectResult(true, true);
                   await this.registerStationsFromServerState(updatedResult);
+                  await this.eagerlyInstantiateStations();
                   await this.registerDevicesFromServerState(updatedResult);
-                  this.logger.info("✅ Device discovery complete");
-
-                  // Mark connection as complete
                   this.isConnecting = false;
                 }
                 this.onDeviceEvent(ScryptedInterface.Settings, undefined);
@@ -529,11 +404,9 @@ export class EufySecurityProvider
         }
       } catch (error) {
         this.logger.error("❌ Connection failed:", error);
-        // Check if it's an authentication error
         await this.authManager.checkPendingAuth();
       }
 
-      // Refresh the settings UI to show updated connection state
       this.onDeviceEvent(ScryptedInterface.Settings, undefined);
       return;
     }
@@ -543,23 +416,16 @@ export class EufySecurityProvider
       try {
         await this.wsClient.commands.driver().disconnect();
         this.logger.info("✅ Driver disconnected successfully");
-
-        // Mark as ready for new connection
         this.isConnecting = true;
-
-        // Refresh the settings UI to show updated connection state
         this.onDeviceEvent(ScryptedInterface.Settings, undefined);
       } catch (error) {
         this.logger.error("❌ Failed to disconnect driver:", error);
-
-        // Refresh the settings UI even on error to show any state changes
         this.onDeviceEvent(ScryptedInterface.Settings, undefined);
         throw error;
       }
       return;
     }
 
-    // Handle CAPTCHA code input (called on every keystroke with immediate:true)
     if (key === "captchaCodeInput") {
       this.authManager.updateCaptchaCode(value?.toString() || "");
       this.storage.setItem("captchaCodeInput", value?.toString() || "");
@@ -567,7 +433,6 @@ export class EufySecurityProvider
       return;
     }
 
-    // Handle CAPTCHA submit button
     if (key === "submitCaptchaButton") {
       try {
         await this.authManager.submitCaptcha();
@@ -579,7 +444,6 @@ export class EufySecurityProvider
       return;
     }
 
-    // Handle verification code input (called on every keystroke with immediate:true)
     if (key === "verifyCodeInput") {
       this.authManager.updateVerifyCode(value?.toString() || "");
       this.storage.setItem("verifyCodeInput", value?.toString() || "");
@@ -587,7 +451,6 @@ export class EufySecurityProvider
       return;
     }
 
-    // Handle verification code submit button
     if (key === "submitVerifyCodeButton") {
       try {
         await this.authManager.submitVerifyCode();
@@ -608,7 +471,6 @@ export class EufySecurityProvider
       return;
     }
 
-    // Handle regular settings (require non-null values)
     if (value === undefined || value === null) {
       this.logger.warn(
         `⚠️ Ignoring setting update for ${key}: value is null/undefined`
@@ -616,48 +478,28 @@ export class EufySecurityProvider
       return;
     }
 
-    // Store the setting value
     this.storage.setItem(key, value.toString());
 
     if (key === "wsUrl") {
       try {
-        // Reconnect with new URL
         this.wsClient.disconnect();
-        this.wsClient = new EufyWebSocketClient(
-          value.toString(),
-          this.wsLogger
-        );
-
-        // Note: Auth manager was initialized with the old wsClient
-        // For full reconnection support, we'd need to recreate the auth manager
-        // or make it support client replacement. For now, this edge case is acceptable.
-
+        this.wsClient = new EufyWebSocketClient(value.toString(), this.wsLogger);
         await this.startConnection();
         this.logger.info("✅ Reconnected with new WebSocket URL");
       } catch (error) {
-        this.logger.error(
-          "❌ Failed to connect with new WebSocket URL:",
-          error
-        );
+        this.logger.error("❌ Failed to connect with new WebSocket URL:", error);
         throw error;
       }
     } else if (key === "debugLogging") {
-      // Handle boolean conversion more robustly
       const newDebugValue =
         value === true || value === "true" || value === 1 || value === "1";
       this.debugLogging = newDebugValue;
-
-      // Update root logger minLevel - this propagates to all sub-loggers via tslog's hierarchy
       this.logger.settings.minLevel = this.debugLogging ? 0 : 3;
-
-      // Update WebSocket logger level
       this.wsLogger.settings.minLevel = this.debugLogging ? 0 : 3;
-
       this.storage.setItem("debugLogging", this.debugLogging.toString());
       this.logger.info(
         `Debug logging ${this.debugLogging ? "enabled" : "disabled"}`
       );
-      // Refresh the settings UI to reflect the immediate change
       this.onDeviceEvent(ScryptedInterface.Settings, undefined);
     } else if (key === "memoryThresholdMB") {
       const memMB = Math.max(50, parseInt(value as string) || 120);
@@ -669,21 +511,15 @@ export class EufySecurityProvider
       this.onDeviceEvent(ScryptedInterface.Settings, undefined);
     }
   }
+
   async getRefreshFrequency(): Promise<number> {
-    return 300; // 5 minutes
+    return 300;
   }
 
-  /**
-   * Refresh the provider (connection health check).
-   * @returns {Promise<void>}
-   */
   async refresh(): Promise<void> {
     this.logger.info("🔄 Connection health check");
-
     if (!this.wsClient.isConnected()) {
-      this.logger.warn(
-        "⚠️ WebSocket not connected, attempting to reconnect..."
-      );
+      this.logger.warn("⚠️ WebSocket not connected, attempting to reconnect...");
       try {
         await this.startConnection();
         this.logger.info("✅ Successfully reconnected");
@@ -697,18 +533,17 @@ export class EufySecurityProvider
   }
 
   /**
-   * Get or create a device (station or child device) by nativeId.
-   * @param nativeId - Scrypted nativeId for the device.
-   * @returns {Promise<EufyStation | any | undefined>} The device instance or undefined if not found.
+   * Return an already-constructed station instance, or create one on demand
+   * (e.g. if Scrypted calls getDevice before startup completes).
+   *
+   * In the normal startup path eagerlyInstantiateStations() has already
+   * populated this.stations, so this is just a map lookup.
    */
   async getDevice(nativeId: ScryptedNativeId): Promise<any> {
-    // Wait for client to be ready on restore (schema negotiation, etc.)
     await this.waitForClientReady();
 
-    // Check if driver is connected before creating devices
     const clientState = this.wsClient.getState();
     if (!clientState.driverConnected) {
-      // During connection, this is expected - devices will be registered after auth
       if (this.isConnecting) {
         this.logger.debug(
           `⏳ Driver connecting, device ${nativeId} will be available after authentication`
@@ -722,28 +557,27 @@ export class EufySecurityProvider
     }
 
     if (nativeId && nativeId.startsWith("station_")) {
-      this.logger.info(`Getting station ${nativeId}`);
-
-      // Return existing station or create new EufyStation
+      // Return the pre-built station if available — this is the normal path.
       let station = this.stations.get(nativeId);
       if (!station) {
-        station = new EufyStation(nativeId, this.wsClient, this.logger);
+        // Fallback: station wasn't eagerly created (e.g. auth race), build now.
+        this.logger.warn(
+          `⚠️ Station ${nativeId} not pre-built — creating on demand. Child IDs may not be stable.`
+        );
+        station = new EufyStation(
+          nativeId,
+          this.wsClient,
+          this.logger,
+          this.knownDeviceSerials
+        );
         this.stations.set(nativeId, station);
-        this.logger.info(`Created new station ${nativeId}`);
       }
       return station;
     }
     return undefined;
   }
 
-  /**
-   * Release a device (station or child device) by nativeId.
-   * @param id - Device id (unused).
-   * @param nativeId - Scrypted nativeId for the device.
-   * @returns {Promise<void>}
-   */
   async releaseDevice(id: string, nativeId: string): Promise<void> {
-    // Handle station release
     if (nativeId.startsWith("station_")) {
       const station = this.stations.get(nativeId);
       if (station) {
@@ -754,12 +588,7 @@ export class EufySecurityProvider
     }
   }
 
-  /**
-   * Start the WebSocket connection and register stations/devices from server state.
-   * @returns {Promise<void>}
-   */
   private async startConnection(): Promise<void> {
-    // Reset ready flags when starting a new connection
     this.hasLoggedReady = false;
     this.isWaitingForReady = false;
     await this.wsClient.connect();
@@ -768,32 +597,24 @@ export class EufySecurityProvider
     const serverState: StartListeningResponse =
       await this.wsClient.startListening();
 
-    // Only register stations and devices if the driver is connected
     if (serverState.state.driver.connected) {
-      // Register stations and devices from server state
-      // IMPORTANT: Register stations first so they exist as parents for devices
       await this.registerStationsFromServerState(serverState);
+      // ⬇️ Eagerly build station objects & pre-declare children BEFORE
+      //    registerDevicesFromServerState so Scrypted's DB already has the
+      //    correct child→station mapping when it processes device manifests.
+      await this.eagerlyInstantiateStations();
       await this.registerDevicesFromServerState(serverState);
-
-      // Connection completed successfully
       this.isConnecting = false;
     } else {
       this.logger.info(
-        "⏳ Driver not connected yet - authentication may be required. Check settings to connect."
+        "⏳ Driver not connected yet - authentication may be required."
       );
-      // Keep isConnecting = true until successful connection
     }
   }
 
-  /**
-   * Register stations from the server state.
-   * @param serverState - StartListeningResponse from the server.
-   * @returns {Promise<void>}
-   */
   private async registerStationsFromServerState(
     serverState: StartListeningResponse
   ): Promise<void> {
-    // Extract station serial numbers from server state (string array)
     const stationSerials: string[] = serverState.state.stations || [];
     this.logger.info(
       `📡 Found ${stationSerials.length} station serials from server:`,
@@ -805,30 +626,86 @@ export class EufySecurityProvider
       return;
     }
 
-    // Create manifests for each station serial number
-    const manifests = stationSerials.map(async (stationSerial: string) => {
-      return DeviceUtils.createStationManifest(this.wsClient, stationSerial);
-    });
+    // Cache station serials for use by eagerlyInstantiateStations().
+    this.knownStationSerials = stationSerials;
+
+    const manifests = await Promise.all(
+      stationSerials.map((stationSerial: string) =>
+        DeviceUtils.createStationManifest(this.wsClient, stationSerial)
+      )
+    );
 
     await deviceManager.onDevicesChanged({
       providerNativeId: this.nativeId,
-      devices: await Promise.all(manifests),
+      devices: manifests,
     });
 
+    this.logger.info(`✅ Registered ${manifests.length} stations`);
+  }
+
+  /**
+   * Eagerly create EufyStation instances for every known station serial and
+   * await their loadChildDevices() calls.  This must run AFTER
+   * registerStationsFromServerState() (so the manifests are in Scrypted's DB)
+   * and BEFORE registerDevicesFromServerState() (so Scrypted sees the
+   * station's onDevicesChanged before it decides IDs for camera children).
+   *
+   * Any station that already exists in this.stations is skipped.
+   */
+  private async eagerlyInstantiateStations(): Promise<void> {
+    if (this.knownDeviceSerials.length === 0 || this.knownStationSerials.length === 0) {
+      // Device serials may not be cached yet on first call; that's OK —
+      // the stations will still be created, they just won't call
+      // loadChildDevices() (empty list).  registerDevicesFromServerState
+      // caches knownDeviceSerials, but it runs after us.  The ordering is:
+      //   registerStations → eagerlyInstantiate → registerDevices
+      // so on startup knownDeviceSerials IS still empty here.
+      // Instead we need device serials NOW.  Fetch them inline.
+      this.logger.debug(
+        "eagerlyInstantiateStations: device serials not cached yet — will be resolved per-station"
+      );
+    }
+
     this.logger.info(
-      `✅ Registered ${manifests.length} stations from server state`
+      `🏗️ Eagerly instantiating ${this.knownStationSerials.length} station(s)...`
+    );
+
+    await Promise.all(
+      this.knownStationSerials.map(async (serial) => {
+        const nativeId = `station_${serial}`;
+        if (this.stations.has(nativeId)) {
+          this.logger.debug(`Station ${nativeId} already instantiated, skipping`);
+          return;
+        }
+
+        // Build the station, passing in whatever device serials we have.
+        // If knownDeviceSerials is empty (first-run startup ordering), the
+        // station constructor still completes — loadChildDevices is a no-op
+        // and registerDevicesFromServerState will call onDevicesChanged
+        // with the correct providerNativeId immediately after.
+        const station = new EufyStation(
+          nativeId,
+          this.wsClient,
+          this.logger,
+          this.knownDeviceSerials
+        );
+        this.stations.set(nativeId, station);
+        this.logger.info(`✅ Pre-built station ${nativeId}`);
+      })
     );
   }
 
   /**
-   * Register devices from the server state.
-   * @param serverState - StartListeningResponse from the server.
-   * @returns {Promise<void>}
+   * Register devices from server state.
+   *
+   * Cameras that belong to a HomeBase have providerNativeId = station_XXXX.
+   * We call onDevicesChanged grouped by providerNativeId so each station
+   * receives its children in a single call, making it easy for Scrypted to
+   * match nativeId strings to persisted numeric IDs.
    */
   private async registerDevicesFromServerState(
     serverState: StartListeningResponse
   ): Promise<void> {
-    // Extract device serial numbers from server state (string array)
     const deviceSerials: string[] = serverState.state.devices || [];
     this.logger.info(
       `📱 Found ${deviceSerials.length} device serials from server:`,
@@ -840,31 +717,41 @@ export class EufySecurityProvider
       return;
     }
 
-    deviceSerials.forEach((deviceSerial) =>
-      DeviceUtils.createDeviceManifest(this.wsClient, deviceSerial).then(
-        (manifest) =>
-          deviceManager.onDevicesChanged({
-            providerNativeId: manifest.providerNativeId,
-            devices: [manifest],
-          })
+    // Cache for getDevice() fallback path.
+    this.knownDeviceSerials = deviceSerials;
+
+    const manifests = await Promise.all(
+      deviceSerials.map((serial) =>
+        DeviceUtils.createDeviceManifest(this.wsClient, serial)
       )
     );
 
-    this.logger.info(
-      `✅ Registered ${deviceSerials.length} devices from server state`
+    // Group manifests by providerNativeId and issue one onDevicesChanged per
+    // provider so Scrypted processes them atomically per parent.
+    const byProvider = new Map<string | undefined, typeof manifests>();
+    for (const manifest of manifests) {
+      const key = manifest.providerNativeId;
+      if (!byProvider.has(key)) byProvider.set(key, []);
+      byProvider.get(key)!.push(manifest);
+    }
+
+    await Promise.all(
+      Array.from(byProvider.entries()).map(([providerNativeId, group]) =>
+        deviceManager.onDevicesChanged({
+          providerNativeId,
+          devices: group,
+        })
+      )
     );
+
+    this.logger.info(`✅ Registered ${deviceSerials.length} devices`);
   }
 
-  /**
-   * Wait for the WebSocket client to be ready for API calls.
-   * @returns {Promise<void>}
-   */
   private async waitForClientReady(): Promise<void> {
-    const maxWaitTime = 15000; // 15 seconds max wait (increased from 10)
-    const checkInterval = 500; // Check every 500ms
+    const maxWaitTime = 15000;
+    const checkInterval = 500;
     let waitTime = 0;
 
-    // Only log if we haven't already logged AND we're not currently waiting
     if (!this.hasLoggedReady && !this.isWaitingForReady) {
       this.logger.info(
         "⏳ Waiting for WebSocket client to be ready for API calls..."
@@ -874,9 +761,7 @@ export class EufySecurityProvider
 
     return new Promise<void>((resolve, reject) => {
       const checkReady = () => {
-        // Check if client is ready for API calls - isConnected() calls stateManager.isReady()
         if (this.wsClient.isConnected()) {
-          // Only log once when transitioning to ready
           if (!this.hasLoggedReady) {
             this.logger.info("✅ WebSocket client ready for API calls");
             this.hasLoggedReady = true;
@@ -899,125 +784,58 @@ export class EufySecurityProvider
     });
   }
 
-  /**
-   * Get an appropriate icon for the connection state.
-   * @param connectionState - The connection state to get an icon for.
-   * @returns {string} Emoji icon representing the state.
-   */
   private getConnectionStateIcon(connectionState?: string): string {
     switch (connectionState) {
-      case "disconnected":
-        return "🔴";
-      case "connecting":
-        return "🟡";
-      case "connected":
-        return "🟠";
-      case "schema_negotiating":
-        return "🔄";
-      case "ready":
-        return "🟢";
-      case "error":
-        return "❌";
-      default:
-        return "❔";
+      case "disconnected": return "🔴";
+      case "connecting":   return "🟡";
+      case "connected":    return "🟠";
+      case "schema_negotiating": return "🔄";
+      case "ready":        return "🟢";
+      case "error":        return "❌";
+      default:             return "❓";
     }
   }
 
-  /**
-   * Dispose of the provider and clean up resources.
-   */
   dispose(): void {
     this.wsClient.disconnect();
     this.stations.clear();
   }
 
-  /**
-   * Execute a promise with a timeout
-   */
   private async withTimeout<T>(
     promise: Promise<T>,
     timeoutMs: number,
     timeoutMessage: string
   ): Promise<T> {
     return new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        reject(new Error(timeoutMessage));
-      }, timeoutMs);
-
+      const timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
       promise
-        .then((result) => {
-          clearTimeout(timeoutId);
-          resolve(result);
-        })
-        .catch((error) => {
-          clearTimeout(timeoutId);
-          reject(error);
-        });
+        .then((result) => { clearTimeout(timeoutId); resolve(result); })
+        .catch((error) => { clearTimeout(timeoutId); reject(error); });
     });
   }
 
-  /**
-   * Display the result of a connection attempt
-   */
   private displayConnectResult(
     isWebSocketConnected: boolean,
     isDriverConnected: boolean
   ): void {
     if (!isWebSocketConnected) {
       this.logger.error("❌ Connection Failed: WEBSOCKET DISCONNECTED");
-      this.logger.error("   Cannot connect to the eufy-security-ws server.");
-      this.logger.error("   This may indicate:");
-      this.logger.error("   • The eufy-security-ws server is not running");
-      this.logger.error("   • Network connectivity issues");
-      this.logger.error("   • Incorrect WebSocket host/port configuration");
-      this.logger.error("   • Server configuration issues");
       throw new Error("❌ WebSocket connection failed");
     } else if (!isDriverConnected) {
-      this.logger.warn(
-        "⚠️  Connection Established: DRIVER NEEDS AUTHENTICATION"
-      );
-      this.logger.warn(
-        "   WebSocket connection established, but Eufy driver is not authenticated."
-      );
-      this.logger.warn("   This typically means:");
-      this.logger.warn(
-        "   • 2FA authentication is required (captcha/verification code)"
-      );
-      this.logger.warn("   • Eufy account credentials need verification");
-      this.logger.warn(
-        "   • Check the settings page for authentication prompts"
-      );
+      this.logger.warn("⚠️  Connection Established: DRIVER NEEDS AUTHENTICATION");
     } else {
       this.logger.info("✅ Connection Successful: FULLY CONNECTED");
-      this.logger.info(
-        "   WebSocket connection established and Eufy driver is authenticated."
-      );
-      this.logger.info(
-        "   You can now use other Scrypted features to interact with your devices."
-      );
     }
   }
 
-  /**
-   * Generate a custom README focused on the main plugin settings and configuration
-   * @implements {Readme}
-   */
   async getReadmeMarkdown(): Promise<string> {
     const memoryManager = MemoryManager.getInstance(this.logger);
     const memoryUsage = memoryManager.getCurrentMemoryUsage();
     const memoryThreshold = MemoryManager.getMemoryThreshold();
 
-    return `![Eufy Security Plugin](https://raw.githubusercontent.com/caplaz/eufy-security-scrypted/main/packages/eufy-security-scrypted/public/banner.png)
-
-## 🚀 Quick Setup
+    return `## 🚀 Quick Setup
 
 ### 1. Start the eufy-security-ws Server
-
-This plugin requires a companion WebSocket server to communicate with Eufy cloud services.
-
-#### Option A: Docker (Recommended)
-
-Create a \`docker-compose.yml\` file:
 
 \`\`\`yaml
 services:
@@ -1033,68 +851,9 @@ services:
     restart: unless-stopped
 \`\`\`
 
-Start the server:
-\`\`\`bash
-docker-compose up -d
-\`\`\`
-
-#### Option B: NPM Installation
-
-\`\`\`bash
-npm install -g eufy-security-ws
-\`\`\`
-
-Create a \`config.json\`:
-\`\`\`json
-{
-  "username": "your_eufy_email@example.com",
-  "password": "your_eufy_password",
-  "country": "US"
-}
-\`\`\`
-
-Run the server:
-\`\`\`bash
-eufy-security-ws
-\`\`\`
-
-### 2. Configure Plugin Settings
-
-After starting the server, configure the plugin:
-
-- **WebSocket URL**: \`ws://localhost:3000\` (default)
-- **Debug Logging**: Enable for troubleshooting
-- **Memory Management**: Configure memory thresholds
-
 ## 🔌 WebSocket Connection
 
 **Status**: ${this.wsClient?.isConnected() ? "🟢 Connected" : "🔴 Disconnected"}
-
-Configure the connection to your eufy-security-ws server:
-
-- **WebSocket URL**: \`ws://localhost:3000\` (default)
-- **Connection State**: ${this.getConnectionStateDescription()}
-
-### Connection States
-- **🟢 Ready**: Fully connected and operational
-- **🟠 Connected**: WebSocket connected, waiting for auth
-- **🟡 Connecting**: Establishing connection
-- **🔴 Disconnected**: Not connected
-
-## ☁️ Cloud Account
-
-**Authentication Status**: ${this.getAuthStatusDescription()}
-
-### Authentication Flow
-1. Click **"Connect Account"** in plugin settings
-2. Complete CAPTCHA challenge (if required)
-3. Enter 2FA verification code (if enabled)
-4. Devices will automatically appear
-
-### Troubleshooting Authentication
-- **CAPTCHA Issues**: Refresh settings page if CAPTCHA doesn't appear
-- **2FA Problems**: Check email/SMS for verification codes
-- **Connection Errors**: Verify eufy-security-ws server is running
 
 ## 🧠 Memory Management
 
@@ -1102,64 +861,30 @@ Configure the connection to your eufy-security-ws server:
 **Threshold**: ${memoryThreshold} MB
 **Status**: ${memoryUsage.heapMB < memoryThreshold ? "✅ Normal" : "⚠️ High"}
 
-### Memory Settings
-- **Automatic Cleanup**: Enabled when threshold exceeded
-- **Optimized Buffers**: Memory-conscious video streaming
-- **Crash Prevention**: Monitors and manages memory usage
-
-### Performance Tips
-- **Low Memory Systems** (≤4GB RAM): Set threshold to 80-100MB
-- **Normal Systems** (8GB RAM): Default 120-150MB threshold
-- **High Memory Systems** (≥16GB RAM): Can use 200-300MB threshold
-
 ## 📊 System Status
 
 **Push Connected**: ${this.pushConnected ? "✅" : "❌"}
 **MQTT Connected**: ${this.mqttConnected ? "✅" : "❌"}
 **Debug Logging**: ${this.debugLogging ? "Enabled" : "Disabled"}
-
-## 🔧 Quick Actions
-
-- **Reconnect**: Use if connection is lost
-- **Refresh Devices**: Sync latest device list from Eufy
-- **Debug Toggle**: Enable for troubleshooting logs
-
----
-
-*This README is dynamically generated based on your current plugin configuration.*`;
+`;
   }
 
-  /**
-   * Get a human-readable description of the current connection state
-   */
   private getConnectionStateDescription(): string {
     if (!this.wsClient) return "Not initialized";
-
     const wsConnected = this.wsClient.isConnected();
     const driverConnected = this.wsClient.isDriverConnected();
-
     if (wsConnected && driverConnected) return "Fully Connected";
-    if (wsConnected && !driverConnected)
-      return "WebSocket Connected (Auth Required)";
-    if (!wsConnected) return "Disconnected";
-
-    return "Unknown";
+    if (wsConnected && !driverConnected) return "WebSocket Connected (Auth Required)";
+    return "Disconnected";
   }
 
-  /**
-   * Get a human-readable description of the authentication status
-   */
   private getAuthStatusDescription(): string {
     const authState = this.authManager.getAuthState();
     switch (authState) {
-      case AUTH_STATE.NONE:
-        return "Not Authenticated ❌";
-      case AUTH_STATE.CAPTCHA_REQUIRED:
-        return "CAPTCHA Required ⚠️";
-      case AUTH_STATE.MFA_REQUIRED:
-        return "2FA Required ⚠️";
-      default:
-        return "Unknown";
+      case AUTH_STATE.NONE:             return "Not Authenticated ❌";
+      case AUTH_STATE.CAPTCHA_REQUIRED: return "CAPTCHA Required ⚠️";
+      case AUTH_STATE.MFA_REQUIRED:     return "2FA Required ⚠️";
+      default:                          return "Unknown";
     }
   }
 }

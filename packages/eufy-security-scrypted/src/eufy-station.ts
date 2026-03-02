@@ -5,7 +5,7 @@
  * Manages child device registration, station alarm/guard mode, and station configuration.
  */
 
-import {
+import sdk, {
   DeviceProvider,
   Reboot,
   Refresh,
@@ -39,6 +39,8 @@ import {
   securitySystemMap,
 } from "./utils/device-utils";
 
+const { deviceManager } = sdk;
+
 // Helper to create a transport function for routing tslog to Scrypted console
 function createConsoleTransport(console: Console) {
   return (logObj: any) => {
@@ -46,7 +48,6 @@ function createConsoleTransport(console: Console) {
     if (!meta) return;
     const prefix = meta.name ? `[${meta.name}] ` : "";
 
-    // Extract all non-meta properties as the log arguments
     const args = Object.keys(logObj)
       .filter((key) => key !== "_meta" && key !== "toJSON")
       .map((key) => logObj[key]);
@@ -80,7 +81,6 @@ export class EufyStation
 
   /**
    * Get the serial number for this station.
-   * @returns {string} Serial number from device info, or 'unknown' if not set.
    */
   get serialNumber(): string {
     return this.info?.serialNumber || "unknown";
@@ -88,7 +88,6 @@ export class EufyStation
 
   /**
    * Get the API command interface for this station.
-   * @returns {any} API command object for this station's serial number.
    */
   get api() {
     return this.wsClient.commands.station(this.serialNumber);
@@ -96,21 +95,23 @@ export class EufyStation
 
   /**
    * Construct a new EufyStation.
-   * @param nativeId - Scrypted nativeId for this station.
-   * @param wsClient - EufyWebSocketClient instance for API access.
-   * @param parentLogger - Parent logger for hierarchical logging (from provider).
+   *
+   * @param nativeId       - Scrypted nativeId for this station.
+   * @param wsClient       - EufyWebSocketClient instance.
+   * @param parentLogger   - Parent logger (from provider).
+   * @param allDeviceSerials - Full list of known device serials from server state.
+   *                          The station filters these to its own children so we
+   *                          never need the non-existent commands.devices() call.
    */
   constructor(
     nativeId: string,
     wsClient: EufyWebSocketClient,
-    parentLogger: Logger<ILogObj>
+    parentLogger: Logger<ILogObj>,
+    allDeviceSerials: string[] = []
   ) {
     super(nativeId);
     this.wsClient = wsClient;
 
-    // Create a sub-logger with this station's console
-    // This ensures station logs appear in the station's log window
-    // Use attachedTransports: [] to prevent inheriting parent's transport
     const loggerName = nativeId.charAt(0).toUpperCase() + nativeId.slice(1);
     this.logger = parentLogger.getSubLogger({
       name: loggerName,
@@ -127,9 +128,7 @@ export class EufyStation
       }).bind(this)
     );
 
-    this.addEventListener(STATION_EVENTS.GUARD_MODE_CHANGED, (_event) => {
-      // this.handlePropertyChangedEvent(event);
-    });
+    this.addEventListener(STATION_EVENTS.GUARD_MODE_CHANGED, (_event) => {});
 
     this.addEventListener(STATION_EVENTS.CURRENT_MODE_CHANGED, (_event) => {
       this.handlePropertyChangedEvent.bind(this);
@@ -137,6 +136,14 @@ export class EufyStation
 
     // Begin loading initial properties
     this.propertiesLoaded = this.loadInitialProperties();
+
+    // Pre-declare all child devices so Scrypted can match nativeId → numericId
+    // from its persisted database and keep IDs stable across restarts.
+    if (allDeviceSerials.length > 0) {
+      this.loadChildDevices(allDeviceSerials).catch((err) => {
+        this.logger.warn(`Failed to pre-declare child devices: ${err}`);
+      });
+    }
   }
 
   private async loadInitialProperties() {
@@ -145,6 +152,59 @@ export class EufyStation
       this.updateStateFromProperties(this.latestProperties);
     } catch (e) {
       this.logger.warn(`Failed to load initial properties: ${e}`);
+    }
+  }
+
+  /**
+   * Filter allDeviceSerials to those belonging to this station, build their
+   * manifests, and call onDevicesChanged once so Scrypted has an authoritative
+   * child list before it ever calls getDevice().
+   *
+   * We receive the full device list from the provider (which already has it
+   * from serverState.state.devices) so no extra API call is required.
+   */
+  private async loadChildDevices(allDeviceSerials: string[]): Promise<void> {
+    try {
+      const childSerials: string[] = [];
+
+      for (const serial of allDeviceSerials) {
+        try {
+          const props = (
+            await this.wsClient.commands.device(serial).getProperties()
+          ).properties;
+          if (props.stationSerialNumber === this.serialNumber) {
+            childSerials.push(serial);
+          }
+        } catch (e) {
+          this.logger.warn(
+            `Could not fetch properties for device ${serial}: ${e}`
+          );
+        }
+      }
+
+      if (childSerials.length === 0) {
+        this.logger.debug(
+          `No child devices found for station ${this.nativeId}`
+        );
+        return;
+      }
+
+      const manifests = await Promise.all(
+        childSerials.map((serial) =>
+          DeviceUtils.createDeviceManifest(this.wsClient, serial)
+        )
+      );
+
+      await deviceManager.onDevicesChanged({
+        providerNativeId: this.nativeId,
+        devices: manifests,
+      });
+
+      this.logger.info(
+        `✅ Pre-declared ${manifests.length} child device(s) for station ${this.nativeId}`
+      );
+    } catch (err) {
+      this.logger.warn(`loadChildDevices failed for ${this.nativeId}: ${err}`);
     }
   }
 
@@ -193,16 +253,10 @@ export class EufyStation
 
   // =================== DEVICE PROVIDER INTERFACE ===================
 
-  /**
-   * Get or create a child device by nativeId.
-   * @param nativeId - Scrypted nativeId for the child device.
-   * @returns {Promise<EufyDevice>} The child device instance.
-   */
   async getDevice(nativeId: ScryptedNativeId): Promise<any> {
     if (nativeId && nativeId.startsWith("device_")) {
       this.logger.debug(`Getting device ${nativeId}`);
 
-      // Return existing device or create new EufyDevice
       let device = this.childDevices.get(nativeId);
       if (!device) {
         device = new EufyDevice(nativeId, this.wsClient, this.logger);
@@ -214,12 +268,6 @@ export class EufyStation
     return undefined;
   }
 
-  /**
-   * Release a child device by nativeId.
-   * @param id - Device id (unused).
-   * @param nativeId - Scrypted nativeId for the child device.
-   * @returns {Promise<void>}
-   */
   async releaseDevice(id: string, nativeId: ScryptedNativeId): Promise<void> {
     const deviceId = nativeId || "";
     this.logger.debug(`Releasing device ${deviceId}`);
@@ -228,19 +276,6 @@ export class EufyStation
 
   // =================== SETTINGS INTERFACE ===================
 
-  /**
-   * Get the settings for this station.
-   * @returns {Promise<Setting[]>} Array of Scrypted Setting objects.
-   */
-  /**
-   * Retrieves the settings for the Eufy station, including the station name,
-   * generic device information, and security system-specific settings such as
-   * current mode and guard mode. The settings are returned as an array of
-   * `Setting` objects, which can be used for configuration in Scrypted.
-   *
-   * @returns A promise that resolves to an array of `Setting` objects representing
-   * the configurable properties and metadata of the Eufy station.
-   */
   async getSettings(): Promise<Setting[]> {
     await this.propertiesLoaded;
 
@@ -258,32 +293,22 @@ export class EufyStation
         type: "string",
         readonly: false,
       },
-
-      // generic info about this device
       ...DeviceUtils.genericDeviceInformation(info!, metadata),
-
-      // Security system settings
       DeviceUtils.settingFromMetadata(
         metadata["currentMode"],
         this.latestProperties?.currentMode,
-        "Indicates the current operating mode of the security system (e.g., Home, Away, Disarmed). This field is read-only and reflects the system's present state.",
+        "Indicates the current operating mode of the security system.",
         securitySystemGroup
       ),
       DeviceUtils.settingFromMetadata(
         metadata["guardMode"],
         this.latestProperties?.guardMode,
-        "Guard mode determines how the security system responds to events. For example: 'Home' arms only outdoor sensors, 'Away' arms all sensors, and 'Disarmed' disables alarms. Other modes include 'Geofencing' (automatically arms/disarms based on your phone's location) and 'Schedule' (arms/disarms according to a set timetable). Select the mode that matches your current needs.",
+        "Guard mode determines how the security system responds to events.",
         securitySystemGroup
       ),
     ];
   }
 
-  /**
-   * Update a setting for this station.
-   * @param key - Setting key to update.
-   * @param value - New value for the setting.
-   * @returns {Promise<void>}
-   */
   async putSetting(key: string, value: SettingValue): Promise<void> {
     this.logger.debug(`Setting ${key} = ${value}`);
 
@@ -323,48 +348,27 @@ export class EufyStation
     ],
   };
 
-  /**
-   * Arm the security system to a specific mode.
-   * @param mode - SecuritySystemMode to arm to.
-   * @returns {Promise<void>}
-   */
   async armSecuritySystem(mode: SecuritySystemMode): Promise<void> {
-    if (mode === SecuritySystemMode.Disarmed) {
-      this.logger.debug(`Disarming`);
-    } else {
-      this.logger.debug(`Arming to mode ${mode}`);
-    }
-
     if (this.securitySystemState) {
       this.securitySystemState.mode = mode;
     }
-
     this.api.setProperty("guardMode", securitySystemMap[mode]);
   }
 
-  /**
-   * Disarm the security system.
-   * @returns {Promise<void>}
-   */
   async disarmSecuritySystem(): Promise<void> {
     return this.armSecuritySystem(SecuritySystemMode.Disarmed);
   }
 
   // =================== REFRESH ===================
 
-  /**
-   * Get the refresh frequency for this station.
-   * @returns {Promise<number>} Refresh interval in ms.
-   */
   async getRefreshFrequency(): Promise<number> {
-    return 1800; // 30 minutes
+    return 1800;
   }
 
   async refresh(
     refreshInterface?: string,
     userInitiated?: boolean
   ): Promise<void> {
-    // since I don't have a way to get a single property, we just refresh everything
     if (!refreshInterface) {
       try {
         this.latestProperties = (await this.api.getProperties()).properties;
@@ -379,10 +383,6 @@ export class EufyStation
 
   // =================== REBOOT INTERFACE ===================
 
-  /**
-   * Reboot the station.
-   * @returns {Promise<void>}
-   */
   async reboot(): Promise<void> {
     this.logger.info("Rebooting");
     await this.api.reboot();
@@ -390,9 +390,6 @@ export class EufyStation
 
   // =================== UTILITY METHODS ===================
 
-  /**
-   * Dispose of all child devices and clean up resources.
-   */
   dispose(): void {
     this.childDevices.forEach((device) => {
       device.dispose();
