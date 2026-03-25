@@ -94,10 +94,6 @@ export class ConnectionManager extends EventEmitter {
     };
     this.connectionInfo.set(connectionId, connectionInfo);
 
-    this.logger.info(
-      `Client connected: ${connectionId} from ${remoteAddress}:${remotePort}`
-    );
-
     // Set up socket event handlers
     socket.on("close", () => {
       this.handleDisconnection(connectionId);
@@ -140,7 +136,6 @@ export class ConnectionManager extends EventEmitter {
       this.connectionInfo.delete(connectionId);
     }
 
-    this.logger.info(`Client disconnected: ${connectionId}`);
     this.emit("clientDisconnected", connectionId);
   }
 

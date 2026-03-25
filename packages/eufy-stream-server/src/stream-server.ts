@@ -113,6 +113,10 @@ export class StreamServer extends EventEmitter {
   private cachedSPS: Buffer | null = null;
   private cachedPPS: Buffer | null = null;
 
+  // Cached keyframe (IDR) for immediate playback when clients connect
+  // This allows new clients to start decoding immediately without waiting for next keyframe
+  private cachedKeyframe: Buffer | null = null;
+
   constructor(options: StreamServerOptions) {
     super();
 
@@ -187,18 +191,19 @@ export class StreamServer extends EventEmitter {
   }
 
   /**
-   * Send cached SPS/PPS headers to a specific client
-   * This ensures new clients can immediately decode the stream
+   * Send cached SPS/PPS headers and keyframe to a specific client
+   * This ensures new clients can immediately decode the stream without waiting for next keyframe
    * @param connectionId - The connection ID to send headers to
    */
   private sendCachedHeaders(connectionId: string): void {
-    if (!this.cachedSPS && !this.cachedPPS) {
+    if (!this.cachedSPS && !this.cachedPPS && !this.cachedKeyframe) {
       this.logger.debug(
-        `No cached SPS/PPS headers available for client ${connectionId}`
+        `No cached headers/keyframe available for client ${connectionId}`
       );
       return;
     }
 
+    // Send SPS first (required for decoder initialization)
     if (this.cachedSPS) {
       this.logger.debug(
         `Sending cached SPS header (${this.cachedSPS.length} bytes) to ${connectionId}`
@@ -206,11 +211,20 @@ export class StreamServer extends EventEmitter {
       this.connectionManager.sendToClient(connectionId, this.cachedSPS);
     }
 
+    // Send PPS second (required for decoder initialization)
     if (this.cachedPPS) {
       this.logger.debug(
         `Sending cached PPS header (${this.cachedPPS.length} bytes) to ${connectionId}`
       );
       this.connectionManager.sendToClient(connectionId, this.cachedPPS);
+    }
+
+    // Send cached keyframe last (allows immediate decoding)
+    if (this.cachedKeyframe) {
+      this.logger.info(
+        `📦 Sending cached keyframe (${this.cachedKeyframe.length} bytes) to ${connectionId} for immediate playback`
+      );
+      this.connectionManager.sendToClient(connectionId, this.cachedKeyframe);
     }
   }
 
@@ -621,6 +635,19 @@ export class StreamServer extends EventEmitter {
           );
         }
       });
+
+      // Cache keyframe (IDR slice) for immediate playback when new clients connect
+      // This prevents "Unable to find sync frame" errors in prebuffer
+      if (isKeyFrame) {
+        // Extract only the IDR NAL unit (type 5) for caching
+        const idrNal = nalUnits.find((nal) => nal.type === 5);
+        if (idrNal) {
+          this.cachedKeyframe = Buffer.concat([startCode, idrNal.data]);
+          this.logger.debug(
+            `Cached IDR keyframe (${this.cachedKeyframe.length} bytes)`
+          );
+        }
+      }
 
       // Resolve any pending snapshot requests with keyframe data
       // This happens BEFORE checking if server is active, so snapshots work without TCP server
