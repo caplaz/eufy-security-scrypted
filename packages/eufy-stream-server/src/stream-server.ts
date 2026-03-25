@@ -90,6 +90,10 @@ export class StreamServer extends EventEmitter {
   private activityCheckInterval?: ReturnType<typeof setInterval>;
   private readonly ACTIVITY_TIMEOUT = 30000; // 30 seconds of no activity
 
+  // Keyframe interval tracking for diagnostics
+  private lastKeyframeTime = 0;
+  private readonly KEYFRAME_INTERVAL_WARNING_MS = 5000; // Warn if >5 seconds between keyframes
+
   // Statistics
   private stats = {
     framesProcessed: 0,
@@ -571,6 +575,20 @@ export class StreamServer extends EventEmitter {
         isKeyFrame = this.h264Parser.isKeyFrame(data);
       }
 
+      // Track keyframe intervals for diagnosing "Unable to find sync frame" issues
+      if (isKeyFrame) {
+        const now = Date.now();
+        if (this.lastKeyframeTime > 0) {
+          const keyframeInterval = now - this.lastKeyframeTime;
+          if (keyframeInterval > this.KEYFRAME_INTERVAL_WARNING_MS) {
+            this.logger.warn(
+              `⚠️ Long keyframe interval: ${Math.round(keyframeInterval / 1000)}s - may cause prebuffer sync issues`
+            );
+          }
+        }
+        this.lastKeyframeTime = now;
+      }
+
       // Log NAL unit information for debugging
       const nalUnits = this.h264Parser.extractNALUnits(data);
       const nalInfo = nalUnits
@@ -584,15 +602,23 @@ export class StreamServer extends EventEmitter {
 
       // Cache SPS/PPS NAL units for new client initialization
       // Type 7 = SPS (Sequence Parameter Set), Type 8 = PPS (Picture Parameter Set)
+      // IMPORTANT: Cache only the individual NAL unit with start code, not the entire buffer.
+      // Caching the entire buffer could include extra NAL units that cause "missing picture
+      // in access unit" errors when sent to FFmpeg as initialization data.
+      const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
       nalUnits.forEach((nal) => {
         if (nal.type === 7) {
-          // SPS
-          this.cachedSPS = data; // Cache the entire buffer containing SPS
-          this.logger.debug(`Cached SPS header (${data.length} bytes)`);
+          // SPS - cache only this NAL unit with start code prefix
+          this.cachedSPS = Buffer.concat([startCode, nal.data]);
+          this.logger.debug(
+            `Cached SPS NAL unit (${this.cachedSPS.length} bytes)`
+          );
         } else if (nal.type === 8) {
-          // PPS
-          this.cachedPPS = data; // Cache the entire buffer containing PPS
-          this.logger.debug(`Cached PPS header (${data.length} bytes)`);
+          // PPS - cache only this NAL unit with start code prefix
+          this.cachedPPS = Buffer.concat([startCode, nal.data]);
+          this.logger.debug(
+            `Cached PPS NAL unit (${this.cachedPPS.length} bytes)`
+          );
         }
       });
 

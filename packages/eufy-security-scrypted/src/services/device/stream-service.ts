@@ -184,6 +184,8 @@ export class StreamService {
         "5000000", // Increased analysis time to find SPS/PPS headers
         "-probesize",
         "5000000", // Increased probe size to find SPS/PPS headers
+        "-err_detect",
+        "ignore_err", // Ignore non-fatal H.264 errors (SEI payload issues, etc.)
         "-f",
         "h264", // Explicitly specify H.264 format
         "-i",
