@@ -87,6 +87,13 @@ export type StationDatabaseQueryLocalResponse = {
 };
 
 /**
+ * Response from station.database_query_by_date
+ * Results are asynchronously delivered via the "database query by date" station event.
+ * The immediate response acknowledges the command was received.
+ */
+export type StationDatabaseQueryByDateResponse = {};
+
+/**
  * Response from station.database_count_by_date
  * Can be either success with count and date or error
  */
@@ -118,6 +125,7 @@ export interface StationCommandResponseMap {
   [STATION_COMMANDS.DOWNLOAD_IMAGE]: {};
   [STATION_COMMANDS.DATABASE_QUERY_LATEST_INFO]: StationDatabaseQueryLatestInfoResponse;
   [STATION_COMMANDS.DATABASE_QUERY_LOCAL]: StationDatabaseQueryLocalResponse;
+  [STATION_COMMANDS.DATABASE_QUERY_BY_DATE]: StationDatabaseQueryByDateResponse;
   [STATION_COMMANDS.DATABASE_COUNT_BY_DATE]: StationDatabaseCountByDateResponse;
   [STATION_COMMANDS.DATABASE_DELETE]: {};
   [STATION_COMMANDS.SET_PROPERTY]: {};
@@ -137,4 +145,5 @@ export type StationResponse =
   | StationHasCommandResponse
   | StationDatabaseQueryLatestInfoResponse
   | StationDatabaseQueryLocalResponse
+  | StationDatabaseQueryByDateResponse
   | StationDatabaseCountByDateResponse;

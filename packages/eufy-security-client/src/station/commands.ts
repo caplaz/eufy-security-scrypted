@@ -113,6 +113,20 @@ export interface StationDownloadImageCommand
 }
 
 /**
+ * Query database records by date range from station
+ * Results are delivered as a station event (database query by date)
+ */
+export interface StationDatabaseQueryByDateCommand
+  extends BaseStationCommand<typeof STATION_COMMANDS.DATABASE_QUERY_BY_DATE> {
+  serialNumbers: string[];
+  startDate: string;
+  endDate: string;
+  eventType?: number;
+  detectionType?: number;
+  storageType?: number;
+}
+
+/**
  * Union type for all station commands
  */
 export type StationCommand =
@@ -129,4 +143,5 @@ export type StationCommand =
   | StationTriggerAlarmCommand
   | StationResetAlarmCommand
   | StationChimeCommand
-  | StationDownloadImageCommand;
+  | StationDownloadImageCommand
+  | StationDatabaseQueryByDateCommand;

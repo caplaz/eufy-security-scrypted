@@ -52,6 +52,13 @@ export interface StationDisconnectedEventPayload
   // No additional properties
 }
 
+export interface StationConnectionErrorEventPayload
+  extends BaseStationEventPayloadWithSerial<
+    typeof STATION_EVENTS.CONNECTION_ERROR
+  > {
+  // No additional properties
+}
+
 // Station property changed event payload
 export interface StationPropertyChangedEventPayload
   extends BaseStationEventPayloadWithSerial<
@@ -126,6 +133,14 @@ export interface StationDatabaseQueryLocalEventPayload
   data: JSONValue[];
 }
 
+export interface StationDatabaseQueryByDateEventPayload
+  extends BaseStationEventPayloadWithSerial<
+    typeof STATION_EVENTS.DATABASE_QUERY_BY_DATE
+  > {
+  returnCode: number;
+  data: JSONValue[];
+}
+
 export interface StationDatabaseCountByDateEventPayload
   extends BaseStationEventPayloadWithSerial<
     typeof STATION_EVENTS.DATABASE_COUNT_BY_DATE
@@ -158,6 +173,7 @@ export type StationEventPayload =
   | StationRemovedEventPayload
   | StationConnectedEventPayload
   | StationDisconnectedEventPayload
+  | StationConnectionErrorEventPayload
   | StationPropertyChangedEventPayload
   | StationAlarmEventPayload
   | StationAlarmDelayEventPayload
@@ -168,6 +184,7 @@ export type StationEventPayload =
   | StationImageDownloadedEventPayload
   | StationDatabaseQueryLatestEventPayload
   | StationDatabaseQueryLocalEventPayload
+  | StationDatabaseQueryByDateEventPayload
   | StationDatabaseCountByDateEventPayload
   | StationDatabaseDeleteEventPayload
   | StationCommandResultEventPayload;
