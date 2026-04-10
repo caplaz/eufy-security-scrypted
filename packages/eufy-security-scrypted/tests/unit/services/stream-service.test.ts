@@ -304,9 +304,9 @@ describe("StreamService", () => {
       const args = call.inputArguments;
 
       expect(args).toContain("-analyzeduration");
-      expect(args).toContain("5000000");
+      expect(args).toContain("15000000");
       expect(args).toContain("-probesize");
-      expect(args).toContain("5000000");
+      expect(args).toContain("15000000");
     });
 
     it("should include H.264 format specification", async () => {
