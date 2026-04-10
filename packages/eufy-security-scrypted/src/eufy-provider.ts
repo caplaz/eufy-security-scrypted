@@ -840,18 +840,31 @@ export class EufySecurityProvider
       return;
     }
 
-    deviceSerials.forEach((deviceSerial) =>
-      DeviceUtils.createDeviceManifest(this.wsClient, deviceSerial).then(
-        (manifest) =>
-          deviceManager.onDevicesChanged({
-            providerNativeId: manifest.providerNativeId,
-            devices: [manifest],
-          })
+    // Resolve all manifests in parallel, then group by station (providerNativeId)
+    // and call onDevicesChanged once per station. This guarantees Scrypted assigns
+    // stable numeric IDs because it sees the full device list in a deterministic order.
+    const manifests = await Promise.all(
+      deviceSerials.map((serial) =>
+        DeviceUtils.createDeviceManifest(this.wsClient, serial)
       )
     );
 
+    const byStation = new Map<string | undefined, typeof manifests>();
+    for (const manifest of manifests) {
+      const key = manifest.providerNativeId;
+      if (!byStation.has(key)) byStation.set(key, []);
+      byStation.get(key)!.push(manifest);
+    }
+
+    for (const [providerNativeId, stationDevices] of byStation) {
+      await deviceManager.onDevicesChanged({
+        providerNativeId,
+        devices: stationDevices,
+      });
+    }
+
     this.logger.info(
-      `✅ Registered ${deviceSerials.length} devices from server state`
+      `✅ Registered ${deviceSerials.length} devices across ${byStation.size} station(s) from server state`
     );
   }
 
