@@ -21,6 +21,7 @@ export const STATION_COMMANDS = {
   DOWNLOAD_IMAGE: "station.download_image",
   DATABASE_QUERY_LATEST_INFO: "station.database_query_latest_info",
   DATABASE_QUERY_LOCAL: "station.database_query_local",
+  DATABASE_QUERY_BY_DATE: "station.database_query_by_date",
   DATABASE_COUNT_BY_DATE: "station.database_count_by_date",
   DATABASE_DELETE: "station.database_delete",
 } as const;
@@ -36,6 +37,7 @@ export const STATION_EVENTS = {
   STATION_REMOVED: "station removed",
   CONNECTED: "connected",
   DISCONNECTED: "disconnected",
+  CONNECTION_ERROR: "connection error",
   PROPERTY_CHANGED: "property changed",
   ALARM_EVENT: "alarm event",
   ALARM_DELAY_EVENT: "alarm delay event",
@@ -46,6 +48,7 @@ export const STATION_EVENTS = {
   IMAGE_DOWNLOADED: "image downloaded",
   DATABASE_QUERY_LATEST: "database query latest",
   DATABASE_QUERY_LOCAL: "database query local",
+  DATABASE_QUERY_BY_DATE: "database query by date",
   DATABASE_COUNT_BY_DATE: "database count by date",
   DATABASE_DELETE: "database delete",
   COMMAND_RESULT: "command result",
