@@ -90,6 +90,10 @@ export class StreamServer extends EventEmitter {
   private activityCheckInterval?: ReturnType<typeof setInterval>;
   private readonly ACTIVITY_TIMEOUT = 30000; // 30 seconds of no activity
 
+  // Keyframe interval tracking for diagnostics
+  private lastKeyframeTime = 0;
+  private readonly KEYFRAME_INTERVAL_WARNING_MS = 5000; // Warn if >5 seconds between keyframes
+
   // Statistics
   private stats = {
     framesProcessed: 0,
@@ -108,6 +112,10 @@ export class StreamServer extends EventEmitter {
   // These are the critical headers that FFmpeg needs to parse the H.264 stream
   private cachedSPS: Buffer | null = null;
   private cachedPPS: Buffer | null = null;
+
+  // Cached keyframe (IDR) for immediate playback when clients connect
+  // This allows new clients to start decoding immediately without waiting for next keyframe
+  private cachedKeyframe: Buffer | null = null;
 
   constructor(options: StreamServerOptions) {
     super();
@@ -183,18 +191,19 @@ export class StreamServer extends EventEmitter {
   }
 
   /**
-   * Send cached SPS/PPS headers to a specific client
-   * This ensures new clients can immediately decode the stream
+   * Send cached SPS/PPS headers and keyframe to a specific client
+   * This ensures new clients can immediately decode the stream without waiting for next keyframe
    * @param connectionId - The connection ID to send headers to
    */
   private sendCachedHeaders(connectionId: string): void {
-    if (!this.cachedSPS && !this.cachedPPS) {
+    if (!this.cachedSPS && !this.cachedPPS && !this.cachedKeyframe) {
       this.logger.debug(
-        `No cached SPS/PPS headers available for client ${connectionId}`
+        `No cached headers/keyframe available for client ${connectionId}`
       );
       return;
     }
 
+    // Send SPS first (required for decoder initialization)
     if (this.cachedSPS) {
       this.logger.debug(
         `Sending cached SPS header (${this.cachedSPS.length} bytes) to ${connectionId}`
@@ -202,11 +211,20 @@ export class StreamServer extends EventEmitter {
       this.connectionManager.sendToClient(connectionId, this.cachedSPS);
     }
 
+    // Send PPS second (required for decoder initialization)
     if (this.cachedPPS) {
       this.logger.debug(
         `Sending cached PPS header (${this.cachedPPS.length} bytes) to ${connectionId}`
       );
       this.connectionManager.sendToClient(connectionId, this.cachedPPS);
+    }
+
+    // Send cached keyframe last (allows immediate decoding)
+    if (this.cachedKeyframe) {
+      this.logger.info(
+        `📦 Sending cached keyframe (${this.cachedKeyframe.length} bytes) to ${connectionId} for immediate playback`
+      );
+      this.connectionManager.sendToClient(connectionId, this.cachedKeyframe);
     }
   }
 
@@ -571,6 +589,20 @@ export class StreamServer extends EventEmitter {
         isKeyFrame = this.h264Parser.isKeyFrame(data);
       }
 
+      // Track keyframe intervals for diagnosing "Unable to find sync frame" issues
+      if (isKeyFrame) {
+        const now = Date.now();
+        if (this.lastKeyframeTime > 0) {
+          const keyframeInterval = now - this.lastKeyframeTime;
+          if (keyframeInterval > this.KEYFRAME_INTERVAL_WARNING_MS) {
+            this.logger.warn(
+              `⚠️ Long keyframe interval: ${Math.round(keyframeInterval / 1000)}s - may cause prebuffer sync issues`
+            );
+          }
+        }
+        this.lastKeyframeTime = now;
+      }
+
       // Log NAL unit information for debugging
       const nalUnits = this.h264Parser.extractNALUnits(data);
       const nalInfo = nalUnits
@@ -584,17 +616,38 @@ export class StreamServer extends EventEmitter {
 
       // Cache SPS/PPS NAL units for new client initialization
       // Type 7 = SPS (Sequence Parameter Set), Type 8 = PPS (Picture Parameter Set)
+      // IMPORTANT: Cache only the individual NAL unit with start code, not the entire buffer.
+      // Caching the entire buffer could include extra NAL units that cause "missing picture
+      // in access unit" errors when sent to FFmpeg as initialization data.
+      const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
       nalUnits.forEach((nal) => {
         if (nal.type === 7) {
-          // SPS
-          this.cachedSPS = data; // Cache the entire buffer containing SPS
-          this.logger.debug(`Cached SPS header (${data.length} bytes)`);
+          // SPS - cache only this NAL unit with start code prefix
+          this.cachedSPS = Buffer.concat([startCode, nal.data]);
+          this.logger.debug(
+            `Cached SPS NAL unit (${this.cachedSPS.length} bytes)`
+          );
         } else if (nal.type === 8) {
-          // PPS
-          this.cachedPPS = data; // Cache the entire buffer containing PPS
-          this.logger.debug(`Cached PPS header (${data.length} bytes)`);
+          // PPS - cache only this NAL unit with start code prefix
+          this.cachedPPS = Buffer.concat([startCode, nal.data]);
+          this.logger.debug(
+            `Cached PPS NAL unit (${this.cachedPPS.length} bytes)`
+          );
         }
       });
+
+      // Cache keyframe (IDR slice) for immediate playback when new clients connect
+      // This prevents "Unable to find sync frame" errors in prebuffer
+      if (isKeyFrame) {
+        // Extract only the IDR NAL unit (type 5) for caching
+        const idrNal = nalUnits.find((nal) => nal.type === 5);
+        if (idrNal) {
+          this.cachedKeyframe = Buffer.concat([startCode, idrNal.data]);
+          this.logger.debug(
+            `Cached IDR keyframe (${this.cachedKeyframe.length} bytes)`
+          );
+        }
+      }
 
       // Resolve any pending snapshot requests with keyframe data
       // This happens BEFORE checking if server is active, so snapshots work without TCP server

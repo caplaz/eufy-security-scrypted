@@ -232,15 +232,24 @@ export class H264Parser {
    */
   getNALTypeName(type: number): string {
     const names: Record<number, string> = {
-      1: "P-slice",
-      2: "B-slice",
-      3: "I-slice",
-      5: "IDR-slice",
+      0: "Unspecified",
+      1: "Non-IDR Slice",
+      2: "Data Partition A",
+      3: "Data Partition B",
+      4: "Data Partition C",
+      5: "IDR Slice",
       6: "SEI",
       7: "SPS",
       8: "PPS",
       9: "AUD",
-      14: "Data Partitioning",
+      10: "End of Sequence",
+      11: "End of Stream",
+      12: "Filler Data",
+      13: "SPS Extension",
+      14: "Prefix NAL",
+      15: "Subset SPS",
+      19: "Auxiliary Slice",
+      20: "Slice Extension",
     };
     return names[type] || `Unknown(${type})`;
   }

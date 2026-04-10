@@ -90,15 +90,28 @@ describe("H264Parser", () => {
 
   describe("getNALTypeName", () => {
     it("should return correct NAL type names", () => {
-      expect(parser.getNALTypeName(1)).toBe("P-slice");
-      expect(parser.getNALTypeName(5)).toBe("IDR-slice");
+      expect(parser.getNALTypeName(0)).toBe("Unspecified");
+      expect(parser.getNALTypeName(1)).toBe("Non-IDR Slice");
+      expect(parser.getNALTypeName(5)).toBe("IDR Slice");
+      expect(parser.getNALTypeName(6)).toBe("SEI");
       expect(parser.getNALTypeName(7)).toBe("SPS");
       expect(parser.getNALTypeName(8)).toBe("PPS");
+      expect(parser.getNALTypeName(9)).toBe("AUD");
       expect(parser.getNALTypeName(99)).toBe("Unknown(99)");
     });
 
-    it("should return 'Data Partitioning' for NAL type 14", () => {
-      expect(parser.getNALTypeName(14)).toBe("Data Partitioning");
+    it("should return correct names for data partition NAL types", () => {
+      // Data partitioning splits frame data across multiple NAL units
+      // These are rarely used but cause issues with FFmpeg (not implemented)
+      expect(parser.getNALTypeName(2)).toBe("Data Partition A");
+      expect(parser.getNALTypeName(3)).toBe("Data Partition B");
+      expect(parser.getNALTypeName(4)).toBe("Data Partition C");
+    });
+
+    it("should return correct names for extension NAL types", () => {
+      expect(parser.getNALTypeName(14)).toBe("Prefix NAL");
+      expect(parser.getNALTypeName(15)).toBe("Subset SPS");
+      expect(parser.getNALTypeName(20)).toBe("Slice Extension");
     });
   });
 });

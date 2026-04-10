@@ -175,15 +175,21 @@ export class StreamService {
     const { width, height } = this.getVideoDimensions(quality);
 
     // Simplified FFmpeg configuration for reliable Eufy camera streaming
+    // Note: Eufy battery cameras can have keyframe intervals of 9+ seconds,
+    // so we use extended analysis time to ensure we capture a keyframe.
     const ffmpegInput: FFmpegInput = {
       url: undefined,
       inputArguments: [
         "-use_wallclock_as_timestamps",
         "1", // Critical for Eufy streams - fixes timestamp issues
+        "-fflags",
+        "+genpts", // Generate presentation timestamps for proper sync
         "-analyzeduration",
-        "5000000", // Increased analysis time to find SPS/PPS headers
+        "15000000", // 15 seconds - extended for slow keyframe intervals
         "-probesize",
-        "5000000", // Increased probe size to find SPS/PPS headers
+        "15000000", // 15 MB - extended probe size for keyframe detection
+        "-err_detect",
+        "ignore_err", // Ignore non-fatal H.264 errors (SEI payload issues, etc.)
         "-f",
         "h264", // Explicitly specify H.264 format
         "-i",
