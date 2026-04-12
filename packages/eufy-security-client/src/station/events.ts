@@ -154,7 +154,8 @@ export interface StationDatabaseDeleteEventPayload
   extends BaseStationEventPayloadWithSerial<
     typeof STATION_EVENTS.DATABASE_DELETE
   > {
-  deleted: boolean;
+  returnCode: number;
+  failedIds: unknown[];
 }
 
 // Station command result event payload
