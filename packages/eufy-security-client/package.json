@@ -50,6 +50,7 @@
   },
   "homepage": "https://github.com/caplaz/eufy-security-scrypted/tree/main/packages/eufy-security-client#readme",
   "dependencies": {
+    "eufy-security-ws": "^2.1.0",
     "tslog": "^4.9.3",
     "ws": "^8.18.2"
   },
