@@ -130,6 +130,7 @@ export interface StationDatabaseQueryLocalEventPayload
   extends BaseStationEventPayloadWithSerial<
     typeof STATION_EVENTS.DATABASE_QUERY_LOCAL
   > {
+  returnCode: number;
   data: JSONValue[];
 }
 
