@@ -130,6 +130,7 @@ export interface StationDatabaseQueryLocalEventPayload
   extends BaseStationEventPayloadWithSerial<
     typeof STATION_EVENTS.DATABASE_QUERY_LOCAL
   > {
+  returnCode: number;
   data: JSONValue[];
 }
 
@@ -145,15 +146,16 @@ export interface StationDatabaseCountByDateEventPayload
   extends BaseStationEventPayloadWithSerial<
     typeof STATION_EVENTS.DATABASE_COUNT_BY_DATE
   > {
-  date: string;
-  count: number;
+  returnCode: number;
+  data: JSONValue[];
 }
 
 export interface StationDatabaseDeleteEventPayload
   extends BaseStationEventPayloadWithSerial<
     typeof STATION_EVENTS.DATABASE_DELETE
   > {
-  deleted: boolean;
+  returnCode: number;
+  failedIds: unknown[];
 }
 
 // Station command result event payload

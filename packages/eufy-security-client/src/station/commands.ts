@@ -97,6 +97,14 @@ export interface StationResetAlarmCommand
   extends BaseStationCommand<typeof STATION_COMMANDS.RESET_ALARM> {}
 
 /**
+ * Set station guard mode
+ */
+export interface StationSetGuardModeCommand
+  extends BaseStationCommand<typeof STATION_COMMANDS.SET_GUARD_MODE> {
+  mode: number;
+}
+
+/**
  * Station chime command
  */
 export interface StationChimeCommand
@@ -142,6 +150,7 @@ export type StationCommand =
   | StationHasCommandCommand
   | StationTriggerAlarmCommand
   | StationResetAlarmCommand
+  | StationSetGuardModeCommand
   | StationChimeCommand
   | StationDownloadImageCommand
   | StationDatabaseQueryByDateCommand;
