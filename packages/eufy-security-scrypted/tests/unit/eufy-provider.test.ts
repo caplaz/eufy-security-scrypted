@@ -167,4 +167,33 @@ describe("EufySecurityProvider.registerDevicesFromServerState", () => {
     expect(mockOnDevicesChanged).not.toHaveBeenCalled();
     expect(mockCreateDeviceManifest).not.toHaveBeenCalled();
   });
+
+  it("groups devices with undefined providerNativeId into their own onDevicesChanged call", async () => {
+    const manifests = [
+      { nativeId: "device_CAM001", providerNativeId: "station_STA001", name: "Cam 1" },
+      { nativeId: "device_CAM002", providerNativeId: undefined, name: "Orphan Cam" },
+    ];
+
+    mockCreateDeviceManifest
+      .mockResolvedValueOnce(manifests[0])
+      .mockResolvedValueOnce(manifests[1]);
+
+    const serverState = {
+      state: { devices: ["CAM001", "CAM002"], stations: [] },
+    } as unknown as StartListeningResponse;
+
+    await (provider as any).registerDevicesFromServerState(serverState);
+
+    expect(mockOnDevicesChanged).toHaveBeenCalledTimes(2);
+
+    const calls = mockOnDevicesChanged.mock.calls;
+    const stationCall = calls.find((c: any[]) => c[0].providerNativeId === "station_STA001");
+    const undefinedCall = calls.find((c: any[]) => c[0].providerNativeId === undefined);
+
+    expect(stationCall).toBeDefined();
+    expect(stationCall![0].devices).toEqual([manifests[0]]);
+
+    expect(undefinedCall).toBeDefined();
+    expect(undefinedCall![0].devices).toEqual([manifests[1]]);
+  });
 });
