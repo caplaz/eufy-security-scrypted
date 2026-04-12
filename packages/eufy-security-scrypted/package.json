@@ -65,7 +65,6 @@
     "@caplaz/eufy-security-client": "^0.2.1",
     "@caplaz/eufy-stream-server": "^0.2.1",
     "@scrypted/sdk": "latest",
-    "eufy-security-ws": "^2.1.0",
     "tslog": "^4.9.3"
   },
   "devDependencies": {
