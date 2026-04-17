@@ -104,10 +104,12 @@ export class StreamServer extends EventEmitter {
     timestamp: number;
   }> = [];
 
-  // SPS/PPS cache for new client initialization
-  // These are the critical headers that FFmpeg needs to parse the H.264 stream
+  // Parameter-set cache for new client initialization.
+  // H.264 uses SPS (type 7) + PPS (type 8).
+  // H.265 uses VPS (type 32) + SPS (type 33) + PPS (type 34).
   private cachedSPS: Buffer | null = null;
   private cachedPPS: Buffer | null = null;
+  private cachedVPS: Buffer | null = null; // H.265 Video Parameter Set
 
   constructor(options: StreamServerOptions) {
     super();
@@ -188,11 +190,20 @@ export class StreamServer extends EventEmitter {
    * @param connectionId - The connection ID to send headers to
    */
   private sendCachedHeaders(connectionId: string): void {
-    if (!this.cachedSPS && !this.cachedPPS) {
+    const hasHeaders = this.cachedVPS || this.cachedSPS || this.cachedPPS;
+    if (!hasHeaders) {
       this.logger.debug(
-        `No cached SPS/PPS headers available for client ${connectionId}`
+        `No cached parameter-set headers available for client ${connectionId}`
       );
       return;
+    }
+
+    // H.265: send VPS → SPS → PPS (order matters for decoder initialisation)
+    if (this.cachedVPS) {
+      this.logger.debug(
+        `Sending cached VPS header (${this.cachedVPS.length} bytes) to ${connectionId}`
+      );
+      this.connectionManager.sendToClient(connectionId, this.cachedVPS);
     }
 
     if (this.cachedSPS) {
@@ -559,40 +570,62 @@ export class StreamServer extends EventEmitter {
       return false;
     }
 
+    const isHevc =
+      this.videoMetadata?.videoCodec.toUpperCase() === "H265" ||
+      this.videoMetadata?.videoCodec.toUpperCase() === "HEVC";
+
     try {
-      // Validate H.264 data structure
-      if (!this.h264Parser.validateH264Data(data)) {
-        this.logger.warn("Invalid H.264 data structure");
+      // Validate bitstream structure (start-code rules are identical for H.264 and H.265)
+      const isValid = isHevc
+        ? this.h264Parser.validateHevcData(data)
+        : this.h264Parser.validateH264Data(data);
+
+      if (!isValid) {
+        this.logger.warn(
+          `Invalid ${isHevc ? "H.265" : "H.264"} data structure`
+        );
         return false;
       }
 
-      // Detect key frame if not explicitly provided
+      // Extract NAL units and detect keyframe using codec-appropriate logic
+      const nalUnits = isHevc
+        ? this.h264Parser.extractNALUnitsHevc(data)
+        : this.h264Parser.extractNALUnits(data);
+
       if (isKeyFrame === undefined) {
-        isKeyFrame = this.h264Parser.isKeyFrame(data);
+        isKeyFrame = nalUnits.some((nal) => nal.isKeyFrame);
       }
 
       // Log NAL unit information for debugging
-      const nalUnits = this.h264Parser.extractNALUnits(data);
       const nalInfo = nalUnits
-        .map(
-          (nal) => `${this.h264Parser.getNALTypeName(nal.type)}(${nal.type})`
+        .map((nal) =>
+          isHevc
+            ? `${this.h264Parser.getNALTypeNameHevc(nal.type)}(${nal.type})`
+            : `${this.h264Parser.getNALTypeName(nal.type)}(${nal.type})`
         )
         .join(", ");
       this.logger.debug(
-        `Processing H.264 data: ${data.length} bytes, NALs: [${nalInfo}], keyFrame: ${isKeyFrame}`
+        `Processing ${isHevc ? "H.265" : "H.264"} data: ${data.length} bytes, NALs: [${nalInfo}], keyFrame: ${isKeyFrame}`
       );
 
-      // Cache SPS/PPS NAL units for new client initialization
-      // Type 7 = SPS (Sequence Parameter Set), Type 8 = PPS (Picture Parameter Set)
+      // Cache parameter-set NAL units so new clients can decode mid-stream.
+      // H.264: SPS=7, PPS=8   H.265: VPS=32, SPS=33, PPS=34
       nalUnits.forEach((nal) => {
-        if (nal.type === 7) {
-          // SPS
-          this.cachedSPS = data; // Cache the entire buffer containing SPS
-          this.logger.debug(`Cached SPS header (${data.length} bytes)`);
-        } else if (nal.type === 8) {
-          // PPS
-          this.cachedPPS = data; // Cache the entire buffer containing PPS
-          this.logger.debug(`Cached PPS header (${data.length} bytes)`);
+        if (!isHevc && nal.type === 7) {
+          this.cachedSPS = data;
+          this.logger.debug(`Cached H.264 SPS (${data.length} bytes)`);
+        } else if (!isHevc && nal.type === 8) {
+          this.cachedPPS = data;
+          this.logger.debug(`Cached H.264 PPS (${data.length} bytes)`);
+        } else if (isHevc && nal.type === 32) {
+          this.cachedVPS = data;
+          this.logger.debug(`Cached H.265 VPS (${data.length} bytes)`);
+        } else if (isHevc && nal.type === 33) {
+          this.cachedSPS = data;
+          this.logger.debug(`Cached H.265 SPS (${data.length} bytes)`);
+        } else if (isHevc && nal.type === 34) {
+          this.cachedPPS = data;
+          this.logger.debug(`Cached H.265 PPS (${data.length} bytes)`);
         }
       });
 
