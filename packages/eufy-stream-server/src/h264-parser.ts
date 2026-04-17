@@ -1,124 +1,40 @@
 /**
- * H.264 Parser - Simple NAL unit parsing for raw H.264 streams
+ * NAL Unit Parser — H.264 and H.265/HEVC
  *
- * This parser provides essential H.264 parsing capabilities including NAL unit
- * extraction, keyframe detection, and basic validation. It's designed for
- * streaming scenarios where full H.264 parsing is not required.
+ * Provides NAL unit extraction, keyframe detection, and basic structural
+ * validation for both H.264 and H.265 raw bitstreams.
+ *
+ * Both codecs share the same Annex-B start-code framing (0x00000001 /
+ * 0x000001), so start-code scanning is reused.  Only the NAL unit header
+ * layout differs:
+ *
+ *   H.264  header: 1 byte  —  forbidden(1) | nal_ref_idc(2) | nal_unit_type(5)
+ *   H.265  header: 2 bytes —  forbidden(1) | nal_unit_type(6) | layer_id(6) | temporal_id(3)
+ *
+ * For H.265 the type is therefore extracted as `(byte0 >> 1) & 0x3F`.
  */
 
 import { Logger, ILogObj } from "tslog";
 import { NALUnit } from "./types";
 
-/**
- * Simple H.264 parser for extracting NAL units and basic metadata
- *
- * Provides methods for parsing H.264 stream data, identifying NAL units,
- * detecting keyframes, and validating data structure integrity.
- *
- * @example
- * ```typescript
- * const parser = new H264Parser(logger);
- * const nalUnits = parser.extractNALUnits(h264Buffer);
- * const isKeyFrame = parser.isKeyFrame(h264Buffer);
- * ```
- */
 export class H264Parser {
   private logger: Logger<ILogObj>;
 
-  /**
-   * Creates a new H264Parser instance
-   *
-   * @param logger - Logger instance compatible with tslog's Logger<ILogObj> interface
-   */
   constructor(logger: Logger<ILogObj>) {
     this.logger = logger;
   }
 
-  /**
-   * Extract NAL units from raw H.264 data
-   *
-   * Scans the H.264 data buffer for start codes (0x000001 or 0x00000001)
-   * and extracts all NAL units with their type information and keyframe status.
-   *
-   * @param data - Raw H.264 data buffer
-   * @returns Array of extracted NAL units with type and keyframe information
-   *
-   * @example
-   * ```typescript
-   * const nalUnits = parser.extractNALUnits(h264Buffer);
-   * console.log(`Found ${nalUnits.length} NAL units`);
-   * nalUnits.forEach(nal => {
-   *   console.log(`Type: ${nal.type}, KeyFrame: ${nal.isKeyFrame}`);
-   * });
-   * ```
-   */
-  extractNALUnits(data: Buffer): NALUnit[] {
-    const nalUnits: NALUnit[] = [];
-    let offset = 0;
-
-    if (data.length < 4) {
-      return nalUnits;
-    }
-
-    while (offset < data.length) {
-      // Find start code (0x00000001 or 0x000001)
-      const startCodeInfo = this.findStartCode(data, offset);
-      if (!startCodeInfo) {
-        break;
-      }
-
-      const { position, length } = startCodeInfo;
-      const nalStart = position + length;
-
-      if (nalStart >= data.length) {
-        break;
-      }
-
-      // Find next start code or end of data
-      let nalEnd = data.length;
-      const nextStartCode = this.findStartCode(data, nalStart);
-      if (nextStartCode) {
-        nalEnd = nextStartCode.position;
-      }
-
-      // Extract NAL unit
-      if (nalStart < nalEnd) {
-        const nalData = data.subarray(nalStart, nalEnd);
-        if (nalData.length > 0) {
-          const nalType = nalData[0] & 0x1f;
-          const isKeyFrame = this.isKeyFrameNAL(nalType);
-
-          nalUnits.push({
-            type: nalType,
-            data: nalData,
-            isKeyFrame,
-          });
-        }
-      }
-
-      offset = nalEnd;
-    }
-
-    return nalUnits;
-  }
+  // ─── Shared start-code logic ───────────────────────────────────────────────
 
   /**
-   * Find H.264 start code in data buffer
-   *
-   * Searches for 4-byte (0x00000001) or 3-byte (0x000001) start codes
-   * that mark the beginning of NAL units in H.264 streams.
-   *
-   * @param data - Buffer to search for start codes
-   * @param startOffset - Offset position to begin searching from
-   * @returns Object with position and length of start code, or null if not found
-   * @private
+   * Scan for an Annex-B start code (0x00000001 or 0x000001) starting at
+   * `startOffset`.  Returns position + length of the start code, or null.
    */
   private findStartCode(
     data: Buffer,
     startOffset: number
   ): { position: number; length: number } | null {
     for (let i = startOffset; i <= data.length - 3; i++) {
-      // Check for 4-byte start code (0x00000001)
       if (
         i <= data.length - 4 &&
         data[i] === 0x00 &&
@@ -128,8 +44,6 @@ export class H264Parser {
       ) {
         return { position: i, length: 4 };
       }
-
-      // Check for 3-byte start code (0x000001)
       if (data[i] === 0x00 && data[i + 1] === 0x00 && data[i + 2] === 0x01) {
         return { position: i, length: 3 };
       }
@@ -138,98 +52,77 @@ export class H264Parser {
   }
 
   /**
-   * Check if NAL unit type represents a key frame component
-   *
-   * Key frames contain:
-   * - Type 5: IDR slice (Instantaneous Decoder Refresh) - the actual keyframe
-   * - Type 7: SPS (Sequence Parameter Set) - decoder initialization
-   * - Type 8: PPS (Picture Parameter Set) - picture parameters
-   *
-   * @param nalType - NAL unit type number (0-31)
-   * @returns true if NAL type is part of a keyframe
-   * @private
+   * Walk all Annex-B start codes and call `extractType` for each NAL payload's
+   * first byte(s) to obtain the codec-specific NAL type.
+   */
+  private scanNALUnits(
+    data: Buffer,
+    extractType: (nalPayload: Buffer) => number,
+    isKeyFrameType: (nalType: number) => boolean
+  ): NALUnit[] {
+    const nalUnits: NALUnit[] = [];
+    let offset = 0;
+
+    if (data.length < 4) return nalUnits;
+
+    while (offset < data.length) {
+      const startCodeInfo = this.findStartCode(data, offset);
+      if (!startCodeInfo) break;
+
+      const nalStart = startCodeInfo.position + startCodeInfo.length;
+      if (nalStart >= data.length) break;
+
+      const nextStartCode = this.findStartCode(data, nalStart);
+      const nalEnd = nextStartCode ? nextStartCode.position : data.length;
+
+      if (nalStart < nalEnd) {
+        const nalData = data.subarray(nalStart, nalEnd);
+        if (nalData.length > 0) {
+          const nalType = extractType(nalData);
+          nalUnits.push({ type: nalType, data: nalData, isKeyFrame: isKeyFrameType(nalType) });
+        }
+      }
+
+      offset = nalEnd;
+    }
+
+    return nalUnits;
+  }
+
+  // ─── H.264 ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Extract the H.264 NAL unit type from the first byte of the payload.
+   * H.264 header: forbidden(1) | nal_ref_idc(2) | nal_unit_type(5)
+   */
+  private extractH264Type(nalPayload: Buffer): number {
+    return nalPayload[0] & 0x1f;
+  }
+
+  /**
+   * H.264 keyframe NAL types:
+   * - 5  IDR slice (the actual keyframe)
+   * - 7  SPS (Sequence Parameter Set)
+   * - 8  PPS (Picture Parameter Set)
    */
   private isKeyFrameNAL(nalType: number): boolean {
-    // NAL unit types that contain key frame data:
-    // 5 = IDR slice (Instantaneous Decoder Refresh)
-    // 7 = SPS (Sequence Parameter Set)
-    // 8 = PPS (Picture Parameter Set)
     return nalType === 5 || nalType === 7 || nalType === 8;
   }
 
-  /**
-   * Check if H.264 data buffer contains a keyframe
-   *
-   * A keyframe (I-frame/IDR frame) is a self-contained frame that doesn't
-   * depend on other frames. Essential for stream initialization and seeking.
-   *
-   * @param data - Raw H.264 data buffer
-   * @returns true if data contains keyframe NAL units (IDR, SPS, or PPS)
-   *
-   * @example
-   * ```typescript
-   * if (parser.isKeyFrame(videoData)) {
-   *   console.log('Keyframe detected - safe to start decoding');
-   * }
-   * ```
-   */
+  extractNALUnits(data: Buffer): NALUnit[] {
+    return this.scanNALUnits(data, this.extractH264Type.bind(this), this.isKeyFrameNAL.bind(this));
+  }
+
   isKeyFrame(data: Buffer): boolean {
-    const nalUnits = this.extractNALUnits(data);
-    return nalUnits.some((nal) => nal.isKeyFrame);
+    return this.extractNALUnits(data).some((nal) => nal.isKeyFrame);
   }
 
-  /**
-   * Validate H.264 data structure integrity
-   *
-   * Performs basic validation to ensure data contains valid H.264 structure:
-   * - Minimum length check (at least 4 bytes for start code)
-   * - Presence of valid start code
-   * - At least one extractable NAL unit
-   *
-   * @param data - Buffer to validate as H.264 data
-   * @returns true if data appears to be valid H.264, false otherwise
-   *
-   * @example
-   * ```typescript
-   * if (!parser.validateH264Data(buffer)) {
-   *   console.error('Invalid H.264 data received');
-   *   return;
-   * }
-   * ```
-   */
   validateH264Data(data: Buffer): boolean {
-    if (data.length < 4) {
-      return false;
-    }
-
-    // Check for valid start code
-    const hasStartCode = this.findStartCode(data, 0) !== null;
-    if (!hasStartCode) {
-      return false;
-    }
-
-    // Check for at least one valid NAL unit
-    const nalUnits = this.extractNALUnits(data);
-    return nalUnits.length > 0;
+    if (data.length < 4) return false;
+    if (this.findStartCode(data, 0) === null) return false;
+    return this.extractNALUnits(data).length > 0;
   }
 
-  /**
-   * Get human-readable name for NAL unit type
-   *
-   * Converts numeric NAL type to descriptive string for logging and debugging.
-   * Returns "Unknown(type)" for unrecognized types.
-   *
-   * @param type - NAL unit type number (0-31)
-   * @returns Human-readable NAL type name
-   *
-   * @example
-   * ```typescript
-   * const nalUnits = parser.extractNALUnits(data);
-   * nalUnits.forEach(nal => {
-   *   console.log(`NAL Unit: ${parser.getNALTypeName(nal.type)}`);
-   * });
-   * ```
-   */
   getNALTypeName(type: number): string {
     const names: Record<number, string> = {
       1: "P-slice",
@@ -242,6 +135,92 @@ export class H264Parser {
       9: "AUD",
       14: "Data Partitioning",
     };
-    return names[type] || `Unknown(${type})`;
+    return names[type] ?? `Unknown(${type})`;
+  }
+
+  // ─── H.265 / HEVC ──────────────────────────────────────────────────────────
+
+  /**
+   * Extract the H.265 NAL unit type from the first byte of the payload.
+   *
+   * H.265 NAL header (2 bytes, 16 bits):
+   *   forbidden(1) | nal_unit_type(6) | nuh_layer_id(6) | nuh_temporal_id_plus1(3)
+   *
+   * The 6-bit type occupies bits [14:9], i.e. bits [6:1] of the first byte:
+   *   nal_unit_type = (byte0 >> 1) & 0x3F
+   */
+  private extractHevcType(nalPayload: Buffer): number {
+    return (nalPayload[0] >> 1) & 0x3f;
+  }
+
+  /**
+   * H.265 keyframe NAL types.
+   *
+   * IRAP (Intra Random Access Point) frames — all self-decodable without prior frames:
+   *   16  BLA_W_LP
+   *   17  BLA_W_RADL
+   *   18  BLA_N_LP
+   *   19  IDR_W_RADL
+   *   20  IDR_N_LP
+   *   21  CRA_NUT  (Clean Random Access)
+   *   22  RSV_IRAP_VCL22
+   *   23  RSV_IRAP_VCL23
+   *
+   * Parameter sets (sent before every IDR access unit):
+   *   32  VPS_NUT  (Video Parameter Set)
+   *   33  SPS_NUT  (Sequence Parameter Set)
+   *   34  PPS_NUT  (Picture Parameter Set)
+   */
+  private isKeyFrameHevcNAL(nalType: number): boolean {
+    return (nalType >= 16 && nalType <= 23) || (nalType >= 32 && nalType <= 34);
+  }
+
+  extractNALUnitsHevc(data: Buffer): NALUnit[] {
+    return this.scanNALUnits(data, this.extractHevcType.bind(this), this.isKeyFrameHevcNAL.bind(this));
+  }
+
+  isKeyFrameHevc(data: Buffer): boolean {
+    return this.extractNALUnitsHevc(data).some((nal) => nal.isKeyFrame);
+  }
+
+  /**
+   * Structural validation for H.265 data — identical rules to H.264 since
+   * both use Annex-B start codes.
+   */
+  validateHevcData(data: Buffer): boolean {
+    if (data.length < 4) return false;
+    if (this.findStartCode(data, 0) === null) return false;
+    return this.extractNALUnitsHevc(data).length > 0;
+  }
+
+  getNALTypeNameHevc(type: number): string {
+    const names: Record<number, string> = {
+      0: "TRAIL_N",
+      1: "TRAIL_R",
+      2: "TSA_N",
+      3: "TSA_R",
+      4: "STSA_N",
+      5: "STSA_R",
+      6: "RADL_N",
+      7: "RADL_R",
+      8: "RASL_N",
+      9: "RASL_R",
+      16: "BLA_W_LP",
+      17: "BLA_W_RADL",
+      18: "BLA_N_LP",
+      19: "IDR_W_RADL",
+      20: "IDR_N_LP",
+      21: "CRA_NUT",
+      32: "VPS_NUT",
+      33: "SPS_NUT",
+      34: "PPS_NUT",
+      35: "AUD_NUT",
+      36: "EOS_NUT",
+      37: "EOB_NUT",
+      38: "FD_NUT",
+      39: "PREFIX_SEI_NUT",
+      40: "SUFFIX_SEI_NUT",
+    };
+    return names[type] ?? `Unknown(${type})`;
   }
 }

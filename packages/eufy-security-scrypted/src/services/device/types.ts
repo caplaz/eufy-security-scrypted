@@ -6,6 +6,8 @@
  * @module services/device
  */
 
+import { VideoMetadata } from "@caplaz/eufy-security-client";
+
 /**
  * StreamServer interface (from @caplaz/eufy-stream-server)
  *
@@ -38,7 +40,13 @@ export interface IStreamServer {
   /**
    * Capture a snapshot from the stream
    * @param timeout - Timeout in milliseconds
-   * @returns H.264 keyframe data
+   * @returns Keyframe data (H.264 or H.265 depending on camera)
    */
   captureSnapshot(timeout?: number): Promise<Buffer>;
+
+  /**
+   * Get the last received video metadata (codec, resolution, FPS).
+   * Returns null if no stream has been received yet.
+   */
+  getVideoMetadata(): VideoMetadata | null;
 }

@@ -19,25 +19,42 @@ export class FFmpegUtils {
   });
 
   /**
-   * Convert H.264 video data to JPEG image
+   * Map a Eufy codec string (e.g. "H264", "H265") to an FFmpeg demuxer name.
+   * H.265 is exposed as "hevc" in FFmpeg; everything else defaults to "h264".
+   */
+  static toFFmpegFormat(codec: string): string {
+    if (codec.toUpperCase() === "H265" || codec.toUpperCase() === "HEVC") {
+      return "hevc";
+    }
+    return "h264";
+  }
+
+  /**
+   * Map a Eufy codec string to a Scrypted/MIME codec name.
+   */
+  static toScryptedCodec(codec: string): string {
+    if (codec.toUpperCase() === "H265" || codec.toUpperCase() === "HEVC") {
+      return "h265";
+    }
+    return "h264";
+  }
+
+  /**
+   * Convert a raw H.264 or H.265 keyframe to a JPEG image.
    *
-   * Extracts the first frame from H.264 encoded data and converts it to JPEG format.
+   * Extracts the first frame from the bitstream and converts it to JPEG.
    * Useful for creating snapshots from video keyframes.
    *
-   * @param h264Data - Buffer containing H.264 encoded video data (typically a keyframe)
+   * @param videoData - Buffer containing encoded video data (H.264 or H.265 keyframe)
    * @param quality - JPEG quality setting (1-31, lower is better quality, default: 2)
+   * @param videoCodec - Eufy codec string ("H264" or "H265", default: "H264")
    * @returns Promise resolving to Buffer containing JPEG image data
    * @throws Error if FFmpeg fails or returns invalid output
-   *
-   * @example
-   * ```typescript
-   * const h264Keyframe = await captureKeyframe();
-   * const jpegBuffer = await FFmpegUtils.convertH264ToJPEG(h264Keyframe, 2);
-   * ```
    */
   static async convertH264ToJPEG(
-    h264Data: Buffer,
-    quality: number = 2
+    videoData: Buffer,
+    quality: number = 2,
+    videoCodec: string = "H264"
   ): Promise<Buffer> {
     const child_process = await import("child_process");
 
@@ -50,10 +67,15 @@ export class FFmpegUtils {
         return;
       }
 
-      // Use FFmpeg to decode H.264 and encode as JPEG
+      const inputFormat = FFmpegUtils.toFFmpegFormat(videoCodec);
+
+      // Use FFmpeg to decode video and encode as JPEG
       const ffmpeg = child_process.spawn("ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error", // Suppress informational output; only show errors
         "-f",
-        "h264", // Input format
+        inputFormat, // Input format: "h264" or "hevc"
         "-i",
         "pipe:0", // Read from stdin
         "-frames:v",
@@ -82,12 +104,12 @@ export class FFmpegUtils {
         if (code === 0 && chunks.length > 0) {
           const jpegBuffer = Buffer.concat(chunks);
           this.logger.debug(
-            `Successfully converted H.264 to JPEG: ${jpegBuffer.length} bytes`
+            `Successfully converted ${inputFormat.toUpperCase()} to JPEG: ${jpegBuffer.length} bytes`
           );
           resolve(jpegBuffer);
         } else {
           const errorOutput = Buffer.concat(errorChunks).toString();
-          const errorMessage = this.parseFFmpegError(code, errorOutput);
+          const errorMessage = this.parseFFmpegError(code, errorOutput, inputFormat);
           this.logger.error(`FFmpeg conversion failed: ${errorMessage}`);
           reject(new Error(errorMessage));
         }
@@ -106,8 +128,8 @@ export class FFmpegUtils {
         }
       });
 
-      // Write H.264 data to FFmpeg stdin
-      ffmpeg.stdin.write(h264Data);
+      // Write video data to FFmpeg stdin
+      ffmpeg.stdin.write(videoData);
       ffmpeg.stdin.end();
     });
   }
@@ -117,10 +139,11 @@ export class FFmpegUtils {
    */
   private static parseFFmpegError(
     code: number | null,
-    errorOutput: string
+    errorOutput: string,
+    inputFormat: string = "h264"
   ): string {
     if (errorOutput.includes("Invalid data found when processing input")) {
-      return `Invalid H.264 data provided. The data may be corrupted or incomplete.`;
+      return `Invalid ${inputFormat.toUpperCase()} data provided. The data may be corrupted or incomplete.`;
     }
 
     if (errorOutput.includes("No such file or directory")) {
@@ -132,7 +155,7 @@ export class FFmpegUtils {
     }
 
     if (errorOutput.includes("Decoder") && errorOutput.includes("not found")) {
-      return "H.264 decoder not available in your FFmpeg installation.";
+      return `${inputFormat.toUpperCase()} decoder not available in your FFmpeg installation.`;
     }
 
     return `FFmpeg conversion failed with code ${code}: ${errorOutput || "Unknown error"}`;

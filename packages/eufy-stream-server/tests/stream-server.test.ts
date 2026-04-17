@@ -4,7 +4,16 @@
 
 import * as net from "net";
 import { StreamServer } from "../src/stream-server";
-import { createTestLogger, createTestH264Data, wait } from "./test-utils";
+import {
+  createTestLogger,
+  createTestH264Data,
+  createTestHevcData,
+  createTestHevcVpsData,
+  createTestHevcSpsData,
+  createTestHevcPpsData,
+  createTestHevcPFrameData,
+  wait,
+} from "./test-utils";
 
 // Mock the eufy-security-client
 jest.mock("@caplaz/eufy-security-client", () => ({
@@ -638,6 +647,149 @@ describe("StreamServer", () => {
 
       client.destroy();
       await serverWithWs.stop();
+    });
+  });
+
+  describe("H.265 / HEVC support", () => {
+    let serverWithWs: StreamServer;
+    let eventHandler: (event: any) => void;
+
+    const makeH265WsClient = () => ({
+      addEventListener: jest.fn().mockReturnValue(() => {}),
+      commands: {
+        device: jest.fn().mockReturnValue({
+          startLivestream: jest.fn().mockResolvedValue({}),
+          stopLivestream: jest.fn().mockResolvedValue({}),
+        }),
+      },
+    });
+
+    const h265Metadata = {
+      videoCodec: "H265",
+      videoFPS: 30,
+      videoWidth: 1920,
+      videoHeight: 1080,
+    };
+
+    beforeEach(async () => {
+      const wsClient = makeH265WsClient();
+      serverWithWs = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        wsClient: wsClient as any,
+        serialNumber: "H265_DEVICE",
+      });
+      await serverWithWs.start();
+      eventHandler = wsClient.addEventListener.mock.calls[0][1];
+    });
+
+    afterEach(async () => {
+      if (serverWithWs.isRunning()) await serverWithWs.stop();
+    });
+
+    it("detects H.265 keyframe and resolves snapshot", async () => {
+      const hevcData = createTestHevcData(); // VPS+SPS+PPS+IDR
+
+      // Kick off snapshot; wait for its internal resolver to be registered
+      const snapshotPromise = serverWithWs.captureSnapshot(3000);
+      await wait(100);
+
+      // Simulate first video data event with H.265 IDR access unit
+      eventHandler({
+        serialNumber: "H265_DEVICE",
+        buffer: { data: hevcData },
+        metadata: h265Metadata,
+      });
+
+      const snapshot = await snapshotPromise;
+      expect(snapshot.length).toBeGreaterThan(0);
+      expect(snapshot).toEqual(hevcData);
+    });
+
+    it("does NOT resolve snapshot on H.265 P-frame (TRAIL_R)", async () => {
+      const pFrame = createTestHevcPFrameData();
+
+      // Seed metadata first so the server knows it's H.265
+      eventHandler({
+        serialNumber: "H265_DEVICE",
+        buffer: { data: createTestHevcData() },
+        metadata: h265Metadata,
+      });
+      await wait(50);
+
+      // Start snapshot; wait for resolver to register
+      const snapshotPromise = serverWithWs.captureSnapshot(200);
+      await wait(50);
+
+      // P-frame must not resolve the snapshot
+      eventHandler({
+        serialNumber: "H265_DEVICE",
+        buffer: { data: pFrame },
+        metadata: h265Metadata,
+      });
+
+      await expect(snapshotPromise).rejects.toThrow(/timed out/i);
+    });
+
+    it("caches H.265 VPS, SPS and PPS and sends them to new clients", async () => {
+      const vpsData = createTestHevcVpsData();
+      const spsData = createTestHevcSpsData();
+      const ppsData = createTestHevcPpsData();
+
+      // Feed VPS, SPS, PPS buffers sequentially
+      for (const buf of [vpsData, spsData, ppsData]) {
+        eventHandler({
+          serialNumber: "H265_DEVICE",
+          buffer: { data: buf },
+          metadata: h265Metadata,
+        });
+        await wait(20);
+      }
+
+      // Connect a fresh TCP client — it should receive the three cached parameter sets
+      const client = new net.Socket();
+      const receivedData: Buffer[] = [];
+      client.on("data", (d) => receivedData.push(d));
+
+      await new Promise<void>((resolve) =>
+        client.connect(testPort, "127.0.0.1", resolve)
+      );
+      await wait(100);
+
+      const combined = Buffer.concat(receivedData);
+
+      // VPS byte0 = 0x40 (type 32)
+      const hasVPS =
+        combined.includes(Buffer.from([0x00, 0x00, 0x00, 0x01, 0x40])) ||
+        combined.includes(Buffer.from([0x00, 0x00, 0x01, 0x40]));
+      expect(hasVPS).toBe(true);
+
+      // SPS byte0 = 0x42 (type 33)
+      const hasSPS =
+        combined.includes(Buffer.from([0x00, 0x00, 0x00, 0x01, 0x42])) ||
+        combined.includes(Buffer.from([0x00, 0x00, 0x01, 0x42]));
+      expect(hasSPS).toBe(true);
+
+      // PPS byte0 = 0x44 (type 34)
+      const hasPPS =
+        combined.includes(Buffer.from([0x00, 0x00, 0x00, 0x01, 0x44])) ||
+        combined.includes(Buffer.from([0x00, 0x00, 0x01, 0x44]));
+      expect(hasPPS).toBe(true);
+
+      client.destroy();
+    });
+
+    it("exposes H.265 codec in getVideoMetadata() after first frame", async () => {
+      expect(serverWithWs.getVideoMetadata()).toBeNull();
+
+      eventHandler({
+        serialNumber: "H265_DEVICE",
+        buffer: { data: createTestHevcData() },
+        metadata: h265Metadata,
+      });
+      await wait(20);
+
+      expect(serverWithWs.getVideoMetadata()?.videoCodec).toBe("H265");
     });
   });
 });
