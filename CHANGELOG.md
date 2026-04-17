@@ -5,6 +5,32 @@ All notable changes to the Eufy Security Scrypted monorepo will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-04-17
+
+### Added
+
+- **H.265/HEVC Camera Support**: Full H.265 support in `H264Parser` — correct NAL unit type extraction (`(byte0 >> 1) & 0x3F`), IRAP keyframe detection (NAL types 16–23), and parameter set identification (VPS/SPS/PPS, NAL types 32–34)
+- **VPS Caching**: `StreamServer` now caches the H.265 Video Parameter Set alongside SPS/PPS and sends VPS → SPS → PPS in order to new TCP clients, enabling FFmpeg to initialize H.265 streams immediately
+- **Codec Detection**: `StreamServer` reads `videoCodec` from `VideoMetadata` on the first livestream event and dispatches H.264 or H.265 NAL parsing accordingly
+- **FFmpeg Codec Helpers**: `FFmpegUtils.toFFmpegFormat()` maps Eufy codec strings to FFmpeg demuxer names (`"hevc"` for H.265, `"h264"` for H.264); `FFmpegUtils.toScryptedCodec()` maps to Scrypted codec strings (`"h265"` / `"h264"`)
+- **`IStreamServer.getVideoMetadata()`**: New method on the stream server interface so `StreamService` and `SnapshotService` can read the detected codec at runtime
+- **H.265 Parser Tests**: 23 new tests covering NAL type extraction, IRAP keyframe detection, parameter set caching, and codec dispatch in `H264Parser`
+- **H.265 Integration Tests**: 4 new `StreamServer` tests covering H.265 snapshot resolution, P-frame rejection, and VPS/SPS/PPS caching
+
+### Changed
+
+- **`FFmpegUtils.convertH264ToJPEG`**: Accepts an optional `videoCodec` parameter (default `"H264"`); uses the correct FFmpeg demuxer (`-f hevc` for H.265 cameras)
+- **`StreamService`**: Detects codec from `streamServer.getVideoMetadata()` and passes the correct FFmpeg input format and Scrypted codec string to `createFFmpegMediaObject`
+- **`SnapshotService`**: Passes the detected codec to `FFmpegUtils.convertH264ToJPEG` so H.265 keyframes are decoded correctly
+- **`DeviceUtils.convertH264ToJPEG`**: Delegates to `FFmpegUtils.convertH264ToJPEG` (removed ~80-line duplicate FFmpeg implementation)
+- **FFmpeg flags**: Added `-hide_banner` and `-loglevel error` to suppress informational output in both stream and snapshot FFmpeg invocations
+
+### Fixed
+
+- **H.265 NAL type extraction was completely broken**: The old parser used `byte0 & 0x1F` (H.264 formula) on H.265 data, producing wrong NAL types and never detecting keyframes on H.265 cameras
+- **H.265 snapshots always failed**: Snapshot capture timed out on H.265 cameras because no keyframe was ever detected
+- **Wrong FFmpeg demuxer for H.265**: Streams always passed `-f h264` to FFmpeg regardless of camera codec; H.265 cameras now correctly use `-f hevc`
+
 ## [0.2.1] - 2025-10-26
 
 ### Added

@@ -9,7 +9,7 @@ This is an npm workspaces monorepo managed by Lerna with four packages:
 ```
 packages/
   eufy-security-client/   # @caplaz/eufy-security-client — WebSocket client library
-  eufy-stream-server/     # @caplaz/eufy-stream-server — TCP H.264 streaming server
+  eufy-stream-server/     # @caplaz/eufy-stream-server — TCP H.264/H.265 streaming server
   eufy-security-scrypted/ # @caplaz/eufy-security-scrypted — Scrypted plugin
   eufy-security-cli/      # @caplaz/eufy-security-cli — CLI tool (private)
 ```
@@ -56,11 +56,11 @@ Entry point: `packages/eufy-security-scrypted/src/main.ts` exports `EufySecurity
 - `LightControlService` — floodlight on/off/brightness
 - `VideoClipsService` — cloud video clip retrieval
 
-`StreamServer` (from `eufy-stream-server`) listens on a random local TCP port. FFmpeg connects to this port to receive raw H.264 NAL units from the Eufy camera's WebSocket video data.
+`StreamServer` (from `eufy-stream-server`) listens on a random local TCP port. FFmpeg connects to this port to receive raw H.264 or H.265 NAL units from the Eufy camera's WebSocket video data. The codec is auto-detected from the first `LIVESTREAM_VIDEO_DATA` event and cached as `VideoMetadata` on the `StreamServer` instance.
 
 ### eufy-stream-server
 
-Pure TCP server. `StreamServer` → `ConnectionManager` (tracks clients) + `H264Parser` (NAL unit detection/keyframe extraction). Receives video data events from `EufyWebSocketClient` and forwards raw buffers to TCP clients.
+Pure TCP server. `StreamServer` → `ConnectionManager` (tracks clients) + `H264Parser` (NAL unit detection/keyframe extraction for both H.264 and H.265/HEVC). Receives video data events from `EufyWebSocketClient` and forwards raw buffers to TCP clients. Caches SPS/PPS (H.264) or VPS/SPS/PPS (H.265) parameter sets and prepends them to new TCP connections so FFmpeg can initialize the decoder immediately.
 
 ## Commands
 

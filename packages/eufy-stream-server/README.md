@@ -1,8 +1,8 @@
 # @caplaz/eufy-stream-server
 
-> **TCP streaming server for raw H.264 video from Eufy cameras**
+> **TCP streaming server for raw H.264 and H.265 video from Eufy cameras**
 
-A lightweight, focused streaming server that delivers raw H.264 video over TCP. Perfect for integration with FFmpeg, media players, and custom video processing pipelines.
+A lightweight, focused streaming server that delivers raw H.264 or H.265 video over TCP. Perfect for integration with FFmpeg, media players, and custom video processing pipelines.
 
 ## 🎯 Quick Start
 
@@ -48,9 +48,9 @@ console.log("🎥 Stream server running on port 8080");
 
 ## ✨ Features
 
-- **Raw H.264 Streaming** - Direct H.264 video without audio or MP4 complexity
+- **Raw H.264/H.265 Streaming** - Direct H.264 or H.265 video without audio or MP4 complexity
 - **TCP Server** - Simple TCP server for easy client connections
-- **NAL Unit Parsing** - Automatic H.264 structure parsing and keyframe detection
+- **NAL Unit Parsing** - Automatic H.264 and H.265/HEVC structure parsing and keyframe detection
 - **Connection Management** - Handles multiple concurrent clients with auto-cleanup
 - **Automatic Camera Control** - Starts/stops streaming based on client activity
 - **Statistics** - Real-time streaming and connection metrics
@@ -359,9 +359,9 @@ captureAndSaveSnapshot("T8210N20123456789");
 
 ---
 
-## 🔧 H.264 Parser
+## 🔧 H.264 / H.265 Parser
 
-### Using the Parser
+### Using the Parser (H.264)
 
 ```typescript
 import { H264Parser } from "@caplaz/eufy-stream-server";
@@ -394,7 +394,23 @@ const isValid = parser.validateH264Data(h264Buffer);
 console.log(`Valid H.264: ${isValid ? "Yes" : "No"}`);
 ```
 
-### NAL Unit Types
+### Using the Parser (H.265 / HEVC)
+
+```typescript
+// Extract H.265 NAL units
+const nalUnits = parser.extractNALUnitsHevc(hevcBuffer);
+nalUnits.forEach(nal => {
+  console.log(`NAL Type: ${nal.type} (${nal.typeName})`);
+});
+
+// Check for H.265 keyframe (IRAP: BLA/IDR/CRA, NAL types 16–23)
+const isKeyFrame = parser.isKeyFrameHevc(hevcBuffer);
+
+// Validate H.265 Annex-B data
+const isValid = parser.validateHevcData(hevcBuffer);
+```
+
+### H.264 NAL Unit Types
 
 | Type | Name          | Description           |
 | ---- | ------------- | --------------------- |
@@ -404,6 +420,18 @@ console.log(`Valid H.264: ${isValid ? "Yes" : "No"}`);
 | 7    | SPS           | Sequence parameters   |
 | 8    | PPS           | Picture parameters    |
 | 9    | AUD           | Access unit delimiter |
+
+### H.265 NAL Unit Types (key subset)
+
+| Type  | Name      | Description                        |
+| ----- | --------- | ---------------------------------- |
+| 16–23 | IRAP      | Keyframe (BLA, IDR_W_RADL, IDR_N_LP, CRA) |
+| 32    | VPS       | Video Parameter Set                |
+| 33    | SPS       | Sequence Parameter Set             |
+| 34    | PPS       | Picture Parameter Set              |
+| 39    | SEI       | Supplemental info (prefix)         |
+
+> **Note**: H.265 NAL type is extracted as `(byte0 >> 1) & 0x3F` (bits 6:1 of the first header byte), not `byte0 & 0x1F` as in H.264.
 
 ---
 

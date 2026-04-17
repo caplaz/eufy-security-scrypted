@@ -204,7 +204,7 @@ const mediaObject = await snapshotService.takePicture({ timeout: 15000 });
 Manages video streaming operations:
 
 - Stream server lifecycle management
-- FFmpeg configuration for low-latency H.264
+- FFmpeg configuration for low-latency H.264 and H.265 (codec auto-detected from `VideoMetadata`)
 - Media object creation
 - Quality-based dimension calculation
 
@@ -366,11 +366,17 @@ await ptzHandler.panRight();
 
 **Location**: `utils/ffmpeg-utils.ts`
 
-FFmpeg operations with proper error handling:
+FFmpeg operations with proper error handling and codec-aware configuration:
 
 ```typescript
-// Convert H.264 to JPEG
-const jpegBuffer = await FFmpegUtils.convertH264ToJPEG(h264Data, quality);
+// Convert H.264 or H.265 keyframe to JPEG
+const jpegBuffer = await FFmpegUtils.convertH264ToJPEG(videoData, quality, videoCodec);
+
+// Map Eufy codec string to FFmpeg demuxer name ("h264" or "hevc")
+const inputFormat = FFmpegUtils.toFFmpegFormat("H265"); // → "hevc"
+
+// Map Eufy codec string to Scrypted codec name ("h264" or "h265")
+const codec = FFmpegUtils.toScryptedCodec("H265"); // → "h265"
 
 // Check FFmpeg availability
 const isAvailable = await FFmpegUtils.isFFmpegAvailable();
@@ -631,10 +637,11 @@ Complete service-oriented architecture with specialized services:
 ### Media Services
 
 - ✅ **StreamService**: Video streaming management (30 tests)
-  - FFmpeg configuration for low-latency H.264
+  - FFmpeg configuration for low-latency H.264 and H.265 streaming
+  - Codec auto-detection via `IStreamServer.getVideoMetadata()`
   - Quality-based video dimensions
   - Stream lifecycle management
-- ✅ **SnapshotService**: Camera snapshot operations (9 tests)
+- ✅ **SnapshotService**: Camera snapshot operations (9 tests) — codec-aware JPEG conversion for H.264 and H.265 cameras
 - ✅ **VideoClipsService**: P2P and cloud clip retrieval
 
 ### Control Services
@@ -655,7 +662,7 @@ Complete service-oriented architecture with specialized services:
 
 ### Test Coverage
 
-- ✅ Comprehensive unit tests (160 tests passing)
+- ✅ Comprehensive unit tests (164 tests passing)
 - ✅ Zero TypeScript/lint errors
 - ✅ Complete type safety
 
