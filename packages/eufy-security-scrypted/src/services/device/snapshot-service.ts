@@ -62,8 +62,16 @@ export class SnapshotService {
         `Captured H.264 keyframe: ${h264Keyframe.length} bytes - converting to JPEG`
       );
 
-      // Convert H.264 keyframe to JPEG using FFmpeg
-      const jpegBuffer = await FFmpegUtils.convertH264ToJPEG(h264Keyframe);
+      // Detect codec from last received stream metadata (H264 or H265)
+      const videoCodec =
+        this.streamServer.getVideoMetadata()?.videoCodec ?? "H264";
+
+      // Convert keyframe to JPEG using FFmpeg
+      const jpegBuffer = await FFmpegUtils.convertH264ToJPEG(
+        h264Keyframe,
+        2,
+        videoCodec
+      );
 
       this.logger.info(
         `✅ Snapshot converted to JPEG: ${jpegBuffer.length} bytes`

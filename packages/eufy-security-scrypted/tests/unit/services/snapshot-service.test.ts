@@ -44,6 +44,7 @@ describe("SnapshotService", () => {
 
     mockStreamServer = {
       captureSnapshot: jest.fn().mockResolvedValue(mockH264Data),
+      getVideoMetadata: jest.fn().mockReturnValue(null),
     } as any;
 
     // Mock FFmpegUtils static method
@@ -77,7 +78,11 @@ describe("SnapshotService", () => {
       const result = await service.takePicture();
 
       expect(mockStreamServer.captureSnapshot).toHaveBeenCalledWith(15000);
-      expect(FFmpegUtils.convertH264ToJPEG).toHaveBeenCalledWith(mockH264Data);
+      expect(FFmpegUtils.convertH264ToJPEG).toHaveBeenCalledWith(
+        mockH264Data,
+        2,
+        "H264" // default when getVideoMetadata returns null
+      );
       expect(sdk.mediaManager.createMediaObject).toHaveBeenCalledWith(
         mockJpegData,
         "image/jpeg",

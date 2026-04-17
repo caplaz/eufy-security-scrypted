@@ -15,6 +15,7 @@ import {
 } from "@scrypted/sdk";
 import sdk from "@scrypted/sdk";
 import { VideoQuality } from "@caplaz/eufy-security-client";
+import { FFmpegUtils } from "../../utils/ffmpeg-utils";
 import { Logger, ILogObj } from "tslog";
 import { IStreamServer } from "./types";
 
@@ -82,14 +83,17 @@ export class StreamService {
    */
   getVideoStreamOptions(quality?: VideoQuality): ResponseMediaStreamOptions[] {
     const { width, height } = this.getVideoDimensions(quality);
+    const codec = FFmpegUtils.toScryptedCodec(
+      this.streamServer.getVideoMetadata()?.videoCodec ?? "H264"
+    );
 
     return [
       {
         id: "p2p",
         name: "P2P Stream",
-        container: "h264", // Raw H.264 stream (not MP4 container)
+        container: codec, // "h264" or "h265" raw stream
         video: {
-          codec: "h264",
+          codec,
           width,
           height,
         },
@@ -174,18 +178,27 @@ export class StreamService {
   ): Promise<MediaObject> {
     const { width, height } = this.getVideoDimensions(quality);
 
-    // Simplified FFmpeg configuration for reliable Eufy camera streaming
+    // Detect codec from last received stream metadata; default to H264
+    const eufyCodec =
+      this.streamServer.getVideoMetadata()?.videoCodec ?? "H264";
+    const inputFormat = FFmpegUtils.toFFmpegFormat(eufyCodec); // "h264" or "hevc"
+    const scryptedCodec = FFmpegUtils.toScryptedCodec(eufyCodec); // "h264" or "h265"
+
+    // FFmpeg configuration for Eufy camera streaming
     const ffmpegInput: FFmpegInput = {
       url: undefined,
       inputArguments: [
+        "-hide_banner",
+        "-loglevel",
+        "error", // Suppress informational output; only show errors
         "-use_wallclock_as_timestamps",
         "1", // Critical for Eufy streams - fixes timestamp issues
         "-analyzeduration",
-        "5000000", // Increased analysis time to find SPS/PPS headers
+        "5000000", // 5 s — enough time to find SPS/PPS/VPS headers
         "-probesize",
-        "5000000", // Increased probe size to find SPS/PPS headers
+        "5000000", // 5 MB probe budget for header detection
         "-f",
-        "h264", // Explicitly specify H.264 format
+        inputFormat, // "h264" for H.264 cameras, "hevc" for H.265 cameras
         "-i",
         `tcp://127.0.0.1:${port}`, // TCP input from local stream server
         "-an", // Disable audio
@@ -197,10 +210,10 @@ export class StreamService {
         name: options?.name || "Eufy Camera Stream",
         container: options?.container,
         video: {
-          codec: "h264",
+          codec: scryptedCodec,
           width,
           height,
-          ...options?.video, // Use provided video options
+          ...options?.video,
         },
         // Audio support can be added later when needed
       },

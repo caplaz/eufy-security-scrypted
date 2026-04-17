@@ -43,6 +43,7 @@ describe("StreamService", () => {
       stop: jest.fn().mockResolvedValue(undefined),
       getPort: jest.fn().mockReturnValue(mockPort),
       isRunning: jest.fn().mockReturnValue(false),
+      getVideoMetadata: jest.fn().mockReturnValue(null),
     } as any;
 
     // Mock SDK mediaManager
