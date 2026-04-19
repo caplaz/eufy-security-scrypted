@@ -143,6 +143,7 @@ export class EufyDevice
   // Device info and state
   private latestProperties?: DeviceProperties;
   private propertiesLoaded: Promise<void>;
+  private stateReady = false;
 
   // Services
   private settingsService!: DeviceSettingsService;
@@ -309,6 +310,8 @@ export class EufyDevice
       this.updatePtzCapabilities(); // Update PTZ capabilities based on device type
     } catch (e) {
       this.logger.warn(`Failed to load initial properties: ${e}`);
+    } finally {
+      this.stateReady = true;
     }
   }
 
@@ -317,6 +320,7 @@ export class EufyDevice
    * Required because ScryptedDeviceBase properties need to be updated
    */
   private syncStateToProperties() {
+    if (!this.stateReady) return;
     const state = this.stateService.getState();
     if (state.motionDetected !== undefined)
       this.motionDetected = state.motionDetected;

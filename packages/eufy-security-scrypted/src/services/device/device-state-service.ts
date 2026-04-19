@@ -165,6 +165,7 @@ export class DeviceStateService {
    * @param value - New value
    */
   updateProperty(propertyName: keyof DeviceProperties, value: any): void {
+    if (!this.state) return;
     this.logger.debug(`Property changed: ${propertyName} = ${value}`);
 
     let change: StateChangeEvent | undefined;
