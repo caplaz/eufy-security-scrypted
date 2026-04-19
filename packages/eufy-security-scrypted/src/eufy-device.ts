@@ -166,7 +166,7 @@ export class EufyDevice
   constructor(
     nativeId: string,
     wsClient: EufyWebSocketClient,
-    parentLogger: Logger<ILogObj>
+    parentLogger: Logger<ILogObj>,
   ) {
     super(nativeId);
     this.wsClient = wsClient;
@@ -189,17 +189,17 @@ export class EufyDevice
     // Properties changed event listener
     this.addEventListener(
       DEVICE_EVENTS.PROPERTY_CHANGED,
-      this.handlePropertyChangedEvent.bind(this)
+      this.handlePropertyChangedEvent.bind(this),
     );
 
     this.addEventListener(
       DEVICE_EVENTS.MOTION_DETECTED,
-      this.handleMotionDetectedEvent.bind(this)
+      this.handleMotionDetectedEvent.bind(this),
     );
 
     this.addEventListener(
       DEVICE_EVENTS.RINGS,
-      this.handleDoorbellRingsEvent.bind(this)
+      this.handleDoorbellRingsEvent.bind(this),
     );
 
     // Listen for stream started/stopped events
@@ -210,7 +210,7 @@ export class EufyDevice
       },
       {
         serialNumber: this.info?.serialNumber,
-      }
+      },
     );
     this.wsClient.addEventListener(
       DEVICE_EVENTS.LIVESTREAM_STOPPED,
@@ -219,7 +219,7 @@ export class EufyDevice
       },
       {
         serialNumber: this.info?.serialNumber,
-      }
+      },
     );
     // Begin loading initial properties
     this.propertiesLoaded = this.loadInitialProperties();
@@ -248,17 +248,17 @@ export class EufyDevice
     this.snapshotService = new SnapshotService(
       this.serialNumber,
       this.streamServer,
-      this.logger
+      this.logger,
     );
     this.streamService = new StreamService(
       this.serialNumber,
       this.streamServer,
-      this.logger
+      this.logger,
     );
     this.ptzControlService = new PtzControlService(
       deviceApi,
       () => this.latestProperties?.type,
-      this.logger
+      this.logger,
     );
     this.lightControlService = new LightControlService(deviceApi, this.logger);
 
@@ -337,7 +337,7 @@ export class EufyDevice
 
   private addEventListener<T extends DeviceEventType>(
     eventType: T,
-    eventCallback: EventCallbackForType<T, DeviceEventSource>
+    eventCallback: EventCallbackForType<T, DeviceEventSource>,
   ): () => boolean {
     return this.wsClient.addEventListener(eventType, eventCallback, {
       source: EVENT_SOURCES.DEVICE,
@@ -396,7 +396,7 @@ export class EufyDevice
     return this.settingsService.getSettings(
       this.info! as any,
       this.latestProperties!,
-      this.name || "Unknown Device"
+      this.name || "Unknown Device",
     );
   }
 
@@ -433,7 +433,7 @@ export class EufyDevice
       value,
       this.latestProperties!,
       this.info?.metadata || {},
-      onSuccess
+      onSuccess,
     );
 
     // Settings service will notify via onSettingsChange callback
@@ -500,7 +500,7 @@ export class EufyDevice
    * Delegates to the stream service which handles stream server lifecycle and FFmpeg configuration
    */
   async getVideoStream(
-    options?: RequestMediaStreamOptions
+    options?: RequestMediaStreamOptions,
   ): Promise<MediaObject> {
     await this.propertiesLoaded;
     const quality = this.latestProperties?.videoStreamingQuality;
@@ -555,7 +555,7 @@ export class EufyDevice
    */
   async refresh(
     refreshInterface?: string,
-    userInitiated?: boolean
+    userInitiated?: boolean,
   ): Promise<void> {
     // Delegate to refresh service
     // The service will call our subscribed callbacks on success/error
@@ -612,11 +612,11 @@ export class EufyDevice
    */
   async getVideoClipThumbnail(
     thumbnailId: string,
-    _options?: VideoClipThumbnailOptions
+    _options?: VideoClipThumbnailOptions,
   ): Promise<MediaObject> {
     return this.videoClipsService.downloadThumbnail(
       thumbnailId,
-      this.serialNumber
+      this.serialNumber,
     );
   }
 
@@ -625,10 +625,10 @@ export class EufyDevice
    */
   async removeVideoClips(...videoClipIds: string[]): Promise<void> {
     this.logger.warn(
-      `Video clip deletion not currently supported by Eufy API: ${videoClipIds.join(", ")}`
+      `Video clip deletion not currently supported by Eufy API: ${videoClipIds.join(", ")}`,
     );
     throw new Error(
-      "Video clip deletion is not supported by the Eufy Security API"
+      "Video clip deletion is not supported by the Eufy Security API",
     );
   }
 
@@ -648,7 +648,7 @@ export class EufyDevice
     });
 
     this.logger.debug(
-      "Stream server created with WebSocket client integration"
+      "Stream server created with WebSocket client integration",
     );
   }
 
@@ -660,18 +660,18 @@ export class EufyDevice
     this.streamService
       .dispose()
       .catch((e: unknown) =>
-        this.logger.warn(`Error disposing stream service: ${e}`)
+        this.logger.warn(`Error disposing stream service: ${e}`),
       );
 
     // Clean up all event listeners for this device
     // This removes video data, and other device event listeners
     const removedCount = this.wsClient.removeEventListenersBySerialNumber(
       this.serialNumber,
-      EVENT_SOURCES.DEVICE
+      EVENT_SOURCES.DEVICE,
     );
 
     this.logger.debug(
-      `Removed ${removedCount} event listeners during disposal`
+      `Removed ${removedCount} event listeners during disposal`,
     );
   }
 }

@@ -51,7 +51,7 @@ describe("StreamService", () => {
       mimeType: "video/h264",
     } as any;
     (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mockResolvedValue(
-      mockMediaObject
+      mockMediaObject,
     );
 
     service = new StreamService(serialNumber, mockStreamServer, mockLogger);
@@ -149,7 +149,7 @@ describe("StreamService", () => {
 
       expect(mockStreamServer.getPort).toHaveBeenCalled();
       expect(mockLogger.info).toHaveBeenCalledWith(
-        `Stream server is listening on port ${mockPort}`
+        `Stream server is listening on port ${mockPort}`,
       );
     });
 
@@ -157,7 +157,7 @@ describe("StreamService", () => {
       mockStreamServer.getPort.mockReturnValueOnce(undefined);
 
       await expect(service.getVideoStream(VideoQuality.HIGH)).rejects.toThrow(
-        "Failed to get stream server port"
+        "Failed to get stream server port",
       );
     });
 
@@ -185,7 +185,7 @@ describe("StreamService", () => {
               height: 1080,
             }),
           }),
-        })
+        }),
       );
     });
 
@@ -202,7 +202,7 @@ describe("StreamService", () => {
               height: 720,
             }),
           }),
-        })
+        }),
       );
     });
 
@@ -211,7 +211,7 @@ describe("StreamService", () => {
       mockStreamServer.start.mockRejectedValueOnce(error);
 
       await expect(service.getVideoStream(VideoQuality.HIGH)).rejects.toThrow(
-        "Failed to start server"
+        "Failed to start server",
       );
     });
 

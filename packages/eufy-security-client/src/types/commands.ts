@@ -24,8 +24,9 @@ export interface BaseCommand<TCommand extends string> {
  * @template TCommand - The specific command type string
  * @public
  */
-export interface BaseCommandWithSerial<TCommand extends string>
-  extends BaseCommand<TCommand> {
+export interface BaseCommandWithSerial<
+  TCommand extends string,
+> extends BaseCommand<TCommand> {
   /** Device or station serial number */
   serialNumber: string;
 }

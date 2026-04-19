@@ -30,7 +30,7 @@ describe("Build Configuration Integration", () => {
       expect(tsconfig.compilerOptions.outDir).toBe("./dist");
       expect(tsconfig.compilerOptions.rootDir).toBe("./src");
       expect(tsconfig.compilerOptions.tsBuildInfoFile).toBe(
-        "./dist/.tsbuildinfo"
+        "./dist/.tsbuildinfo",
       );
       expect(tsconfig.compilerOptions.experimentalDecorators).toBe(true);
       expect(tsconfig.compilerOptions.emitDecoratorMetadata).toBe(true);
@@ -192,10 +192,10 @@ describe("Build Configuration Integration", () => {
 
       // Check dependencies
       expect(packageJson.dependencies).toHaveProperty(
-        "@caplaz/eufy-security-client"
+        "@caplaz/eufy-security-client",
       );
       expect(packageJson.dependencies).toHaveProperty(
-        "@caplaz/eufy-stream-server"
+        "@caplaz/eufy-stream-server",
       );
 
       // Check files array

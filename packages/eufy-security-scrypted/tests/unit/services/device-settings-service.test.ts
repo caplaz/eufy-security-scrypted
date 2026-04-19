@@ -81,7 +81,7 @@ describe("DeviceSettingsService", () => {
       const settings = service.getSettings(
         mockDeviceInfo,
         mockProperties,
-        "My Camera"
+        "My Camera",
       );
 
       const nameSetting = settings.find((s) => s.key === "scryptedName");
@@ -99,7 +99,7 @@ describe("DeviceSettingsService", () => {
       const settings = service.getSettings(
         mockDeviceInfo,
         mockProperties,
-        "My Camera"
+        "My Camera",
       );
 
       const typeSetting = settings.find((s) => s.key === "deviceType");
@@ -119,7 +119,7 @@ describe("DeviceSettingsService", () => {
       const settings = service.getSettings(
         mockDeviceInfo,
         mockProperties,
-        "My Camera"
+        "My Camera",
       );
 
       const testProperty = settings.find((s) => s.key === "testProperty");
@@ -134,7 +134,7 @@ describe("DeviceSettingsService", () => {
 
       expect(mockDeviceApi.setProperty).toHaveBeenCalledWith("enabled", false);
       expect(mockLogger.info).toHaveBeenCalledWith(
-        "Updating property enabled to false"
+        "Updating property enabled to false",
       );
     });
 
@@ -146,7 +146,7 @@ describe("DeviceSettingsService", () => {
         false,
         mockProperties,
         mockMetadata,
-        onSuccess
+        onSuccess,
       );
 
       expect(onSuccess).toHaveBeenCalledWith("enabled", false);
@@ -157,7 +157,7 @@ describe("DeviceSettingsService", () => {
         "scryptedName",
         "New Name",
         mockProperties,
-        mockMetadata
+        mockMetadata,
       );
 
       expect(service.getCustomSetting("scryptedName")).toBe("New Name");
@@ -172,7 +172,7 @@ describe("DeviceSettingsService", () => {
         "New Name",
         mockProperties,
         mockMetadata,
-        onSuccess
+        onSuccess,
       );
 
       expect(onSuccess).toHaveBeenCalledWith("scryptedName", "New Name");
@@ -180,7 +180,7 @@ describe("DeviceSettingsService", () => {
 
     it("should throw error for unknown setting", async () => {
       await expect(
-        service.putSetting("unknown", "value", mockProperties, mockMetadata)
+        service.putSetting("unknown", "value", mockProperties, mockMetadata),
       ).rejects.toThrow("Unknown setting: unknown");
 
       expect(mockLogger.warn).toHaveBeenCalledWith("Unknown setting: unknown");
@@ -202,7 +202,7 @@ describe("DeviceSettingsService", () => {
       mockDeviceApi.setProperty.mockRejectedValueOnce(new Error("API Error"));
 
       await expect(
-        service.putSetting("enabled", false, mockProperties, mockMetadata)
+        service.putSetting("enabled", false, mockProperties, mockMetadata),
       ).rejects.toThrow("API Error");
 
       expect(callback).toHaveBeenCalled();
@@ -213,11 +213,11 @@ describe("DeviceSettingsService", () => {
       mockDeviceApi.setProperty.mockRejectedValueOnce(error);
 
       await expect(
-        service.putSetting("enabled", false, mockProperties, mockMetadata)
+        service.putSetting("enabled", false, mockProperties, mockMetadata),
       ).rejects.toThrow("Network error");
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
-        "Failed to set property enabled: Error: Network error"
+        "Failed to set property enabled: Error: Network error",
       );
     });
   });
@@ -232,7 +232,7 @@ describe("DeviceSettingsService", () => {
         "scryptedName",
         "My Name",
         mockProperties,
-        mockMetadata
+        mockMetadata,
       );
 
       expect(service.getCustomSetting("scryptedName")).toBe("My Name");
@@ -287,7 +287,7 @@ describe("DeviceSettingsService", () => {
       expect(badCallback).toHaveBeenCalled();
       expect(goodCallback).toHaveBeenCalled();
       expect(mockLogger.error).toHaveBeenCalledWith(
-        expect.stringContaining("Error in settings change callback")
+        expect.stringContaining("Error in settings change callback"),
       );
     });
   });
@@ -309,7 +309,7 @@ describe("DeviceSettingsService", () => {
         "scryptedName",
         "Test",
         mockProperties,
-        mockMetadata
+        mockMetadata,
       );
 
       service.dispose();

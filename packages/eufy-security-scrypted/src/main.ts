@@ -18,6 +18,6 @@
  * @since 1.0.0
  */
 
-import { EufySecurityProvider } from './eufy-provider';
+import { EufySecurityProvider } from "./eufy-provider";
 
 export default EufySecurityProvider;

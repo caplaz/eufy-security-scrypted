@@ -80,7 +80,7 @@ describe("RefreshService", () => {
       expect(onError).toHaveBeenCalledWith(error);
       expect(onSuccess).not.toHaveBeenCalled();
       expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining("Failed to refresh device properties")
+        expect.stringContaining("Failed to refresh device properties"),
       );
     });
 
@@ -96,7 +96,7 @@ describe("RefreshService", () => {
       await service.refresh();
 
       expect(mockLogger.info).toHaveBeenCalledWith(
-        expect.stringContaining("refresh")
+        expect.stringContaining("refresh"),
       );
     });
 
@@ -104,7 +104,7 @@ describe("RefreshService", () => {
       await service.refresh(undefined, true);
 
       expect(mockLogger.info).toHaveBeenCalledWith(
-        expect.stringContaining("User-initiated")
+        expect.stringContaining("User-initiated"),
       );
     });
 
@@ -112,7 +112,7 @@ describe("RefreshService", () => {
       await service.refresh(undefined, false);
 
       expect(mockLogger.info).toHaveBeenCalledWith(
-        expect.stringContaining("Scheduled")
+        expect.stringContaining("Scheduled"),
       );
     });
 
@@ -120,7 +120,7 @@ describe("RefreshService", () => {
       await service.refresh("Battery");
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        expect.stringContaining("Refresh requested for interface Battery")
+        expect.stringContaining("Refresh requested for interface Battery"),
       );
     });
 
@@ -238,7 +238,7 @@ describe("RefreshService", () => {
       expect(badCallback).toHaveBeenCalled();
       expect(goodCallback).toHaveBeenCalled();
       expect(mockLogger.error).toHaveBeenCalledWith(
-        expect.stringContaining("Error in refresh complete callback")
+        expect.stringContaining("Error in refresh complete callback"),
       );
     });
   });
@@ -303,7 +303,7 @@ describe("RefreshService", () => {
       expect(badCallback).toHaveBeenCalled();
       expect(goodCallback).toHaveBeenCalled();
       expect(mockLogger.error).toHaveBeenCalledWith(
-        expect.stringContaining("Error in refresh error callback")
+        expect.stringContaining("Error in refresh error callback"),
       );
     });
   });

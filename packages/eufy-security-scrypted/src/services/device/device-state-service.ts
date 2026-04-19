@@ -188,7 +188,7 @@ export class DeviceStateService {
 
       case "chargingStatus":
         this.state.chargeState = this.convertChargingStatus(
-          value as ChargingStatus
+          value as ChargingStatus,
         );
         change = {
           interface: ScryptedInterface.Charger,
@@ -229,7 +229,7 @@ export class DeviceStateService {
 
       default:
         this.logger.debug(
-          `Property ${propertyName} does not affect device state`
+          `Property ${propertyName} does not affect device state`,
         );
     }
 
@@ -278,7 +278,7 @@ export class DeviceStateService {
    * Convert Eufy charging status to Scrypted ChargeState
    */
   private convertChargingStatus(
-    status: ChargingStatus
+    status: ChargingStatus,
   ): ChargeState | undefined {
     switch (status) {
       case ChargingStatus.NOT_CHARGING:

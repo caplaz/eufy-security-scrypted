@@ -49,11 +49,11 @@ describe("Common Constants", () => {
 
     it("should throw for invalid event sources", () => {
       expect(() => assertEventSource("invalid")).toThrow(
-        "Invalid event source: invalid"
+        "Invalid event source: invalid",
       );
       expect(() => assertEventSource("")).toThrow("Invalid event source: ");
       expect(() => assertEventSource("SERVER")).toThrow(
-        "Invalid event source: SERVER"
+        "Invalid event source: SERVER",
       );
     });
 
@@ -62,7 +62,7 @@ describe("Common Constants", () => {
         assertEventSource("invalid");
       } catch (error) {
         expect((error as Error).message).toContain(
-          "Valid sources are: server, driver, device, station"
+          "Valid sources are: server, driver, device, station",
         );
       }
     });

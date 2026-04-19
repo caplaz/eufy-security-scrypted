@@ -87,10 +87,10 @@ describe("WebSocketClient", () => {
       const clientWithoutState = new WebSocketClient(
         "ws://localhost:3000",
         stateManager,
-        logger
+        logger,
       );
       expect(clientWithoutState.getStateManager()).toBeInstanceOf(
-        ClientStateManager
+        ClientStateManager,
       );
     });
   });
@@ -108,7 +108,7 @@ describe("WebSocketClient", () => {
 
       // Initial state should be connecting
       expect(stateManager.getState().connection).toBe(
-        ConnectionState.CONNECTING
+        ConnectionState.CONNECTING,
       );
 
       // Simulate connection opening
@@ -119,7 +119,7 @@ describe("WebSocketClient", () => {
       // Verify final state
       expect(stateManager.getState().wsConnected).toBe(true);
       expect(stateManager.getState().connection).toBe(
-        ConnectionState.CONNECTED
+        ConnectionState.CONNECTED,
       );
     });
 
@@ -150,7 +150,7 @@ describe("WebSocketClient", () => {
       expect(mockWs.close).toHaveBeenCalled();
       expect(stateManager.getState().wsConnected).toBe(false);
       expect(stateManager.getState().connection).toBe(
-        ConnectionState.DISCONNECTED
+        ConnectionState.DISCONNECTED,
       );
     });
   });

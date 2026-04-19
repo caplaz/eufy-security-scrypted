@@ -78,7 +78,7 @@ export class CLIParser {
                 args[1].startsWith("-")
               ) {
                 throw new Error(
-                  "Both captcha ID and captcha code are required for set_captcha command"
+                  "Both captcha ID and captcha code are required for set_captcha command",
                 );
               }
               result.captchaId = args[0];
@@ -93,7 +93,7 @@ export class CLIParser {
                 args[1].startsWith("-")
               ) {
                 throw new Error(
-                  "Both captcha ID and verification code are required for set_verify_code command"
+                  "Both captcha ID and verification code are required for set_verify_code command",
                 );
               }
               result.verifyCodeId = args[0];
@@ -102,7 +102,7 @@ export class CLIParser {
             }
           } else {
             throw new Error(
-              `Unknown driver subcommand: ${possibleSubcommand}. Valid subcommands: ${validSubcommands.join(", ")}`
+              `Unknown driver subcommand: ${possibleSubcommand}. Valid subcommands: ${validSubcommands.join(", ")}`,
             );
           }
         } else if (
@@ -118,13 +118,13 @@ export class CLIParser {
             args = args.slice(1); // Remove subcommand from args
           } else {
             throw new Error(
-              `Unknown device subcommand: ${possibleSubcommand}. Valid subcommands: ${validSubcommands.join(", ")}`
+              `Unknown device subcommand: ${possibleSubcommand}. Valid subcommands: ${validSubcommands.join(", ")}`,
             );
           }
         }
       } else {
         throw new Error(
-          `Unknown command: ${possibleCommand}. Valid commands: ${validCommands.join(", ")}`
+          `Unknown command: ${possibleCommand}. Valid commands: ${validCommands.join(", ")}`,
         );
       }
     } else {
@@ -164,7 +164,7 @@ export class CLIParser {
           const port = parseInt(nextArg, 10);
           if (isNaN(port) || port < 0 || port > 65535) {
             throw new Error(
-              "Port must be a valid number between 0 and 65535 (0 = random port)"
+              "Port must be a valid number between 0 and 65535 (0 = random port)",
             );
           }
           result.port = port;
@@ -327,7 +327,7 @@ NOTES:
     // Validate required arguments
     if (!args.wsHost) {
       throw new Error(
-        "WebSocket host is required. Use --ws-host or -w to specify."
+        "WebSocket host is required. Use --ws-host or -w to specify.",
       );
     }
 
@@ -349,7 +349,7 @@ NOTES:
           `❌ Camera serial is required for the ${commandName} command.\n\n` +
             `Usage: eufy-security-cli ${commandName} --ws-host <host> --camera-serial <serial>\n\n` +
             `💡 To find available device serials, run:\n` +
-            `   eufy-security-cli device list --ws-host ${args.wsHost || "<host>"}`
+            `   eufy-security-cli device list --ws-host ${args.wsHost || "<host>"}`,
         );
       }
       this.validateCameraSerial(args.cameraSerial);
@@ -363,7 +363,7 @@ NOTES:
             `Port must be between 0 and 65535 (0 = automatic port assignment)\n\n` +
             `Examples:\n` +
             `   --port 0     # Let system assign available port\n` +
-            `   --port 8080  # Use specific port 8080`
+            `   --port 8080  # Use specific port 8080`,
         );
       }
     }
@@ -397,7 +397,7 @@ NOTES:
           `   192.168.1.100:3000\n` +
           `   ws://192.168.1.100:3000\n` +
           `   wss://my-server.com:3000\n` +
-          `   localhost:3000`
+          `   localhost:3000`,
       );
     }
 
@@ -411,7 +411,7 @@ NOTES:
           `   192.168.1.100:3000\n` +
           `   ws://192.168.1.100:3000\n` +
           `   wss://my-server.com:3000\n` +
-          `   localhost:3000`
+          `   localhost:3000`,
       );
     }
 
@@ -425,7 +425,7 @@ NOTES:
         throw new Error(
           `❌ Invalid port number: ${port}\n\n` +
             `Port must be between 1 and 65535\n\n` +
-            `Example: ${hostname}:3000`
+            `Example: ${hostname}:3000`,
         );
       }
     }
@@ -442,7 +442,7 @@ NOTES:
         throw new Error(
           `❌ Invalid IP address: ${hostname}\n\n` +
             `Each part of the IP address must be between 0 and 255\n\n` +
-            `Example: 192.168.1.100:3000`
+            `Example: 192.168.1.100:3000`,
         );
       }
     } else if (!hostnameRegex.test(hostname)) {
@@ -452,7 +452,7 @@ NOTES:
           `Valid examples:\n` +
           `   localhost:3000\n` +
           `   my-server.com:3000\n` +
-          `   192.168.1.100:3000`
+          `   192.168.1.100:3000`,
       );
     }
 
@@ -466,7 +466,7 @@ NOTES:
           `Valid examples:\n` +
           `   192.168.1.100:3000\n` +
           `   ws://192.168.1.100:3000\n` +
-          `   wss://my-server.com:3000`
+          `   wss://my-server.com:3000`,
       );
     }
   }
@@ -487,7 +487,7 @@ NOTES:
           `   E123456789\n\n` +
           `💡 To find your camera serial:\n` +
           `   • Check the device label or QR code\n` +
-          `   • Use: eufy-security-cli list-devices --ws-host <host>`
+          `   • Use: eufy-security-cli list-devices --ws-host <host>`,
       );
     }
   }

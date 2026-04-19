@@ -56,7 +56,7 @@ async function main() {
 
   server.on("clientConnected", (connectionId, connectionInfo) => {
     console.log(
-      `🔗 Client connected: ${connectionId} from ${connectionInfo.remoteAddress}:${connectionInfo.remotePort}`
+      `🔗 Client connected: ${connectionId} from ${connectionInfo.remoteAddress}:${connectionInfo.remotePort}`,
     );
   });
 
@@ -66,7 +66,7 @@ async function main() {
 
   server.on("videoStreamed", (streamData) => {
     console.log(
-      `📹 Streamed ${streamData.data.length} bytes, keyFrame: ${streamData.isKeyFrame}`
+      `📹 Streamed ${streamData.data.length} bytes, keyFrame: ${streamData.isKeyFrame}`,
     );
   });
 
@@ -95,7 +95,7 @@ async function main() {
       if (frameCount % 100 === 0) {
         const stats = server.getStats();
         console.log(
-          `📊 Stats - Frames: ${stats.streaming.framesProcessed}, Clients: ${stats.connections.active}, Bytes: ${stats.streaming.bytesTransferred}`
+          `📊 Stats - Frames: ${stats.streaming.framesProcessed}, Clients: ${stats.connections.active}, Bytes: ${stats.streaming.bytesTransferred}`,
         );
       }
     }, 33); // ~30 FPS

@@ -193,7 +193,7 @@ describe("CLI Basic Integration", () => {
       };
 
       expect(() => CLIParser.validateArgs(args)).toThrow(
-        "Camera serial is required for the device stream command"
+        "Camera serial is required for the device stream command",
       );
     });
 
@@ -209,7 +209,7 @@ describe("CLI Basic Integration", () => {
       };
 
       expect(() => CLIParser.validateArgs(args)).toThrow(
-        "Invalid WebSocket host format"
+        "Invalid WebSocket host format",
       );
     });
 
@@ -225,7 +225,7 @@ describe("CLI Basic Integration", () => {
       };
 
       expect(() => CLIParser.validateArgs(args)).toThrow(
-        "Invalid camera serial format"
+        "Invalid camera serial format",
       );
     });
   });
@@ -242,7 +242,7 @@ describe("CLI Basic Integration", () => {
       CLIApplication.displayVersion();
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Eufy Camera CLI v")
+        expect.stringContaining("Eufy Camera CLI v"),
       );
 
       consoleSpy.mockRestore();
@@ -254,13 +254,13 @@ describe("CLI Basic Integration", () => {
       CLIApplication.displayCommands();
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Available commands:")
+        expect.stringContaining("Available commands:"),
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("driver status")
+        expect.stringContaining("driver status"),
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("device list")
+        expect.stringContaining("device list"),
       );
 
       consoleSpy.mockRestore();

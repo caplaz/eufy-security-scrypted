@@ -54,7 +54,7 @@ export class FFmpegUtils {
   static async convertH264ToJPEG(
     videoData: Buffer,
     quality: number = 2,
-    videoCodec: string = "H264"
+    videoCodec: string = "H264",
   ): Promise<Buffer> {
     const child_process = await import("child_process");
 
@@ -62,7 +62,7 @@ export class FFmpegUtils {
       // Validate quality parameter
       if (quality < 1 || quality > 31) {
         reject(
-          new Error("JPEG quality must be between 1 and 31 (lower is better)")
+          new Error("JPEG quality must be between 1 and 31 (lower is better)"),
         );
         return;
       }
@@ -104,12 +104,16 @@ export class FFmpegUtils {
         if (code === 0 && chunks.length > 0) {
           const jpegBuffer = Buffer.concat(chunks);
           this.logger.debug(
-            `Successfully converted ${inputFormat.toUpperCase()} to JPEG: ${jpegBuffer.length} bytes`
+            `Successfully converted ${inputFormat.toUpperCase()} to JPEG: ${jpegBuffer.length} bytes`,
           );
           resolve(jpegBuffer);
         } else {
           const errorOutput = Buffer.concat(errorChunks).toString();
-          const errorMessage = this.parseFFmpegError(code, errorOutput, inputFormat);
+          const errorMessage = this.parseFFmpegError(
+            code,
+            errorOutput,
+            inputFormat,
+          );
           this.logger.error(`FFmpeg conversion failed: ${errorMessage}`);
           reject(new Error(errorMessage));
         }
@@ -140,7 +144,7 @@ export class FFmpegUtils {
   private static parseFFmpegError(
     code: number | null,
     errorOutput: string,
-    inputFormat: string = "h264"
+    inputFormat: string = "h264",
   ): string {
     if (errorOutput.includes("Invalid data found when processing input")) {
       return `Invalid ${inputFormat.toUpperCase()} data provided. The data may be corrupted or incomplete.`;

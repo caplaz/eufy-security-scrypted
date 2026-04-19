@@ -16,6 +16,16 @@
     "composite": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "tests", "**/*.test.ts", "**/*.spec.ts", "coverage"],
-  "references": [{ "path": "../eufy-security-client" }, { "path": "../eufy-stream-server" }]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "coverage"
+  ],
+  "references": [
+    { "path": "../eufy-security-client" },
+    { "path": "../eufy-stream-server" }
+  ]
 }

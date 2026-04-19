@@ -17,7 +17,7 @@ export class LightControlHandler {
   constructor(
     private wsClient: EufyWebSocketClient,
     private serialNumber: string,
-    private logger: Logger<ILogObj>
+    private logger: Logger<ILogObj>,
   ) {}
 
   /**

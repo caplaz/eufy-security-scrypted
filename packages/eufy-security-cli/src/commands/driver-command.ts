@@ -20,7 +20,7 @@ export class DriverCommand extends BaseCommand {
 
     if (!subcommand) {
       throw new Error(
-        "Driver command requires a subcommand. Use 'driver status' or 'driver connect'"
+        "Driver command requires a subcommand. Use 'driver status' or 'driver connect'",
       );
     }
 
@@ -39,7 +39,7 @@ export class DriverCommand extends BaseCommand {
         break;
       default:
         throw new Error(
-          `Unknown driver subcommand: ${subcommand}. Valid subcommands: status, connect, set_captcha, set_verify_code`
+          `Unknown driver subcommand: ${subcommand}. Valid subcommands: status, connect, set_captcha, set_verify_code`,
         );
     }
   }
@@ -74,7 +74,7 @@ export class DriverCommand extends BaseCommand {
         // CAPTCHA was requested during startListening
         await this.displayCaptchaRequired(
           pendingCaptcha.captchaId,
-          pendingCaptcha.captcha
+          pendingCaptcha.captcha,
         );
         client.apiManager.clearPendingCaptcha();
         return;
@@ -95,7 +95,7 @@ export class DriverCommand extends BaseCommand {
 
       // Driver needs authentication - try to connect driver to trigger 2FA
       this.logger.info(
-        "🔐 Attempting to connect driver to trigger 2FA process..."
+        "🔐 Attempting to connect driver to trigger 2FA process...",
       );
 
       try {
@@ -113,7 +113,7 @@ export class DriverCommand extends BaseCommand {
         if (captchaAfterConnect) {
           await this.displayCaptchaRequired(
             captchaAfterConnect.captchaId,
-            captchaAfterConnect.captcha
+            captchaAfterConnect.captcha,
           );
           client.apiManager.clearPendingCaptcha();
           return;
@@ -150,7 +150,7 @@ export class DriverCommand extends BaseCommand {
         }
 
         this.logger.info(
-          "🔐 Driver connection attempt failed - authentication likely required"
+          "🔐 Driver connection attempt failed - authentication likely required",
         );
       }
 
@@ -170,12 +170,12 @@ export class DriverCommand extends BaseCommand {
 
       this.logger.error(
         "❌ Failed to connect to driver:",
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
       throw new Error(
         `❌ Failed to connect to driver: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
     } finally {
       // Clean up connection
@@ -221,12 +221,12 @@ export class DriverCommand extends BaseCommand {
 
       this.logger.error(
         "❌ Failed to check driver status:",
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
       throw new Error(
         `❌ Failed to check driver status: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
     } finally {
       // Clean up connection
@@ -260,7 +260,7 @@ export class DriverCommand extends BaseCommand {
 
   private displayConnectResult(
     isWebSocketConnected: boolean,
-    isDriverConnected: boolean
+    isDriverConnected: boolean,
   ): void {
     console.log("\n" + "=".repeat(60));
     console.log("🔗 Eufy Security Driver Connection");
@@ -278,34 +278,34 @@ export class DriverCommand extends BaseCommand {
     } else if (!isDriverConnected) {
       console.log("⚠️  Connection Established: DRIVER NEEDS AUTHENTICATION");
       console.log(
-        "   WebSocket connection established, but Eufy driver is not authenticated."
+        "   WebSocket connection established, but Eufy driver is not authenticated.",
       );
       console.log("   This typically means:");
       console.log(
-        "   • 2FA authentication is required (captcha/verification code)"
+        "   • 2FA authentication is required (captcha/verification code)",
       );
       console.log("   • Eufy account credentials need verification");
       console.log("   • Check server logs for authentication status");
       console.log(
-        "   • Use 'driver set_captcha' and 'driver set_verify_code' commands"
+        "   • Use 'driver set_captcha' and 'driver set_verify_code' commands",
       );
     } else {
       console.log("✅ Connection Successful: FULLY CONNECTED");
       console.log(
-        "   WebSocket connection established and Eufy driver is authenticated."
+        "   WebSocket connection established and Eufy driver is authenticated.",
       );
       console.log(
-        "   You can now use other CLI commands to interact with your devices."
+        "   You can now use other CLI commands to interact with your devices.",
       );
     }
 
     console.log("");
     console.log("💡 Connection Details:");
     console.log(
-      `   • WebSocket: ${isWebSocketConnected ? "✅ Connected" : "❌ Disconnected"}`
+      `   • WebSocket: ${isWebSocketConnected ? "✅ Connected" : "❌ Disconnected"}`,
     );
     console.log(
-      `   • Eufy Driver: ${isDriverConnected ? "✅ Authenticated" : "⚠️  Needs Authentication"}`
+      `   • Eufy Driver: ${isDriverConnected ? "✅ Authenticated" : "⚠️  Needs Authentication"}`,
     );
 
     console.log("");
@@ -314,7 +314,7 @@ export class DriverCommand extends BaseCommand {
       console.log("   1. Check server logs for 2FA requirements");
       console.log("   2. Use 'driver set_captcha <id> <code>' if prompted");
       console.log(
-        "   3. Use 'driver set_verify_code <id> <code>' to complete authentication"
+        "   3. Use 'driver set_verify_code <id> <code>' to complete authentication",
       );
       console.log("   4. Use 'driver status' to check authentication progress");
     } else {
@@ -329,7 +329,7 @@ export class DriverCommand extends BaseCommand {
   private async executeSetCaptcha(args: ParsedArgs): Promise<void> {
     if (!args.captchaId || !args.captcha) {
       throw new Error(
-        "Both captcha ID and captcha code are required for set_captcha command"
+        "Both captcha ID and captcha code are required for set_captcha command",
       );
     }
 
@@ -358,12 +358,12 @@ export class DriverCommand extends BaseCommand {
 
       this.logger.error(
         "❌ Failed to set captcha code:",
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
       throw new Error(
         `❌ Failed to set captcha code: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
     } finally {
       // Clean up connection
@@ -380,7 +380,7 @@ export class DriverCommand extends BaseCommand {
   private async executeSetVerifyCode(args: ParsedArgs): Promise<void> {
     if (!args.verifyCodeId || !args.verifyCode) {
       throw new Error(
-        "Both captcha ID and verification code are required for set_verify_code command"
+        "Both captcha ID and verification code are required for set_verify_code command",
       );
     }
 
@@ -409,12 +409,12 @@ export class DriverCommand extends BaseCommand {
 
       this.logger.error(
         "❌ Failed to set verification code:",
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
       throw new Error(
         `❌ Failed to set verification code: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
     } finally {
       // Clean up connection
@@ -454,7 +454,7 @@ export class DriverCommand extends BaseCommand {
 
     console.log("✅ Verification code set successfully!");
     console.log(
-      `   Code: ${"*".repeat(verifyCode.length)} (hidden for security)`
+      `   Code: ${"*".repeat(verifyCode.length)} (hidden for security)`,
     );
     console.log("   The 2FA verification should now complete.");
     console.log("   Check the server logs for authentication status.");
@@ -470,7 +470,7 @@ export class DriverCommand extends BaseCommand {
 
   private async displayCaptchaRequired(
     captchaId: string,
-    captcha: string
+    captcha: string,
   ): Promise<void> {
     console.log("\n" + "=".repeat(60));
     console.log("🔐 Eufy Security 2FA - CAPTCHA Required");
@@ -490,7 +490,7 @@ export class DriverCommand extends BaseCommand {
     console.log(`   1. Solve the CAPTCHA challenge shown above`);
     console.log(`   2. Run: driver set_captcha ${captchaId} <captcha_code>`);
     console.log(
-      `   3. Then run: driver set_verify_code ${captchaId} <verification_code>`
+      `   3. Then run: driver set_verify_code ${captchaId} <verification_code>`,
     );
     console.log("   4. Check status with: driver status");
 
@@ -503,7 +503,7 @@ export class DriverCommand extends BaseCommand {
     console.log("=".repeat(60));
 
     console.log(
-      "⚠️  Multi-factor authentication is required to complete login."
+      "⚠️  Multi-factor authentication is required to complete login.",
     );
     console.log("   Please check your email/SMS for the verification code.");
     console.log("");
@@ -515,7 +515,7 @@ export class DriverCommand extends BaseCommand {
     console.log("💡 To complete authentication:");
     console.log("   1. Check your email or SMS for the verification code");
     console.log(
-      "   2. Run: driver set_verify_code <captcha_id> <verification_code>"
+      "   2. Run: driver set_verify_code <captcha_id> <verification_code>",
     );
     console.log("   3. Check status with: driver status");
 
@@ -524,7 +524,7 @@ export class DriverCommand extends BaseCommand {
 
   private displayStatus(
     isWebSocketConnected: boolean,
-    isDriverConnected: boolean
+    isDriverConnected: boolean,
   ): void {
     console.log("\n" + "=".repeat(60));
     console.log("🔍 Eufy Security Driver Status");
@@ -540,37 +540,37 @@ export class DriverCommand extends BaseCommand {
       console.log("   • Server configuration issues");
     } else if (!isDriverConnected) {
       console.log(
-        "⚠️  Status: WEBSOCKET CONNECTED, DRIVER NEEDS AUTHENTICATION"
+        "⚠️  Status: WEBSOCKET CONNECTED, DRIVER NEEDS AUTHENTICATION",
       );
       console.log(
-        "   WebSocket connection established, but Eufy driver is not authenticated."
+        "   WebSocket connection established, but Eufy driver is not authenticated.",
       );
       console.log("   This typically means:");
       console.log(
-        "   • 2FA authentication is required (captcha/verification code)"
+        "   • 2FA authentication is required (captcha/verification code)",
       );
       console.log("   • Eufy account credentials need verification");
       console.log("   • Check server logs for authentication status");
       console.log(
-        "   • Use 'driver set_captcha' and 'driver set_verify_code' commands"
+        "   • Use 'driver set_captcha' and 'driver set_verify_code' commands",
       );
     } else {
       console.log("✅ Status: FULLY CONNECTED");
       console.log(
-        "   WebSocket connection established and Eufy driver is authenticated."
+        "   WebSocket connection established and Eufy driver is authenticated.",
       );
       console.log(
-        "   You can now use other CLI commands to interact with your devices."
+        "   You can now use other CLI commands to interact with your devices.",
       );
     }
 
     console.log("");
     console.log("💡 Connection Details:");
     console.log(
-      `   • WebSocket: ${isWebSocketConnected ? "✅ Connected" : "❌ Disconnected"}`
+      `   • WebSocket: ${isWebSocketConnected ? "✅ Connected" : "❌ Disconnected"}`,
     );
     console.log(
-      `   • Eufy Driver: ${isDriverConnected ? "✅ Authenticated" : "⚠️  Needs Authentication"}`
+      `   • Eufy Driver: ${isDriverConnected ? "✅ Authenticated" : "⚠️  Needs Authentication"}`,
     );
 
     console.log("");
@@ -584,12 +584,12 @@ export class DriverCommand extends BaseCommand {
       console.log("   1. Check server logs for 2FA requirements");
       console.log("   2. Use 'driver set_captcha <id> <code>' if prompted");
       console.log(
-        "   3. Use 'driver set_verify_code <id> <code>' to complete authentication"
+        "   3. Use 'driver set_verify_code <id> <code>' to complete authentication",
       );
       console.log("   4. Verify Eufy account credentials are correct");
     } else {
       console.log(
-        "   Driver is fully operational and ready for device commands."
+        "   Driver is fully operational and ready for device commands.",
       );
     }
 
@@ -598,7 +598,7 @@ export class DriverCommand extends BaseCommand {
 
   private async displayCaptchaImage(
     captchaId: string,
-    captchaBase64: string
+    captchaBase64: string,
   ): Promise<void> {
     try {
       // Extract the actual base64 data (remove data:image/png;base64, prefix if present)
@@ -614,7 +614,7 @@ export class DriverCommand extends BaseCommand {
         // Fallback: show instructions to manually decode
         console.log("   • CAPTCHA Image: Unable to display automatically");
         console.log(
-          "   • Manual method: Save the base64 string below as a .png file"
+          "   • Manual method: Save the base64 string below as a .png file",
         );
         console.log(`     Base64: ${captchaBase64.substring(0, 100)}...`);
         console.log("     Then open the file with an image viewer");
@@ -622,14 +622,14 @@ export class DriverCommand extends BaseCommand {
     } catch (error) {
       this.logger.warn("Failed to display CAPTCHA image:", error);
       console.log(
-        "   • CAPTCHA Image: Error displaying image (see manual method below)"
+        "   • CAPTCHA Image: Error displaying image (see manual method below)",
       );
       console.log(`     Base64: ${captchaBase64.substring(0, 100)}...`);
     }
   }
 
   private async tryDisplayWithTerminalImageViewer(
-    _base64Data: string
+    _base64Data: string,
   ): Promise<boolean> {
     // Try common terminal image viewers
     const viewers = ["imgcat", "viu", "tiv", "chafa"];

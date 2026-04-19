@@ -24,60 +24,71 @@ export interface BaseDriverEventPayload<TEventName extends DriverEventType> {
 }
 
 // Driver events
-export interface DriverVerifyCodeEventPayload
-  extends BaseDriverEventPayload<typeof DRIVER_EVENTS.VERIFY_CODE> {
+export interface DriverVerifyCodeEventPayload extends BaseDriverEventPayload<
+  typeof DRIVER_EVENTS.VERIFY_CODE
+> {
   methods?: string[];
 }
 
-export interface DriverCaptchaRequestEventPayload
-  extends BaseDriverEventPayload<typeof DRIVER_EVENTS.CAPTCHA_REQUEST> {
+export interface DriverCaptchaRequestEventPayload extends BaseDriverEventPayload<
+  typeof DRIVER_EVENTS.CAPTCHA_REQUEST
+> {
   captchaId: string;
   captcha: string;
 }
 
-export interface DriverConnectedEventPayload
-  extends BaseDriverEventPayload<typeof DRIVER_EVENTS.CONNECTED> {
+export interface DriverConnectedEventPayload extends BaseDriverEventPayload<
+  typeof DRIVER_EVENTS.CONNECTED
+> {
   // No additional properties
 }
 
-export interface DriverDisconnectedEventPayload
-  extends BaseDriverEventPayload<typeof DRIVER_EVENTS.DISCONNECTED> {
+export interface DriverDisconnectedEventPayload extends BaseDriverEventPayload<
+  typeof DRIVER_EVENTS.DISCONNECTED
+> {
   // No additional properties
 }
 
-export interface DriverPushConnectedEventPayload
-  extends BaseDriverEventPayload<typeof DRIVER_EVENTS.PUSH_CONNECTED> {
+export interface DriverPushConnectedEventPayload extends BaseDriverEventPayload<
+  typeof DRIVER_EVENTS.PUSH_CONNECTED
+> {
   // No additional properties
 }
 
-export interface DriverPushDisconnectedEventPayload
-  extends BaseDriverEventPayload<typeof DRIVER_EVENTS.PUSH_DISCONNECTED> {
+export interface DriverPushDisconnectedEventPayload extends BaseDriverEventPayload<
+  typeof DRIVER_EVENTS.PUSH_DISCONNECTED
+> {
   // No additional properties
 }
 
-export interface DriverMqttConnectedEventPayload
-  extends BaseDriverEventPayload<typeof DRIVER_EVENTS.MQTT_CONNECTED> {
+export interface DriverMqttConnectedEventPayload extends BaseDriverEventPayload<
+  typeof DRIVER_EVENTS.MQTT_CONNECTED
+> {
   // No additional properties
 }
 
-export interface DriverMqttDisconnectedEventPayload
-  extends BaseDriverEventPayload<typeof DRIVER_EVENTS.MQTT_DISCONNECTED> {
+export interface DriverMqttDisconnectedEventPayload extends BaseDriverEventPayload<
+  typeof DRIVER_EVENTS.MQTT_DISCONNECTED
+> {
   // No additional properties
 }
 
-export interface DriverLogLevelChangedEventPayload
-  extends BaseDriverEventPayload<typeof DRIVER_EVENTS.LOG_LEVEL_CHANGED> {
+export interface DriverLogLevelChangedEventPayload extends BaseDriverEventPayload<
+  typeof DRIVER_EVENTS.LOG_LEVEL_CHANGED
+> {
   level: string;
 }
 
-export interface DriverLoggingEventPayload
-  extends BaseDriverEventPayload<typeof DRIVER_EVENTS.LOGGING> {
+export interface DriverLoggingEventPayload extends BaseDriverEventPayload<
+  typeof DRIVER_EVENTS.LOGGING
+> {
   level: string;
   message: string;
 }
 
-export interface DriverConnectionErrorEventPayload
-  extends BaseDriverEventPayload<typeof DRIVER_EVENTS.CONNECTION_ERROR> {
+export interface DriverConnectionErrorEventPayload extends BaseDriverEventPayload<
+  typeof DRIVER_EVENTS.CONNECTION_ERROR
+> {
   error: string;
 }
 

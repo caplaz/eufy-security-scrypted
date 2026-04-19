@@ -47,7 +47,7 @@ export class DeviceSettingsService {
 
   constructor(
     private deviceApi: IDeviceCommandAPI,
-    private logger: Logger<ILogObj>
+    private logger: Logger<ILogObj>,
   ) {}
 
   /**
@@ -64,7 +64,7 @@ export class DeviceSettingsService {
   getSettings(
     deviceInfo: DeviceInfo,
     properties: DeviceProperties,
-    deviceName: string
+    deviceName: string,
   ): Setting[] {
     const { metadata } = deviceInfo;
 
@@ -105,7 +105,7 @@ export class DeviceSettingsService {
     value: SettingValue,
     properties: DeviceProperties,
     metadata: Record<string, any>,
-    onSuccess?: (key: string, value: SettingValue) => void
+    onSuccess?: (key: string, value: SettingValue) => void,
   ): Promise<void> {
     try {
       // Handle device properties
@@ -113,7 +113,7 @@ export class DeviceSettingsService {
         await this.updateDeviceProperty(
           key as keyof DeviceProperties,
           value,
-          metadata[key]
+          metadata[key],
         );
         if (onSuccess) {
           onSuccess(key, value);
@@ -169,7 +169,7 @@ export class DeviceSettingsService {
   private async updateDeviceProperty(
     propertyName: keyof DeviceProperties,
     value: SettingValue,
-    metadata: any
+    metadata: any,
   ): Promise<void> {
     // Adjust the value based on metadata (e.g., convert state to index)
     const adjustedValue = metadata
@@ -199,7 +199,7 @@ export class DeviceSettingsService {
    */
   private getGenericDeviceInfo(
     deviceInfo: DeviceInfo,
-    _metadata: Record<string, any>
+    _metadata: Record<string, any>,
   ): Setting[] {
     const settings: Setting[] = [];
 
@@ -247,7 +247,7 @@ export class DeviceSettingsService {
    */
   private getWritableProperties(
     properties: DeviceProperties,
-    metadata: Record<string, any>
+    metadata: Record<string, any>,
   ): Setting[] {
     return PropertyMapper.getWritableSettings(properties, metadata);
   }

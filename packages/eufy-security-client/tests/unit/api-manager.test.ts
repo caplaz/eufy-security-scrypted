@@ -76,7 +76,7 @@ describe("ApiManager", () => {
       expect(MockWebSocketClient).toHaveBeenCalledWith(
         "ws://localhost:3000",
         expect.any(ClientStateManager),
-        expect.any(Object) // logger
+        expect.any(Object), // logger
       );
       expect(mockWebSocketClient.onConnected).toHaveBeenCalled();
       expect(mockWebSocketClient.onDisconnected).toHaveBeenCalled();
@@ -93,7 +93,7 @@ describe("ApiManager", () => {
       expect(MockWebSocketClient).toHaveBeenCalledWith(
         "ws://localhost:3001",
         expect.any(ClientStateManager),
-        expect.any(Object) // logger
+        expect.any(Object), // logger
       );
       customApiManager.disconnect();
     });
@@ -158,7 +158,7 @@ describe("ApiManager", () => {
         expect.objectContaining({
           command: "set_api_schema",
           schemaVersion: expect.any(Number),
-        })
+        }),
       );
     });
 
@@ -183,7 +183,7 @@ describe("ApiManager", () => {
       expect(errorHandler).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining("Schema incompatibility"),
-        })
+        }),
       );
     });
   });
@@ -199,14 +199,14 @@ describe("ApiManager", () => {
       mockWebSocketClient.sendMessage.mockResolvedValue(response);
 
       const result = await apiManager.sendCommand(
-        SERVER_COMMANDS.START_LISTENING
+        SERVER_COMMANDS.START_LISTENING,
       );
 
       expect(mockWebSocketClient.sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           command: SERVER_COMMANDS.START_LISTENING,
           messageId: expect.any(String),
-        })
+        }),
       );
       expect(result).toBe(response);
     });
@@ -219,7 +219,7 @@ describe("ApiManager", () => {
         DEVICE_COMMANDS.GET_PROPERTIES,
         {
           serialNumber: "T8210N20123456789",
-        }
+        },
       );
 
       expect(mockWebSocketClient.sendMessage).toHaveBeenCalledWith(
@@ -227,7 +227,7 @@ describe("ApiManager", () => {
           command: DEVICE_COMMANDS.GET_PROPERTIES,
           serialNumber: "T8210N20123456789",
           messageId: expect.any(String),
-        })
+        }),
       );
       expect(result).toBe(response);
     });
@@ -237,7 +237,7 @@ describe("ApiManager", () => {
       mockWebSocketClient.sendMessage.mockRejectedValue(error);
 
       await expect(
-        apiManager.sendCommand(SERVER_COMMANDS.START_LISTENING)
+        apiManager.sendCommand(SERVER_COMMANDS.START_LISTENING),
       ).rejects.toThrow("Command failed");
     });
 
@@ -247,7 +247,7 @@ describe("ApiManager", () => {
       apiStateManager.setSchemaSetupComplete(false);
 
       await expect(
-        apiManager.sendCommand(SERVER_COMMANDS.START_LISTENING)
+        apiManager.sendCommand(SERVER_COMMANDS.START_LISTENING),
       ).rejects.toThrow("Client not ready");
     });
   });
@@ -267,7 +267,7 @@ describe("ApiManager", () => {
         expect.objectContaining({
           command: "driver.connect",
           messageId: expect.any(String),
-        })
+        }),
       );
 
       // Check the actual API manager state
@@ -292,7 +292,7 @@ describe("ApiManager", () => {
         expect.objectContaining({
           command: "start_listening", // Should match SERVER_COMMANDS.START_LISTENING
           messageId: expect.any(String),
-        })
+        }),
       );
       expect(result).toBe(mockResult);
     });
@@ -304,7 +304,7 @@ describe("ApiManager", () => {
 
       const removeListener = apiManager.addEventListener(
         DEVICE_EVENTS.PROPERTY_CHANGED,
-        callback
+        callback,
       );
 
       expect(typeof removeListener).toBe("function");
@@ -322,7 +322,7 @@ describe("ApiManager", () => {
         callback,
         {
           source: "device",
-        }
+        },
       );
 
       // Get the event handler that was registered
@@ -368,7 +368,7 @@ describe("ApiManager", () => {
         {
           source: "device",
           serialNumber: targetSerial,
-        }
+        },
       );
 
       const eventHandler = (mockWebSocketClient.onEventMessage as jest.Mock)
@@ -409,7 +409,7 @@ describe("ApiManager", () => {
 
       const listenerId = apiManager.addEventListener(
         DEVICE_EVENTS.PROPERTY_CHANGED,
-        callback
+        callback,
       );
       const removed = listenerId();
 
@@ -442,11 +442,11 @@ describe("ApiManager", () => {
       // Register listeners for different event types
       const deviceListenerId = apiManager.addEventListener(
         DEVICE_EVENTS.PROPERTY_CHANGED,
-        deviceCallback
+        deviceCallback,
       );
       const driverListenerId = apiManager.addEventListener(
         DRIVER_EVENTS.CONNECTED,
-        driverCallback
+        driverCallback,
       );
 
       // Verify both are registered
@@ -454,7 +454,7 @@ describe("ApiManager", () => {
 
       // Remove only device event listeners
       const removedCount = apiManager.removeEventListenersByType(
-        DEVICE_EVENTS.PROPERTY_CHANGED
+        DEVICE_EVENTS.PROPERTY_CHANGED,
       );
 
       expect(removedCount).toBe(1);
@@ -472,11 +472,11 @@ describe("ApiManager", () => {
       // Register listeners for different event types (using unique event types)
       apiManager.addEventListener(
         DEVICE_EVENTS.PROPERTY_CHANGED,
-        deviceCallback
+        deviceCallback,
       );
       apiManager.addEventListener(
         DEVICE_EVENTS.MOTION_DETECTED,
-        deviceCallback
+        deviceCallback,
       );
       apiManager.addEventListener(DRIVER_EVENTS.PUSH_CONNECTED, driverCallback);
       apiManager.addEventListener(DRIVER_EVENTS.MQTT_CONNECTED, driverCallback);
@@ -504,7 +504,7 @@ describe("ApiManager", () => {
         {
           source: "device",
           serialNumber: "T8210N20123456789",
-        }
+        },
       );
 
       const listeners = apiManager.getEventListeners();
@@ -538,7 +538,7 @@ describe("ApiManager", () => {
       expect(callback).toHaveBeenCalledWith(
         expect.objectContaining({
           connection: ConnectionState.READY,
-        })
+        }),
       );
 
       // Test unsubscribe function
@@ -594,7 +594,7 @@ describe("ApiManager", () => {
       expect(errorHandler).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining("Schema incompatibility"),
-        })
+        }),
       );
     });
   });

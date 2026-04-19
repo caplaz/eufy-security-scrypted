@@ -21,7 +21,7 @@ describe("CLI Executable Integration", () => {
 
   const runCLI = (
     args: string[],
-    timeout = 3000
+    timeout = 3000,
   ): Promise<{
     stdout: string;
     stderr: string;
@@ -103,7 +103,7 @@ describe("CLI Executable Integration", () => {
       // This test will fail with connection error, but we're testing argument parsing
       const result = await runCLI(
         ["device", "list", "--ws-host", "192.168.1.100:3000"],
-        2000
+        2000,
       );
 
       // Should fail with connection error, not argument validation error
@@ -123,7 +123,7 @@ describe("CLI Executable Integration", () => {
           "--camera-serial",
           "ABC1234567890",
         ],
-        2000
+        2000,
       );
 
       // Should fail with connection error, not argument validation error
@@ -143,7 +143,7 @@ describe("CLI Executable Integration", () => {
           "--camera-serial",
           "ABC1234567890",
         ],
-        2000
+        2000,
       );
 
       // Should fail with connection error, not argument validation error

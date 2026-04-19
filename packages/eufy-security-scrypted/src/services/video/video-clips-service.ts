@@ -30,7 +30,7 @@ export class VideoClipsService {
 
   constructor(
     private wsClient: EufyWebSocketClient,
-    private logger: Logger<ILogObj>
+    private logger: Logger<ILogObj>,
   ) {}
 
   /**
@@ -42,7 +42,7 @@ export class VideoClipsService {
   async getClips(query: VideoClipQuery): Promise<VideoClip[]> {
     try {
       this.logger.debug(
-        `Fetching video clips for device ${query.serialNumber} on station ${query.stationSerialNumber}`
+        `Fetching video clips for device ${query.serialNumber} on station ${query.stationSerialNumber}`,
       );
 
       // Try station database first (local P2P)
@@ -77,7 +77,7 @@ export class VideoClipsService {
    */
   async downloadClip(
     videoId: string,
-    serialNumber: string
+    serialNumber: string,
   ): Promise<MediaObject> {
     this.logger.debug(`Fetching video clip: ${videoId}`);
 
@@ -97,12 +97,12 @@ export class VideoClipsService {
       return sdk.mediaManager.createMediaObject(
         Buffer.from(metadata.cloud_path),
         "text/plain",
-        { sourceId: serialNumber }
+        { sourceId: serialNumber },
       );
     }
 
     throw new Error(
-      `No storage path, cipher ID, or cloud path available for video: ${videoId}`
+      `No storage path, cipher ID, or cloud path available for video: ${videoId}`,
     );
   }
 
@@ -115,7 +115,7 @@ export class VideoClipsService {
    */
   async downloadThumbnail(
     thumbnailId: string,
-    serialNumber: string
+    serialNumber: string,
   ): Promise<MediaObject> {
     this.logger.debug(`Fetching thumbnail: ${thumbnailId}`);
 
@@ -127,12 +127,12 @@ export class VideoClipsService {
     // Check for pre-downloaded cached thumbnail
     if (metadata.cached_thumbnail) {
       this.logger.debug(
-        `Using pre-downloaded cached thumbnail for ${thumbnailId}`
+        `Using pre-downloaded cached thumbnail for ${thumbnailId}`,
       );
       return sdk.mediaManager.createMediaObject(
         metadata.cached_thumbnail,
         "image/jpeg",
-        { sourceId: serialNumber }
+        { sourceId: serialNumber },
       );
     }
 
@@ -141,7 +141,7 @@ export class VideoClipsService {
       return await this.downloadThumbnailViaP2P(
         thumbnailId,
         serialNumber,
-        metadata
+        metadata,
       );
     }
 
@@ -150,23 +150,23 @@ export class VideoClipsService {
       this.logger.debug(`Attempting to download cloud thumbnail from URL`);
       try {
         const thumbnailBuffer = await this.downloadFromUrl(
-          metadata.cloud_thumbnail
+          metadata.cloud_thumbnail,
         );
         return sdk.mediaManager.createMediaObject(
           thumbnailBuffer,
           "image/jpeg",
-          { sourceId: serialNumber }
+          { sourceId: serialNumber },
         );
       } catch (error) {
         this.logger.error("Failed to download cloud thumbnail:", error);
         throw new Error(
-          `Cloud thumbnail URL expired or inaccessible for: ${thumbnailId}`
+          `Cloud thumbnail URL expired or inaccessible for: ${thumbnailId}`,
         );
       }
     }
 
     throw new Error(
-      `No thumbnail path, cipher ID, or cloud thumbnail available for: ${thumbnailId}`
+      `No thumbnail path, cipher ID, or cloud thumbnail available for: ${thumbnailId}`,
     );
   }
 
@@ -181,7 +181,7 @@ export class VideoClipsService {
    * Get clips from station database (local P2P storage)
    */
   private async getClipsFromStationDatabase(
-    query: VideoClipQuery
+    query: VideoClipQuery,
   ): Promise<VideoClip[]> {
     const queryParams = {
       serialNumbers: [query.serialNumber],
@@ -194,7 +194,7 @@ export class VideoClipsService {
 
     this.logger.debug(
       "Querying station database with params:",
-      JSON.stringify(queryParams, null, 2)
+      JSON.stringify(queryParams, null, 2),
     );
 
     await this.wsClient.commands
@@ -203,7 +203,7 @@ export class VideoClipsService {
 
     // Wait for database query response
     const databaseRecords = await this.waitForDatabaseQueryResponse(
-      query.stationSerialNumber
+      query.stationSerialNumber,
     );
 
     if (databaseRecords.length === 0) {
@@ -212,7 +212,7 @@ export class VideoClipsService {
     }
 
     this.logger.debug(
-      `Found ${databaseRecords.length} records from station database`
+      `Found ${databaseRecords.length} records from station database`,
     );
 
     return this.mapDatabaseRecordsToClips(databaseRecords, query.serialNumber);
@@ -222,10 +222,10 @@ export class VideoClipsService {
    * Get clips from Eufy cloud API
    */
   private async getClipsFromCloudAPI(
-    query: VideoClipQuery
+    query: VideoClipQuery,
   ): Promise<VideoClip[]> {
     this.logger.debug(
-      `Fetching video clips from cloud API for time range: ${new Date(query.startTime).toISOString()} to ${new Date(query.endTime).toISOString()}`
+      `Fetching video clips from cloud API for time range: ${new Date(query.startTime).toISOString()} to ${new Date(query.endTime).toISOString()}`,
     );
 
     const { events } = await this.wsClient.commands.driver().getHistoryEvents({
@@ -240,7 +240,7 @@ export class VideoClipsService {
     this.logger.debug(`Received ${events.length} events from cloud API`);
 
     const deviceEvents = events.filter(
-      (event) => event.stationSN === query.stationSerialNumber
+      (event) => event.stationSN === query.stationSerialNumber,
     );
 
     if (deviceEvents.length === 0) {
@@ -260,7 +260,7 @@ export class VideoClipsService {
   private async downloadClipViaP2P(
     videoId: string,
     serialNumber: string,
-    metadata: VideoClipMetadata
+    metadata: VideoClipMetadata,
   ): Promise<MediaObject> {
     this.logger.debug("Starting P2P download for video clip", {
       storage_path: metadata.storage_path,
@@ -286,7 +286,7 @@ export class VideoClipsService {
   private async downloadThumbnailViaP2P(
     thumbnailId: string,
     serialNumber: string,
-    metadata: VideoClipMetadata
+    metadata: VideoClipMetadata,
   ): Promise<MediaObject> {
     this.logger.debug("Starting P2P download for thumbnail", {
       thumb_path: metadata.thumb_path,
@@ -311,7 +311,7 @@ export class VideoClipsService {
    */
   private collectDownloadData(
     serialNumber: string,
-    timeout: number
+    timeout: number,
   ): Promise<Buffer> {
     const chunks: Buffer[] = [];
     let downloadComplete = false;
@@ -333,11 +333,11 @@ export class VideoClipsService {
 
             chunks.push(buffer);
             this.logger.debug(
-              `Received chunk: ${buffer.length} bytes (total: ${chunks.reduce((sum, b) => sum + b.length, 0)} bytes)`
+              `Received chunk: ${buffer.length} bytes (total: ${chunks.reduce((sum, b) => sum + b.length, 0)} bytes)`,
             );
           }
         },
-        { source: "device" as any }
+        { source: "device" as any },
       );
 
       const removeFinishedListener = this.wsClient.addEventListener(
@@ -349,7 +349,7 @@ export class VideoClipsService {
             removeListeners();
 
             this.logger.debug(
-              `Download complete: ${chunks.length} chunks, ${chunks.reduce((sum, b) => sum + b.length, 0)} total bytes`
+              `Download complete: ${chunks.length} chunks, ${chunks.reduce((sum, b) => sum + b.length, 0)} total bytes`,
             );
 
             if (chunks.length === 0) {
@@ -360,7 +360,7 @@ export class VideoClipsService {
             resolve(Buffer.concat(chunks));
           }
         },
-        { source: "device" as any }
+        { source: "device" as any },
       );
 
       const removeListeners = () => {
@@ -374,7 +374,7 @@ export class VideoClipsService {
    * Wait for database query response from WebSocket
    */
   private waitForDatabaseQueryResponse(
-    stationSerialNumber: string
+    stationSerialNumber: string,
   ): Promise<any[]> {
     return new Promise<any[]>((resolve) => {
       const timeout = setTimeout(() => {
@@ -393,13 +393,13 @@ export class VideoClipsService {
               resolve(event.data);
             } else {
               this.logger.error(
-                "Unexpected data format from station database query"
+                "Unexpected data format from station database query",
               );
               resolve([]);
             }
           }
         },
-        { source: "station" as any }
+        { source: "station" as any },
       );
     });
   }
@@ -409,7 +409,7 @@ export class VideoClipsService {
    */
   private async preDownloadThumbnails(
     events: any[],
-    serialNumber: string
+    serialNumber: string,
   ): Promise<void> {
     const thumbnailPromises = events
       .filter((event) => event.thumbnailUrl)
@@ -418,13 +418,13 @@ export class VideoClipsService {
         try {
           this.logger.debug(`Pre-downloading thumbnail for ${clipId}`);
           const thumbnailBuffer = await this.downloadFromUrl(
-            event.thumbnailUrl!
+            event.thumbnailUrl!,
           );
           return { clipId, thumbnailBuffer };
         } catch (error) {
           this.logger.warn(
             `Failed to pre-download thumbnail for ${clipId}:`,
-            error
+            error,
           );
           return { clipId, thumbnailBuffer: null };
         }
@@ -441,7 +441,7 @@ export class VideoClipsService {
     });
 
     this.logger.debug(
-      `Successfully pre-downloaded ${results.filter((r) => r.thumbnailBuffer).length} thumbnails`
+      `Successfully pre-downloaded ${results.filter((r) => r.thumbnailBuffer).length} thumbnails`,
     );
   }
 
@@ -462,7 +462,7 @@ export class VideoClipsService {
    */
   private mapDatabaseRecordsToClips(
     records: any[],
-    serialNumber: string
+    serialNumber: string,
   ): VideoClip[] {
     return records.map((record) => {
       const startTimeMs =
@@ -511,7 +511,7 @@ export class VideoClipsService {
    */
   private mapCloudEventsToClips(
     events: any[],
-    serialNumber: string
+    serialNumber: string,
   ): VideoClip[] {
     return events.map((event) => {
       const clipId = `cloud-${serialNumber}-${event.startTime}-${event.eventType}`;

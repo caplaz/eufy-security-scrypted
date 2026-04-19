@@ -30,19 +30,23 @@
 export interface ApiManagerInterface {
   sendCommand<T extends SupportedCommandType>(
     command: T,
-    params: ParamsForCommand<T>
+    params: ParamsForCommand<T>,
   ): Promise<ResponseForCommand<T>>;
 }
 
-import { ResponseForCommand, SupportedCommandType, ParamsForCommand } from './types/commands';
+import {
+  ResponseForCommand,
+  SupportedCommandType,
+  ParamsForCommand,
+} from "./types/commands";
 
 // Import actual command constants
-import { DEVICE_COMMANDS } from './device/constants';
-import { STATION_COMMANDS } from './station/constants';
-import { DRIVER_COMMANDS } from './driver/constants';
-import { SERVER_COMMANDS } from './server/constants';
-import { DeviceProperties } from './device/properties';
-import { StationProperties } from './station/properties';
+import { DEVICE_COMMANDS } from "./device/constants";
+import { STATION_COMMANDS } from "./station/constants";
+import { DRIVER_COMMANDS } from "./driver/constants";
+import { SERVER_COMMANDS } from "./server/constants";
+import { DeviceProperties } from "./device/properties";
+import { StationProperties } from "./station/properties";
 
 /**
  * Enhanced command API for Eufy Security WebSocket API
@@ -72,7 +76,9 @@ export class EnhancedCommandAPI {
    */
   async command<T extends SupportedCommandType>(
     command: T,
-    ...args: {} extends ParamsForCommand<T> ? [ParamsForCommand<T>?] : [ParamsForCommand<T>]
+    ...args: {} extends ParamsForCommand<T>
+      ? [ParamsForCommand<T>?]
+      : [ParamsForCommand<T>]
   ): Promise<ResponseForCommand<T>> {
     const params = (args[0] || {}) as ParamsForCommand<T>;
     return this.apiManager.sendCommand(command, params);
@@ -136,7 +142,7 @@ export class DeviceCommandBuilder {
    */
   constructor(
     private serialNumber: string,
-    private api: EnhancedCommandAPI
+    private api: EnhancedCommandAPI,
   ) {}
 
   /**
@@ -281,7 +287,10 @@ export class DeviceCommandBuilder {
    * Start downloading with the device
    */
   async startDownload(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.START_DOWNLOAD>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.START_DOWNLOAD>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.START_DOWNLOAD, {
       serialNumber: this.serialNumber,
@@ -303,10 +312,14 @@ export class DeviceCommandBuilder {
    * Trigger the device alarm
    */
   async triggerAlarm(
-    params?: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.TRIGGER_ALARM>, 'serialNumber'>
+    params?: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.TRIGGER_ALARM>,
+      "serialNumber"
+    >,
   ) {
     // Ensure 'seconds' is always a number (default to 0 if not provided)
-    const seconds = params && typeof params['seconds'] === 'number' ? params['seconds'] : 0;
+    const seconds =
+      params && typeof params["seconds"] === "number" ? params["seconds"] : 0;
     return this.api.command(DEVICE_COMMANDS.TRIGGER_ALARM, {
       serialNumber: this.serialNumber,
       seconds,
@@ -327,7 +340,10 @@ export class DeviceCommandBuilder {
    * Pan and tilt the device camera
    */
   async panAndTilt(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.PAN_AND_TILT>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.PAN_AND_TILT>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.PAN_AND_TILT, {
       serialNumber: this.serialNumber,
@@ -361,7 +377,10 @@ export class DeviceCommandBuilder {
    * Send a quick response from the device
    */
   async quickResponse(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.QUICK_RESPONSE>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.QUICK_RESPONSE>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.QUICK_RESPONSE, {
       serialNumber: this.serialNumber,
@@ -427,7 +446,12 @@ export class DeviceCommandBuilder {
   /**
    * Snooze the device (temporary disable)
    */
-  async snooze(params?: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.SNOOZE>, 'serialNumber'>) {
+  async snooze(
+    params?: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.SNOOZE>,
+      "serialNumber"
+    >,
+  ) {
     return this.api.command(DEVICE_COMMANDS.SNOOZE, {
       serialNumber: this.serialNumber,
       ...params,
@@ -438,7 +462,12 @@ export class DeviceCommandBuilder {
   /**
    * Add a new user to the device
    */
-  async addUser(params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.ADD_USER>, 'serialNumber'>) {
+  async addUser(
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.ADD_USER>,
+      "serialNumber"
+    >,
+  ) {
     return this.api.command(DEVICE_COMMANDS.ADD_USER, {
       serialNumber: this.serialNumber,
       ...params,
@@ -449,7 +478,10 @@ export class DeviceCommandBuilder {
    * Delete a user from the device
    */
   async deleteUser(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.DELETE_USER>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.DELETE_USER>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.DELETE_USER, {
       serialNumber: this.serialNumber,
@@ -470,7 +502,10 @@ export class DeviceCommandBuilder {
    * Update user information
    */
   async updateUser(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.UPDATE_USER>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.UPDATE_USER>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.UPDATE_USER, {
       serialNumber: this.serialNumber,
@@ -482,7 +517,10 @@ export class DeviceCommandBuilder {
    * Update a user's passcode
    */
   async updateUserPasscode(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.UPDATE_USER_PASSCODE>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.UPDATE_USER_PASSCODE>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.UPDATE_USER_PASSCODE, {
       serialNumber: this.serialNumber,
@@ -494,7 +532,10 @@ export class DeviceCommandBuilder {
    * Update a user's schedule
    */
   async updateUserSchedule(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.UPDATE_USER_SCHEDULE>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.UPDATE_USER_SCHEDULE>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.UPDATE_USER_SCHEDULE, {
       serialNumber: this.serialNumber,
@@ -506,7 +547,10 @@ export class DeviceCommandBuilder {
    * Verify a user's PIN
    */
   async verifyPin(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.VERIFY_PIN>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.VERIFY_PIN>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.VERIFY_PIN, {
       serialNumber: this.serialNumber,
@@ -528,7 +572,10 @@ export class DeviceCommandBuilder {
    * Set the status LED behavior
    */
   async setStatusLed(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.SET_STATUS_LED>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.SET_STATUS_LED>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.SET_STATUS_LED, {
       serialNumber: this.serialNumber,
@@ -540,7 +587,10 @@ export class DeviceCommandBuilder {
    * Configure auto night vision settings
    */
   async setAutoNightVision(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.SET_AUTO_NIGHT_VISION>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.SET_AUTO_NIGHT_VISION>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.SET_AUTO_NIGHT_VISION, {
       serialNumber: this.serialNumber,
@@ -552,7 +602,10 @@ export class DeviceCommandBuilder {
    * Configure motion detection settings
    */
   async setMotionDetection(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.SET_MOTION_DETECTION>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.SET_MOTION_DETECTION>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.SET_MOTION_DETECTION, {
       serialNumber: this.serialNumber,
@@ -564,7 +617,10 @@ export class DeviceCommandBuilder {
    * Configure sound detection settings
    */
   async setSoundDetection(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.SET_SOUND_DETECTION>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.SET_SOUND_DETECTION>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.SET_SOUND_DETECTION, {
       serialNumber: this.serialNumber,
@@ -576,7 +632,10 @@ export class DeviceCommandBuilder {
    * Configure pet detection settings
    */
   async setPetDetection(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.SET_PET_DETECTION>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.SET_PET_DETECTION>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.SET_PET_DETECTION, {
       serialNumber: this.serialNumber,
@@ -588,7 +647,10 @@ export class DeviceCommandBuilder {
    * Configure RTSP stream settings
    */
   async setRtspStream(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.SET_RTSP_STREAM>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.SET_RTSP_STREAM>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.SET_RTSP_STREAM, {
       serialNumber: this.serialNumber,
@@ -600,7 +662,10 @@ export class DeviceCommandBuilder {
    * Configure anti-theft detection settings
    */
   async setAntiTheftDetection(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.SET_ANTI_THEFT_DETECTION>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.SET_ANTI_THEFT_DETECTION>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.SET_ANTI_THEFT_DETECTION, {
       serialNumber: this.serialNumber,
@@ -612,7 +677,10 @@ export class DeviceCommandBuilder {
    * Configure watermark settings for the device
    */
   async setWatermark(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.SET_WATERMARK>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.SET_WATERMARK>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.SET_WATERMARK, {
       serialNumber: this.serialNumber,
@@ -624,7 +692,10 @@ export class DeviceCommandBuilder {
    * Enable or activate the device
    */
   async enableDevice(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.ENABLE_DEVICE>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.ENABLE_DEVICE>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.ENABLE_DEVICE, {
       serialNumber: this.serialNumber,
@@ -636,7 +707,10 @@ export class DeviceCommandBuilder {
    * Lock the device (secure it)
    */
   async lockDevice(
-    params: Omit<ParamsForCommand<typeof DEVICE_COMMANDS.LOCK_DEVICE>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof DEVICE_COMMANDS.LOCK_DEVICE>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(DEVICE_COMMANDS.LOCK_DEVICE, {
       serialNumber: this.serialNumber,
@@ -651,7 +725,7 @@ export class DeviceCommandBuilder {
 export class StationCommandBuilder {
   constructor(
     private serialNumber: string,
-    private api: EnhancedCommandAPI
+    private api: EnhancedCommandAPI,
   ) {}
 
   /**
@@ -743,10 +817,14 @@ export class StationCommandBuilder {
    * Trigger the station alarm
    */
   async triggerAlarm(
-    params?: Omit<ParamsForCommand<typeof STATION_COMMANDS.TRIGGER_ALARM>, 'serialNumber'>
+    params?: Omit<
+      ParamsForCommand<typeof STATION_COMMANDS.TRIGGER_ALARM>,
+      "serialNumber"
+    >,
   ) {
     // Ensure 'seconds' is always a number (default to 0 if not provided)
-    const seconds = params && typeof params['seconds'] === 'number' ? params['seconds'] : 0;
+    const seconds =
+      params && typeof params["seconds"] === "number" ? params["seconds"] : 0;
     return this.api.command(STATION_COMMANDS.TRIGGER_ALARM, {
       serialNumber: this.serialNumber,
       seconds,
@@ -775,7 +853,9 @@ export class StationCommandBuilder {
   /**
    * Activate the station chime
    */
-  async chime(params: Omit<ParamsForCommand<typeof STATION_COMMANDS.CHIME>, never>) {
+  async chime(
+    params: Omit<ParamsForCommand<typeof STATION_COMMANDS.CHIME>, never>,
+  ) {
     return this.api.command(STATION_COMMANDS.CHIME, {
       ...params,
     });
@@ -785,7 +865,10 @@ export class StationCommandBuilder {
    * Download an image from the station
    */
   async downloadImage(
-    params: Omit<ParamsForCommand<typeof STATION_COMMANDS.DOWNLOAD_IMAGE>, never>
+    params: Omit<
+      ParamsForCommand<typeof STATION_COMMANDS.DOWNLOAD_IMAGE>,
+      never
+    >,
   ) {
     return this.api.command(STATION_COMMANDS.DOWNLOAD_IMAGE, {
       ...params,
@@ -798,8 +881,8 @@ export class StationCommandBuilder {
   async databaseQueryLatestInfo(
     params: Omit<
       ParamsForCommand<typeof STATION_COMMANDS.DATABASE_QUERY_LATEST_INFO>,
-      'serialNumber'
-    >
+      "serialNumber"
+    >,
   ) {
     return this.api.command(STATION_COMMANDS.DATABASE_QUERY_LATEST_INFO, {
       serialNumber: this.serialNumber,
@@ -811,7 +894,10 @@ export class StationCommandBuilder {
    * Query local data from the station's database
    */
   async databaseQueryLocal(
-    params: Omit<ParamsForCommand<typeof STATION_COMMANDS.DATABASE_QUERY_LOCAL>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof STATION_COMMANDS.DATABASE_QUERY_LOCAL>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(STATION_COMMANDS.DATABASE_QUERY_LOCAL, {
       serialNumber: this.serialNumber,
@@ -823,7 +909,10 @@ export class StationCommandBuilder {
    * Count database entries by date
    */
   async databaseCountByDate(
-    params: Omit<ParamsForCommand<typeof STATION_COMMANDS.DATABASE_COUNT_BY_DATE>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof STATION_COMMANDS.DATABASE_COUNT_BY_DATE>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(STATION_COMMANDS.DATABASE_COUNT_BY_DATE, {
       serialNumber: this.serialNumber,
@@ -835,7 +924,10 @@ export class StationCommandBuilder {
    * Delete entries from the station's database
    */
   async databaseDelete(
-    params: Omit<ParamsForCommand<typeof STATION_COMMANDS.DATABASE_DELETE>, 'serialNumber'>
+    params: Omit<
+      ParamsForCommand<typeof STATION_COMMANDS.DATABASE_DELETE>,
+      "serialNumber"
+    >,
   ) {
     return this.api.command(STATION_COMMANDS.DATABASE_DELETE, {
       serialNumber: this.serialNumber,
@@ -888,14 +980,18 @@ export class DriverCommandBuilder {
   /**
    * Set the verification code for the driver
    */
-  async setVerifyCode(params: ParamsForCommand<typeof DRIVER_COMMANDS.SET_VERIFY_CODE>) {
+  async setVerifyCode(
+    params: ParamsForCommand<typeof DRIVER_COMMANDS.SET_VERIFY_CODE>,
+  ) {
     return this.api.command(DRIVER_COMMANDS.SET_VERIFY_CODE, params);
   }
 
   /**
    * Set the captcha for the driver
    */
-  async setCaptcha(params: ParamsForCommand<typeof DRIVER_COMMANDS.SET_CAPTCHA>) {
+  async setCaptcha(
+    params: ParamsForCommand<typeof DRIVER_COMMANDS.SET_CAPTCHA>,
+  ) {
     return this.api.command(DRIVER_COMMANDS.SET_CAPTCHA, params);
   }
 
@@ -909,28 +1005,36 @@ export class DriverCommandBuilder {
   /**
    * Get video event data
    */
-  async getVideoEvents(params: ParamsForCommand<typeof DRIVER_COMMANDS.GET_VIDEO_EVENTS>) {
+  async getVideoEvents(
+    params: ParamsForCommand<typeof DRIVER_COMMANDS.GET_VIDEO_EVENTS>,
+  ) {
     return this.api.command(DRIVER_COMMANDS.GET_VIDEO_EVENTS, params);
   }
 
   /**
    * Get alarm event data
    */
-  async getAlarmEvents(params: ParamsForCommand<typeof DRIVER_COMMANDS.GET_ALARM_EVENTS>) {
+  async getAlarmEvents(
+    params: ParamsForCommand<typeof DRIVER_COMMANDS.GET_ALARM_EVENTS>,
+  ) {
     return this.api.command(DRIVER_COMMANDS.GET_ALARM_EVENTS, params);
   }
 
   /**
    * Get history event data
    */
-  async getHistoryEvents(params: ParamsForCommand<typeof DRIVER_COMMANDS.GET_HISTORY_EVENTS>) {
+  async getHistoryEvents(
+    params: ParamsForCommand<typeof DRIVER_COMMANDS.GET_HISTORY_EVENTS>,
+  ) {
     return this.api.command(DRIVER_COMMANDS.GET_HISTORY_EVENTS, params);
   }
 
   /**
    * Set the log level for the driver
    */
-  async setLogLevel(params: ParamsForCommand<typeof DRIVER_COMMANDS.SET_LOG_LEVEL>) {
+  async setLogLevel(
+    params: ParamsForCommand<typeof DRIVER_COMMANDS.SET_LOG_LEVEL>,
+  ) {
     return this.api.command(DRIVER_COMMANDS.SET_LOG_LEVEL, params);
   }
 

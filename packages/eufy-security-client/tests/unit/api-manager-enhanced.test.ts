@@ -75,7 +75,7 @@ describe("ApiManager", () => {
       expect(MockWebSocketClient).toHaveBeenCalledWith(
         "ws://localhost:3000",
         expect.any(Object), // Use Object instead of MockClientStateManager
-        logger
+        logger,
       );
       expect(apiManager).toBeInstanceOf(ApiManager);
     });
@@ -248,7 +248,7 @@ describe("ApiManager", () => {
 
       // Should not throw and should store the listener
       expect(() =>
-        apiManager.addEventListener("motion detected", listener)
+        apiManager.addEventListener("motion detected", listener),
       ).not.toThrow();
     });
 

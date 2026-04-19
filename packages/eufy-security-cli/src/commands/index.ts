@@ -11,7 +11,7 @@ import { DriverCommand } from "./driver-command";
 import { DeviceCommand } from "./device-command";
 
 export function createCommandRegistry(
-  context: any
+  context: any,
 ): Map<string, CommandHandler> {
   const registry = new Map<string, CommandHandler>();
 

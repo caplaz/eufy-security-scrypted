@@ -20,7 +20,7 @@ export class PTZControlHandler {
   constructor(
     private wsClient: EufyWebSocketClient,
     private serialNumber: string,
-    private logger: Logger<ILogObj>
+    private logger: Logger<ILogObj>,
   ) {}
 
   /**
@@ -38,7 +38,7 @@ export class PTZControlHandler {
 
       await api.panAndTilt({ direction });
       this.logger.info(
-        `🎥 Tilted camera ${direction === PanTiltDirection.UP ? "up" : "down"}`
+        `🎥 Tilted camera ${direction === PanTiltDirection.UP ? "up" : "down"}`,
       );
       return;
     }
@@ -49,7 +49,7 @@ export class PTZControlHandler {
 
       await api.panAndTilt({ direction });
       this.logger.info(
-        `🎥 Panned camera ${direction === PanTiltDirection.RIGHT ? "right" : "left"}`
+        `🎥 Panned camera ${direction === PanTiltDirection.RIGHT ? "right" : "left"}`,
       );
       return;
     }

@@ -70,30 +70,30 @@ export class DeviceUtils {
    */
   static genericDeviceInformation(
     device: DeviceInformation,
-    metadata: Record<keyof CommonEufyProperties, PropertyMetadataAny>
+    metadata: Record<keyof CommonEufyProperties, PropertyMetadataAny>,
   ): Setting[] {
     return [
       DeviceUtils.settingFromMetadata(
         metadata["model"],
         device.model,
-        "The full product name and model of the device."
+        "The full product name and model of the device.",
       ),
       DeviceUtils.settingFromMetadata(
         metadata["serialNumber"],
         device.serialNumber,
-        "The unique serial number assigned to the device."
+        "The unique serial number assigned to the device.",
       ),
       DeviceUtils.settingFromMetadata(
         metadata["softwareVersion"],
         device.firmware,
-        "The current software version running on the device."
+        "The current software version running on the device.",
       ),
     ];
   }
 
   static allWriteableDeviceProperties(
     properties: DeviceProperties,
-    metadata: Record<string, PropertyMetadataAny>
+    metadata: Record<string, PropertyMetadataAny>,
   ): Setting[] {
     return Object.values(metadata)
       .filter((meta) => meta.writeable)
@@ -105,8 +105,8 @@ export class DeviceUtils {
           properties[meta.name as keyof DeviceProperties],
           undefined,
           // Default group for all settings
-          DeviceUtils.groupForPropertyName(meta.name)
-        )
+          DeviceUtils.groupForPropertyName(meta.name),
+        ),
       );
   }
 
@@ -135,7 +135,7 @@ export class DeviceUtils {
 
   static valueAdjustedWithMetadata(
     value: SettingValue,
-    metadata: PropertyMetadataAny
+    metadata: PropertyMetadataAny,
   ): any {
     if (metadata.type === "number" && metadata.states) {
       // For number types with states, find the index of the value in the states map
@@ -153,7 +153,7 @@ export class DeviceUtils {
     metadata: PropertyMetadataAny,
     value?: SettingValue,
     description?: string,
-    group?: string
+    group?: string,
   ): Setting {
     let setting: Setting = {
       key: metadata.name,
@@ -219,7 +219,7 @@ export class DeviceUtils {
    */
   static async createStationManifest(
     wsClient: EufyWebSocketClient,
-    serialNumber: string
+    serialNumber: string,
   ): Promise<Device> {
     const api = wsClient.commands.station(serialNumber);
     const properties = (await api.getProperties()).properties;
@@ -263,7 +263,7 @@ export class DeviceUtils {
    */
   static async createDeviceManifest(
     wsClient: EufyWebSocketClient,
-    serialNumber: string
+    serialNumber: string,
   ): Promise<Device> {
     const api = wsClient.commands.device(serialNumber);
     const properties = (await api.getProperties()).properties;
@@ -350,7 +350,7 @@ export class DeviceUtils {
   static async convertH264ToJPEG(
     videoData: Buffer,
     quality: number = 2,
-    videoCodec: string = "H264"
+    videoCodec: string = "H264",
   ): Promise<Buffer> {
     return FFmpegUtils.convertH264ToJPEG(videoData, quality, videoCodec);
   }

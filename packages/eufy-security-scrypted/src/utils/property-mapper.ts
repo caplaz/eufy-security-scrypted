@@ -55,7 +55,7 @@ export class PropertyMapper {
     metadata: PropertyMetadataAny,
     value?: SettingValue,
     description?: string,
-    group?: string
+    group?: string,
   ): Setting {
     let setting: Setting = {
       key: metadata.name,
@@ -129,7 +129,7 @@ export class PropertyMapper {
    */
   static adjustValueForAPI(
     value: SettingValue,
-    metadata: PropertyMetadataAny
+    metadata: PropertyMetadataAny,
   ): any {
     if (metadata.type === "number" && metadata.states) {
       // For number types with states, find the index of the value in the states map
@@ -196,7 +196,7 @@ export class PropertyMapper {
    */
   static getWritableSettings(
     properties: DeviceProperties,
-    metadata: Record<string, PropertyMetadataAny>
+    metadata: Record<string, PropertyMetadataAny>,
   ): Setting[] {
     return Object.values(metadata)
       .filter((meta) => meta.writeable)
@@ -207,8 +207,8 @@ export class PropertyMapper {
           meta,
           properties[meta.name as keyof DeviceProperties],
           undefined,
-          PropertyMapper.getPropertyGroup(meta.name)
-        )
+          PropertyMapper.getPropertyGroup(meta.name),
+        ),
       );
   }
 
@@ -221,23 +221,23 @@ export class PropertyMapper {
    */
   static getDeviceInfoSettings(
     device: { model: string; serialNumber: string; firmware: string },
-    metadata: Record<keyof CommonEufyProperties, PropertyMetadataAny>
+    metadata: Record<keyof CommonEufyProperties, PropertyMetadataAny>,
   ): Setting[] {
     return [
       PropertyMapper.toSetting(
         metadata["model"],
         device.model,
-        "The full product name and model of the device."
+        "The full product name and model of the device.",
       ),
       PropertyMapper.toSetting(
         metadata["serialNumber"],
         device.serialNumber,
-        "The unique serial number assigned to the device."
+        "The unique serial number assigned to the device.",
       ),
       PropertyMapper.toSetting(
         metadata["softwareVersion"],
         device.firmware,
-        "The current software version running on the device."
+        "The current software version running on the device.",
       ),
     ];
   }
@@ -255,7 +255,7 @@ export class PropertyMapper {
     ];
 
     return hiddenProperties.some((hidden) =>
-      propertyName.toLowerCase().includes(hidden.toLowerCase())
+      propertyName.toLowerCase().includes(hidden.toLowerCase()),
     );
   }
 }

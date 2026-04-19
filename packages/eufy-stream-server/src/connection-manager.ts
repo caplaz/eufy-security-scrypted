@@ -70,7 +70,7 @@ export class ConnectionManager extends EventEmitter {
   handleConnection(socket: net.Socket): void {
     if (this.connections.size >= this.maxConnections) {
       this.logger.warn(
-        `Connection limit reached (${this.maxConnections}), rejecting connection`
+        `Connection limit reached (${this.maxConnections}), rejecting connection`,
       );
       socket.end();
       return;
@@ -95,7 +95,7 @@ export class ConnectionManager extends EventEmitter {
     this.connectionInfo.set(connectionId, connectionInfo);
 
     this.logger.info(
-      `Client connected: ${connectionId} from ${remoteAddress}:${remotePort}`
+      `Client connected: ${connectionId} from ${remoteAddress}:${remotePort}`,
     );
 
     // Set up socket event handlers
@@ -243,7 +243,7 @@ export class ConnectionManager extends EventEmitter {
     }
 
     this.logger.debug(
-      `Broadcast to ${successCount}/${totalConnections} clients: ${data.length} bytes`
+      `Broadcast to ${successCount}/${totalConnections} clients: ${data.length} bytes`,
     );
     return successCount > 0;
   }

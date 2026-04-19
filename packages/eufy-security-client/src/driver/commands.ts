@@ -19,38 +19,44 @@ export interface EventFilterType {
 /**
  * Base interface for driver commands
  */
-export interface BaseDriverCommand<T extends DriverCommandType>
-  extends BaseCommand<T> {}
+export interface BaseDriverCommand<
+  T extends DriverCommandType,
+> extends BaseCommand<T> {}
 
 /**
  * Connect to Eufy Cloud command
  */
-export interface ConnectCommand
-  extends BaseDriverCommand<typeof DRIVER_COMMANDS.CONNECT> {}
+export interface ConnectCommand extends BaseDriverCommand<
+  typeof DRIVER_COMMANDS.CONNECT
+> {}
 
 /**
  * Disconnect from Eufy Cloud command
  */
-export interface DisconnectCommand
-  extends BaseDriverCommand<typeof DRIVER_COMMANDS.DISCONNECT> {}
+export interface DisconnectCommand extends BaseDriverCommand<
+  typeof DRIVER_COMMANDS.DISCONNECT
+> {}
 
 /**
  * Check if driver is connected to Eufy Cloud
  */
-export interface IsConnectedCommand
-  extends BaseDriverCommand<typeof DRIVER_COMMANDS.IS_CONNECTED> {}
+export interface IsConnectedCommand extends BaseDriverCommand<
+  typeof DRIVER_COMMANDS.IS_CONNECTED
+> {}
 
 /**
  * Check if push notifications are connected
  */
-export interface IsPushConnectedCommand
-  extends BaseDriverCommand<typeof DRIVER_COMMANDS.IS_PUSH_CONNECTED> {}
+export interface IsPushConnectedCommand extends BaseDriverCommand<
+  typeof DRIVER_COMMANDS.IS_PUSH_CONNECTED
+> {}
 
 /**
  * Set verification code for 2FA
  */
-export interface SetVerifyCodeCommand
-  extends BaseDriverCommand<typeof DRIVER_COMMANDS.SET_VERIFY_CODE> {
+export interface SetVerifyCodeCommand extends BaseDriverCommand<
+  typeof DRIVER_COMMANDS.SET_VERIFY_CODE
+> {
   captchaId: string;
   verifyCode: string;
 }
@@ -58,8 +64,9 @@ export interface SetVerifyCodeCommand
 /**
  * Set captcha for login
  */
-export interface SetCaptchaCommand
-  extends BaseDriverCommand<typeof DRIVER_COMMANDS.SET_CAPTCHA> {
+export interface SetCaptchaCommand extends BaseDriverCommand<
+  typeof DRIVER_COMMANDS.SET_CAPTCHA
+> {
   captchaId: string;
   captcha: string;
 }
@@ -67,14 +74,16 @@ export interface SetCaptchaCommand
 /**
  * Poll refresh command
  */
-export interface PollRefreshCommand
-  extends BaseDriverCommand<typeof DRIVER_COMMANDS.POLL_REFRESH> {}
+export interface PollRefreshCommand extends BaseDriverCommand<
+  typeof DRIVER_COMMANDS.POLL_REFRESH
+> {}
 
 /**
  * Get video events command
  */
-export interface GetVideoEventsCommand
-  extends BaseDriverCommand<typeof DRIVER_COMMANDS.GET_VIDEO_EVENTS> {
+export interface GetVideoEventsCommand extends BaseDriverCommand<
+  typeof DRIVER_COMMANDS.GET_VIDEO_EVENTS
+> {
   startTimestampMs?: number;
   endTimestampMs?: number;
   filter?: EventFilterType;
@@ -84,8 +93,9 @@ export interface GetVideoEventsCommand
 /**
  * Get alarm events command
  */
-export interface GetAlarmEventsCommand
-  extends BaseDriverCommand<typeof DRIVER_COMMANDS.GET_ALARM_EVENTS> {
+export interface GetAlarmEventsCommand extends BaseDriverCommand<
+  typeof DRIVER_COMMANDS.GET_ALARM_EVENTS
+> {
   startTimestampMs?: number;
   endTimestampMs?: number;
   filter?: EventFilterType;
@@ -95,8 +105,9 @@ export interface GetAlarmEventsCommand
 /**
  * Get history events command
  */
-export interface GetHistoryEventsCommand
-  extends BaseDriverCommand<typeof DRIVER_COMMANDS.GET_HISTORY_EVENTS> {
+export interface GetHistoryEventsCommand extends BaseDriverCommand<
+  typeof DRIVER_COMMANDS.GET_HISTORY_EVENTS
+> {
   startTimestampMs?: number;
   endTimestampMs?: number;
   filter?: EventFilterType;
@@ -106,40 +117,46 @@ export interface GetHistoryEventsCommand
 /**
  * Check if MQTT is connected
  */
-export interface IsMqttConnectedCommand
-  extends BaseDriverCommand<typeof DRIVER_COMMANDS.IS_MQTT_CONNECTED> {}
+export interface IsMqttConnectedCommand extends BaseDriverCommand<
+  typeof DRIVER_COMMANDS.IS_MQTT_CONNECTED
+> {}
 
 /**
  * Set log level command
  */
-export interface SetLogLevelCommand
-  extends BaseDriverCommand<typeof DRIVER_COMMANDS.SET_LOG_LEVEL> {
+export interface SetLogLevelCommand extends BaseDriverCommand<
+  typeof DRIVER_COMMANDS.SET_LOG_LEVEL
+> {
   level: string;
 }
 
 /**
  * Get log level command
  */
-export interface GetLogLevelCommand
-  extends BaseDriverCommand<typeof DRIVER_COMMANDS.GET_LOG_LEVEL> {}
+export interface GetLogLevelCommand extends BaseDriverCommand<
+  typeof DRIVER_COMMANDS.GET_LOG_LEVEL
+> {}
 
 /**
  * Start listening to logs command
  */
-export interface StartListeningLogsCommand
-  extends BaseDriverCommand<typeof DRIVER_COMMANDS.START_LISTENING_LOGS> {}
+export interface StartListeningLogsCommand extends BaseDriverCommand<
+  typeof DRIVER_COMMANDS.START_LISTENING_LOGS
+> {}
 
 /**
  * Stop listening to logs command
  */
-export interface StopListeningLogsCommand
-  extends BaseDriverCommand<typeof DRIVER_COMMANDS.STOP_LISTENING_LOGS> {}
+export interface StopListeningLogsCommand extends BaseDriverCommand<
+  typeof DRIVER_COMMANDS.STOP_LISTENING_LOGS
+> {}
 
 /**
  * Check if listening to logs is started
  */
-export interface IsListeningLogsCommand
-  extends BaseDriverCommand<typeof DRIVER_COMMANDS.IS_LISTENING_LOGS> {}
+export interface IsListeningLogsCommand extends BaseDriverCommand<
+  typeof DRIVER_COMMANDS.IS_LISTENING_LOGS
+> {}
 
 /**
  * Union type for all driver commands

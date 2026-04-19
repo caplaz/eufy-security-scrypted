@@ -25,7 +25,7 @@ export class DeviceCommand extends BaseCommand {
 
     if (!subcommand) {
       throw new Error(
-        "Device command requires a subcommand. Use 'device list', 'device info', 'device stream', or 'device monitor'"
+        "Device command requires a subcommand. Use 'device list', 'device info', 'device stream', or 'device monitor'",
       );
     }
 
@@ -44,7 +44,7 @@ export class DeviceCommand extends BaseCommand {
         break;
       default:
         throw new Error(
-          `Unknown device subcommand: ${subcommand}. Valid subcommands: list, info, stream, monitor`
+          `Unknown device subcommand: ${subcommand}. Valid subcommands: list, info, stream, monitor`,
         );
     }
   }
@@ -62,7 +62,7 @@ export class DeviceCommand extends BaseCommand {
       const devices: any[] = await this.withTimeout(
         client.getDevices(),
         15000,
-        "Timeout while retrieving device list from server"
+        "Timeout while retrieving device list from server",
       );
 
       if (!devices || devices.length === 0) {
@@ -71,11 +71,11 @@ export class DeviceCommand extends BaseCommand {
         console.log("=".repeat(60));
         console.log("This could mean:");
         console.log(
-          "   • The eufy-security-ws server is not properly configured"
+          "   • The eufy-security-ws server is not properly configured",
         );
         console.log("   • Your Eufy account has no devices registered");
         console.log(
-          "   • The server hasn't successfully connected to Eufy services"
+          "   • The server hasn't successfully connected to Eufy services",
         );
         console.log("");
         console.log("💡 Troubleshooting steps:");
@@ -97,12 +97,12 @@ export class DeviceCommand extends BaseCommand {
 
       this.logger.error(
         "❌ Failed to list devices:",
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
       throw new Error(
         `❌ Failed to retrieve device list: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
     } finally {
       // Clean up connection
@@ -124,7 +124,7 @@ export class DeviceCommand extends BaseCommand {
 
     try {
       this.logger.info(
-        `ℹ️ Getting device information for: ${args.cameraSerial}`
+        `ℹ️ Getting device information for: ${args.cameraSerial}`,
       );
 
       // Connect to WebSocket server
@@ -136,7 +136,7 @@ export class DeviceCommand extends BaseCommand {
       // Get additional device properties if available
       const deviceProperties = await this.getDeviceProperties(
         client,
-        args.cameraSerial
+        args.cameraSerial,
       );
 
       // Display detailed device information
@@ -169,7 +169,7 @@ export class DeviceCommand extends BaseCommand {
       // Find target device
       this.targetDevice = await this.findDevice(this.client, args.cameraSerial);
       this.logger.info(
-        `📹 Found device: ${this.targetDevice.name} (${this.targetDevice.serialNumber})`
+        `📹 Found device: ${this.targetDevice.name} (${this.targetDevice.serialNumber})`,
       );
 
       // Start TCP server
@@ -198,7 +198,7 @@ export class DeviceCommand extends BaseCommand {
 
     try {
       this.logger.info(
-        `📊 Starting monitoring for device: ${args.cameraSerial}`
+        `📊 Starting monitoring for device: ${args.cameraSerial}`,
       );
 
       // Connect to WebSocket server
@@ -207,7 +207,7 @@ export class DeviceCommand extends BaseCommand {
       // Find target device
       const device = await this.findDevice(this.client, args.cameraSerial);
       this.logger.info(
-        `📹 Monitoring device: ${device.name} (${device.serialNumber})`
+        `📹 Monitoring device: ${device.name} (${device.serialNumber})`,
       );
 
       // Setup event monitoring
@@ -235,7 +235,7 @@ export class DeviceCommand extends BaseCommand {
 
   private async findDevice(
     client: any,
-    serialNumber: string
+    serialNumber: string,
   ): Promise<DeviceInfo> {
     this.logger.info(`🔍 Looking for device: ${serialNumber}`);
 
@@ -243,7 +243,7 @@ export class DeviceCommand extends BaseCommand {
       const devices: any[] = await this.withTimeout(
         client.getDevices(),
         15000,
-        "Timeout while retrieving device list from server"
+        "Timeout while retrieving device list from server",
       );
 
       if (!devices || devices.length === 0) {
@@ -251,7 +251,7 @@ export class DeviceCommand extends BaseCommand {
           `❌ No devices found on the server. Please ensure:\n` +
             `   • The eufy-security-ws server is properly configured\n` +
             `   • Your Eufy account has devices registered\n` +
-            `   • The server has successfully connected to Eufy services`
+            `   • The server has successfully connected to Eufy services`,
         );
       }
 
@@ -268,7 +268,7 @@ export class DeviceCommand extends BaseCommand {
             `Available devices:\n${availableSerials
               .map((s: string) => `   • ${s}`)
               .join("\n")}\n\n` +
-            `💡 Use 'eufy-security-cli device list --ws-host ${this.context.wsHost}' to see all available devices`
+            `💡 Use 'eufy-security-cli device list --ws-host ${this.context.wsHost}' to see all available devices`,
         );
       }
 
@@ -291,14 +291,14 @@ export class DeviceCommand extends BaseCommand {
       throw new Error(
         `❌ Failed to retrieve device information: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
     }
   }
 
   private async getDeviceProperties(
     client: any,
-    serialNumber: string
+    serialNumber: string,
   ): Promise<Record<string, any>> {
     try {
       // Try to get additional device properties
@@ -338,7 +338,7 @@ export class DeviceCommand extends BaseCommand {
         acc[type].push(device);
         return acc;
       },
-      {} as Record<string, DeviceInfo[]>
+      {} as Record<string, DeviceInfo[]>,
     );
 
     // Display each type group
@@ -380,19 +380,19 @@ export class DeviceCommand extends BaseCommand {
     const cameraDevices = deviceInfos.filter(
       (d) =>
         d.type.toLowerCase().includes("camera") ||
-        d.type.toLowerCase().includes("doorbell")
+        d.type.toLowerCase().includes("doorbell"),
     );
 
     if (cameraDevices.length > 0) {
       const exampleDevice = cameraDevices[0];
       console.log(`   # Stream from ${exampleDevice.name}:`);
       console.log(
-        `   eufy-security-cli device stream --ws-host ${this.context.wsHost} --camera-serial ${exampleDevice.serialNumber}`
+        `   eufy-security-cli device stream --ws-host ${this.context.wsHost} --camera-serial ${exampleDevice.serialNumber}`,
       );
       console.log("");
       console.log(`   # Get device info for ${exampleDevice.name}:`);
       console.log(
-        `   eufy-security-cli device info --ws-host ${this.context.wsHost} --camera-serial ${exampleDevice.serialNumber}`
+        `   eufy-security-cli device info --ws-host ${this.context.wsHost} --camera-serial ${exampleDevice.serialNumber}`,
       );
     }
 
@@ -401,7 +401,7 @@ export class DeviceCommand extends BaseCommand {
 
   private displayDeviceInfo(
     device: DeviceInfo,
-    properties: Record<string, any>
+    properties: Record<string, any>,
   ): void {
     console.log("\n" + "=".repeat(60));
     console.log("📱 Device Information");
@@ -458,12 +458,12 @@ export class DeviceCommand extends BaseCommand {
     console.log("\n💡 Usage Examples:");
     console.log(`   # Start streaming:`);
     console.log(
-      `   eufy-security-cli device stream --ws-host ${this.context.wsHost} --camera-serial ${device.serialNumber}`
+      `   eufy-security-cli device stream --ws-host ${this.context.wsHost} --camera-serial ${device.serialNumber}`,
     );
     console.log("");
     console.log(`   # Monitor connection:`);
     console.log(
-      `   eufy-security-cli device monitor --ws-host ${this.context.wsHost} --camera-serial ${device.serialNumber}`
+      `   eufy-security-cli device monitor --ws-host ${this.context.wsHost} --camera-serial ${device.serialNumber}`,
     );
 
     console.log("\n" + "=".repeat(60) + "\n");
@@ -490,9 +490,9 @@ export class DeviceCommand extends BaseCommand {
         "clientConnected",
         (connectionId: string, connectionInfo: any) => {
           this.logger.info(
-            `🔌 Client connected: ${connectionId} from ${connectionInfo.remoteAddress}:${connectionInfo.remotePort}`
+            `🔌 Client connected: ${connectionId} from ${connectionInfo.remoteAddress}:${connectionInfo.remotePort}`,
           );
-        }
+        },
       );
 
       this.streamServer.on("clientDisconnected", (connectionId: string) => {
@@ -519,20 +519,20 @@ export class DeviceCommand extends BaseCommand {
           throw new Error(
             `❌ Port ${port} is already in use. Please:\n` +
               `   • Use a different port: --port <other-port>\n` +
-              `   • Stop the process using port ${port}: lsof -ti:${port} | xargs kill`
+              `   • Stop the process using port ${port}: lsof -ti:${port} | xargs kill`,
           );
         } else if (error.message.includes("EACCES")) {
           throw new Error(
             `❌ Permission denied for port ${port}. Please:\n` +
               `   • Use a port above 1024: --port <port-above-1024>\n` +
               `   • Run with elevated privileges (not recommended)\n` +
-              `   • Use automatic port assignment: --port 0`
+              `   • Use automatic port assignment: --port 0`,
           );
         }
       }
 
       throw new Error(
-        `❌ Failed to start TCP server: ${error instanceof Error ? error.message : String(error)}`
+        `❌ Failed to start TCP server: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -560,7 +560,7 @@ export class DeviceCommand extends BaseCommand {
     console.log("");
     console.log("ℹ️  Stream will start automatically when a client connects");
     console.log(
-      "⏱️  Stream will stop automatically when the last client disconnects"
+      "⏱️  Stream will stop automatically when the last client disconnects",
     );
     console.log("🛑 Press Ctrl+C to stop the streamer");
     console.log("=".repeat(60) + "\n");
@@ -639,7 +639,7 @@ export class DeviceCommand extends BaseCommand {
   }
 
   private categorizeProperties(
-    properties: Record<string, any>
+    properties: Record<string, any>,
   ): Record<string, Record<string, any>> {
     const categories: Record<string, Record<string, any>> = {
       Connection: {},
@@ -709,7 +709,7 @@ export class DeviceCommand extends BaseCommand {
 
   private displayCapabilities(
     device: DeviceInfo,
-    properties: Record<string, any>
+    properties: Record<string, any>,
   ): void {
     console.log("\n🎯 Device Capabilities:");
 

@@ -300,7 +300,7 @@ describe("DeviceStateService", () => {
 
       expect(callback).not.toHaveBeenCalled();
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        "Property unknown does not affect device state"
+        "Property unknown does not affect device state",
       );
     });
   });
@@ -344,7 +344,7 @@ describe("DeviceStateService", () => {
       expect(badCallback).toHaveBeenCalled();
       expect(goodCallback).toHaveBeenCalled();
       expect(mockLogger.error).toHaveBeenCalledWith(
-        expect.stringContaining("Error in state change callback")
+        expect.stringContaining("Error in state change callback"),
       );
     });
   });

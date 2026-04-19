@@ -29,140 +29,129 @@ export interface BaseStationEventPayloadWithSerial<
 }
 
 // Station management event payloads (use base without serial number)
-export interface StationAddedEventPayload
-  extends BaseStationEventPayload<typeof STATION_EVENTS.STATION_ADDED> {
+export interface StationAddedEventPayload extends BaseStationEventPayload<
+  typeof STATION_EVENTS.STATION_ADDED
+> {
   station: string; // Station serial number (schema 13+)
 }
 
-export interface StationRemovedEventPayload
-  extends BaseStationEventPayload<typeof STATION_EVENTS.STATION_REMOVED> {
+export interface StationRemovedEventPayload extends BaseStationEventPayload<
+  typeof STATION_EVENTS.STATION_REMOVED
+> {
   station: string; // Station serial number (schema 13+)
 }
 
 // Station connection event payloads
-export interface StationConnectedEventPayload
-  extends BaseStationEventPayloadWithSerial<typeof STATION_EVENTS.CONNECTED> {
+export interface StationConnectedEventPayload extends BaseStationEventPayloadWithSerial<
+  typeof STATION_EVENTS.CONNECTED
+> {
   // No additional properties
 }
 
-export interface StationDisconnectedEventPayload
-  extends BaseStationEventPayloadWithSerial<
-    typeof STATION_EVENTS.DISCONNECTED
-  > {
+export interface StationDisconnectedEventPayload extends BaseStationEventPayloadWithSerial<
+  typeof STATION_EVENTS.DISCONNECTED
+> {
   // No additional properties
 }
 
-export interface StationConnectionErrorEventPayload
-  extends BaseStationEventPayloadWithSerial<
-    typeof STATION_EVENTS.CONNECTION_ERROR
-  > {
+export interface StationConnectionErrorEventPayload extends BaseStationEventPayloadWithSerial<
+  typeof STATION_EVENTS.CONNECTION_ERROR
+> {
   // No additional properties
 }
 
 // Station property changed event payload
-export interface StationPropertyChangedEventPayload
-  extends BaseStationEventPayloadWithSerial<
-    typeof STATION_EVENTS.PROPERTY_CHANGED
-  > {
+export interface StationPropertyChangedEventPayload extends BaseStationEventPayloadWithSerial<
+  typeof STATION_EVENTS.PROPERTY_CHANGED
+> {
   name: StationPropertyName;
   value: JSONValue;
 }
 
 // Station alarm event payloads
-export interface StationAlarmEventPayload
-  extends BaseStationEventPayloadWithSerial<typeof STATION_EVENTS.ALARM_EVENT> {
+export interface StationAlarmEventPayload extends BaseStationEventPayloadWithSerial<
+  typeof STATION_EVENTS.ALARM_EVENT
+> {
   alarmType: string;
 }
 
-export interface StationAlarmDelayEventPayload
-  extends BaseStationEventPayloadWithSerial<
-    typeof STATION_EVENTS.ALARM_DELAY_EVENT
-  > {
+export interface StationAlarmDelayEventPayload extends BaseStationEventPayloadWithSerial<
+  typeof STATION_EVENTS.ALARM_DELAY_EVENT
+> {
   alarmType: string;
 }
 
-export interface StationAlarmArmedEventPayload
-  extends BaseStationEventPayloadWithSerial<
-    typeof STATION_EVENTS.ALARM_ARMED_EVENT
-  > {
+export interface StationAlarmArmedEventPayload extends BaseStationEventPayloadWithSerial<
+  typeof STATION_EVENTS.ALARM_ARMED_EVENT
+> {
   alarmType: string;
 }
 
-export interface StationAlarmArmDelayEventPayload
-  extends BaseStationEventPayloadWithSerial<
-    typeof STATION_EVENTS.ALARM_ARM_DELAY_EVENT
-  > {
+export interface StationAlarmArmDelayEventPayload extends BaseStationEventPayloadWithSerial<
+  typeof STATION_EVENTS.ALARM_ARM_DELAY_EVENT
+> {
   alarmType: string;
 }
 
 // Station mode event payloads
-export interface StationGuardModeChangedEventPayload
-  extends BaseStationEventPayloadWithSerial<
-    typeof STATION_EVENTS.GUARD_MODE_CHANGED
-  > {
+export interface StationGuardModeChangedEventPayload extends BaseStationEventPayloadWithSerial<
+  typeof STATION_EVENTS.GUARD_MODE_CHANGED
+> {
   guardMode: number;
 }
 
-export interface StationCurrentModeChangedEventPayload
-  extends BaseStationEventPayloadWithSerial<
-    typeof STATION_EVENTS.CURRENT_MODE_CHANGED
-  > {
+export interface StationCurrentModeChangedEventPayload extends BaseStationEventPayloadWithSerial<
+  typeof STATION_EVENTS.CURRENT_MODE_CHANGED
+> {
   currentMode: number;
 }
 
 // Station database event payloads
-export interface StationImageDownloadedEventPayload
-  extends BaseStationEventPayloadWithSerial<
-    typeof STATION_EVENTS.IMAGE_DOWNLOADED
-  > {
+export interface StationImageDownloadedEventPayload extends BaseStationEventPayloadWithSerial<
+  typeof STATION_EVENTS.IMAGE_DOWNLOADED
+> {
   filename: string;
   path: string;
 }
 
-export interface StationDatabaseQueryLatestEventPayload
-  extends BaseStationEventPayloadWithSerial<
-    typeof STATION_EVENTS.DATABASE_QUERY_LATEST
-  > {
+export interface StationDatabaseQueryLatestEventPayload extends BaseStationEventPayloadWithSerial<
+  typeof STATION_EVENTS.DATABASE_QUERY_LATEST
+> {
   data: JSONValue[];
 }
 
-export interface StationDatabaseQueryLocalEventPayload
-  extends BaseStationEventPayloadWithSerial<
-    typeof STATION_EVENTS.DATABASE_QUERY_LOCAL
-  > {
+export interface StationDatabaseQueryLocalEventPayload extends BaseStationEventPayloadWithSerial<
+  typeof STATION_EVENTS.DATABASE_QUERY_LOCAL
+> {
   returnCode: number;
   data: JSONValue[];
 }
 
-export interface StationDatabaseQueryByDateEventPayload
-  extends BaseStationEventPayloadWithSerial<
-    typeof STATION_EVENTS.DATABASE_QUERY_BY_DATE
-  > {
+export interface StationDatabaseQueryByDateEventPayload extends BaseStationEventPayloadWithSerial<
+  typeof STATION_EVENTS.DATABASE_QUERY_BY_DATE
+> {
   returnCode: number;
   data: JSONValue[];
 }
 
-export interface StationDatabaseCountByDateEventPayload
-  extends BaseStationEventPayloadWithSerial<
-    typeof STATION_EVENTS.DATABASE_COUNT_BY_DATE
-  > {
+export interface StationDatabaseCountByDateEventPayload extends BaseStationEventPayloadWithSerial<
+  typeof STATION_EVENTS.DATABASE_COUNT_BY_DATE
+> {
   returnCode: number;
   data: JSONValue[];
 }
 
-export interface StationDatabaseDeleteEventPayload
-  extends BaseStationEventPayloadWithSerial<
-    typeof STATION_EVENTS.DATABASE_DELETE
-  > {
+export interface StationDatabaseDeleteEventPayload extends BaseStationEventPayloadWithSerial<
+  typeof STATION_EVENTS.DATABASE_DELETE
+> {
   returnCode: number;
   failedIds: unknown[];
 }
 
 // Station command result event payload
-export interface StationCommandResultEventPayload
-  extends BaseStationEventPayloadWithSerial<
-    typeof STATION_EVENTS.COMMAND_RESULT
-  > {
+export interface StationCommandResultEventPayload extends BaseStationEventPayloadWithSerial<
+  typeof STATION_EVENTS.COMMAND_RESULT
+> {
   command: string;
   returnCode: number;
   returnCodeName: string;

@@ -25,7 +25,7 @@ import { DeviceApi } from "./types";
 export class LightControlService {
   constructor(
     private deviceApi: DeviceApi,
-    private logger: Logger<ILogObj>
+    private logger: Logger<ILogObj>,
   ) {}
 
   /**
@@ -58,13 +58,13 @@ export class LightControlService {
     // Validate brightness range
     if (brightness < 0 || brightness > 100) {
       throw new Error(
-        `Invalid brightness value: ${brightness}. Must be between 0 and 100.`
+        `Invalid brightness value: ${brightness}. Must be between 0 and 100.`,
       );
     }
 
     await this.deviceApi.setProperty(
       "lightSettingsBrightnessManual",
-      brightness
+      brightness,
     );
     this.logger.info(`Light brightness set to ${brightness}%`);
   }

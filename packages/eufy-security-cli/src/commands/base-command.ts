@@ -96,7 +96,7 @@ export abstract class BaseCommand implements CommandHandler {
       await this.withTimeout(
         client.connect(),
         10000,
-        `Connection to WebSocket server ${wsUrl} timed out after 10 seconds`
+        `Connection to WebSocket server ${wsUrl} timed out after 10 seconds`,
       );
 
       this.logger.info("✅ Connected to WebSocket server");
@@ -107,17 +107,17 @@ export abstract class BaseCommand implements CommandHandler {
         if (error.message.includes("ECONNREFUSED")) {
           throw new Error(
             `❌ Connection refused: Unable to connect to WebSocket server at ${wsUrl}. ` +
-              `Please ensure the eufy-security-ws server is running and accessible.`
+              `Please ensure the eufy-security-ws server is running and accessible.`,
           );
         } else if (error.message.includes("ENOTFOUND")) {
           throw new Error(
             `❌ Host not found: Unable to resolve hostname in ${wsUrl}. ` +
-              `Please check the hostname and network connectivity.`
+              `Please check the hostname and network connectivity.`,
           );
         } else if (error.message.includes("timeout")) {
           throw new Error(
             `❌ Connection timeout: Unable to connect to ${wsUrl} within 10 seconds. ` +
-              `Please check if the server is running and network connectivity.`
+              `Please check if the server is running and network connectivity.`,
           );
         }
       }
@@ -126,7 +126,7 @@ export abstract class BaseCommand implements CommandHandler {
       throw new Error(
         `❌ Failed to connect to WebSocket server at ${wsUrl}: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
     }
   }
@@ -186,7 +186,7 @@ export abstract class BaseCommand implements CommandHandler {
   protected async withTimeout<T>(
     promise: Promise<T>,
     timeoutMs: number,
-    timeoutMessage: string
+    timeoutMessage: string,
   ): Promise<T> {
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {

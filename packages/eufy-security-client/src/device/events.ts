@@ -88,335 +88,325 @@ export interface BaseDeviceEventPayloadWithSerial<
 }
 
 // Device management event payloads (use base without serial number)
-export interface DeviceAddedEventPayload
-  extends BaseDeviceEventPayload<typeof DEVICE_EVENTS.DEVICE_ADDED> {
+export interface DeviceAddedEventPayload extends BaseDeviceEventPayload<
+  typeof DEVICE_EVENTS.DEVICE_ADDED
+> {
   device: string; // Device serial number (schema 13+)
 }
 
-export interface DeviceRemovedEventPayload
-  extends BaseDeviceEventPayload<typeof DEVICE_EVENTS.DEVICE_REMOVED> {
+export interface DeviceRemovedEventPayload extends BaseDeviceEventPayload<
+  typeof DEVICE_EVENTS.DEVICE_REMOVED
+> {
   device: string; // Device serial number (schema 13+)
 }
 
 // Property change event payload
 // Updated to match API documentation schema 13+ (timestamp removed in schema 10+)
-export interface DevicePropertyChangedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.PROPERTY_CHANGED
-  > {
+export interface DevicePropertyChangedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.PROPERTY_CHANGED
+> {
   name: DevicePropertyName;
   value: JSONValue;
 }
 
 // Motion and detection event payloads
 // Updated to match API documentation schema 13+
-export interface DeviceMotionDetectedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.MOTION_DETECTED
-  > {
+export interface DeviceMotionDetectedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.MOTION_DETECTED
+> {
   state: boolean;
 }
 
-export interface DevicePersonDetectedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.PERSON_DETECTED
-  > {
+export interface DevicePersonDetectedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.PERSON_DETECTED
+> {
   state: boolean;
   person: string;
 }
 
-export interface DevicePetDetectedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.PET_DETECTED> {
+export interface DevicePetDetectedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.PET_DETECTED
+> {
   state: boolean;
 }
 
-export interface DeviceSoundDetectedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.SOUND_DETECTED
-  > {
+export interface DeviceSoundDetectedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.SOUND_DETECTED
+> {
   state: boolean;
 }
 
-export interface DeviceCryingDetectedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.CRYING_DETECTED
-  > {
+export interface DeviceCryingDetectedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.CRYING_DETECTED
+> {
   state: boolean;
 }
 
 // Doorbell event payload - updated to use "rings" instead of "doorbell pressed"
-export interface DeviceRingsEventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.RINGS> {
+export interface DeviceRingsEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.RINGS
+> {
   state: boolean;
 }
 
 // Additional detection events
-export interface DeviceStrangerPersonDetectedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.STRANGER_PERSON_DETECTED
-  > {
+export interface DeviceStrangerPersonDetectedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.STRANGER_PERSON_DETECTED
+> {
   state: boolean;
 }
 
-export interface DeviceVehicleDetectedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.VEHICLE_DETECTED
-  > {
+export interface DeviceVehicleDetectedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.VEHICLE_DETECTED
+> {
   state: boolean;
 }
 
-export interface DeviceDogDetectedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.DOG_DETECTED> {
+export interface DeviceDogDetectedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.DOG_DETECTED
+> {
   state: boolean;
 }
 
-export interface DeviceDogLickDetectedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.DOG_LICK_DETECTED
-  > {
+export interface DeviceDogLickDetectedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.DOG_LICK_DETECTED
+> {
   state: boolean;
 }
 
-export interface DeviceDogPoopDetectedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.DOG_POOP_DETECTED
-  > {
+export interface DeviceDogPoopDetectedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.DOG_POOP_DETECTED
+> {
   state: boolean;
 }
 
-export interface DeviceRadarMotionDetectedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.RADAR_MOTION_DETECTED
-  > {
+export interface DeviceRadarMotionDetectedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.RADAR_MOTION_DETECTED
+> {
   state: boolean;
 }
 
 // Sensor events
-export interface DeviceSensorOpenEventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.SENSOR_OPEN> {
+export interface DeviceSensorOpenEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.SENSOR_OPEN
+> {
   state: boolean;
 }
 
 // Package detection events
-export interface DevicePackageDeliveredEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.PACKAGE_DELIVERED
-  > {
+export interface DevicePackageDeliveredEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.PACKAGE_DELIVERED
+> {
   state: boolean;
 }
 
-export interface DevicePackageStrandedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.PACKAGE_STRANDED
-  > {
+export interface DevicePackageStrandedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.PACKAGE_STRANDED
+> {
   state: boolean;
 }
 
-export interface DevicePackageTakenEventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.PACKAGE_TAKEN> {
+export interface DevicePackageTakenEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.PACKAGE_TAKEN
+> {
   state: boolean;
 }
 
-export interface DeviceSomeoneLoiteringEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.SOMEONE_LOITERING
-  > {
+export interface DeviceSomeoneLoiteringEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.SOMEONE_LOITERING
+> {
   state: boolean;
 }
 
 // Security events
-export interface DeviceLockedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.LOCKED> {
+export interface DeviceLockedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.LOCKED
+> {
   state: boolean;
 }
 
-export interface DeviceWrongTryProtectAlarmEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.WRONG_TRY_PROTECT_ALARM
-  > {
+export interface DeviceWrongTryProtectAlarmEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.WRONG_TRY_PROTECT_ALARM
+> {
   state: boolean;
 }
 
-export interface DeviceLongTimeNotCloseEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.LONG_TIME_NOT_CLOSE
-  > {
+export interface DeviceLongTimeNotCloseEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.LONG_TIME_NOT_CLOSE
+> {
   state: boolean;
 }
 
-export interface DeviceLowBatteryEventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.LOW_BATTERY> {
+export interface DeviceLowBatteryEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.LOW_BATTERY
+> {
   state: boolean;
 }
 
-export interface DeviceJammedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.JAMMED> {
+export interface DeviceJammedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.JAMMED
+> {
   state: boolean;
 }
 
-export interface DeviceAlarm911EventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.ALARM_911> {
+export interface DeviceAlarm911EventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.ALARM_911
+> {
   state: boolean;
 }
 
-export interface DeviceShakeAlarmEventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.SHAKE_ALARM> {
+export interface DeviceShakeAlarmEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.SHAKE_ALARM
+> {
   state: boolean;
 }
 
-export interface DeviceTamperingEventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.TAMPERING> {
+export interface DeviceTamperingEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.TAMPERING
+> {
   state: boolean;
 }
 
-export interface DeviceLowTemperatureEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.LOW_TEMPERATURE
-  > {
+export interface DeviceLowTemperatureEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.LOW_TEMPERATURE
+> {
   state: boolean;
 }
 
-export interface DeviceHighTemperatureEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.HIGH_TEMPERATURE
-  > {
+export interface DeviceHighTemperatureEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.HIGH_TEMPERATURE
+> {
   state: boolean;
 }
 
-export interface DevicePinIncorrectEventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.PIN_INCORRECT> {
+export interface DevicePinIncorrectEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.PIN_INCORRECT
+> {
   state: boolean;
 }
 
-export interface DeviceLidStuckEventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.LID_STUCK> {
+export interface DeviceLidStuckEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.LID_STUCK
+> {
   state: boolean;
 }
 
-export interface DeviceBatteryFullyChargedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.BATTERY_FULLY_CHARGED
-  > {
+export interface DeviceBatteryFullyChargedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.BATTERY_FULLY_CHARGED
+> {
   state: boolean;
 }
 
 // User management events
-export interface DeviceUserAddedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.USER_ADDED> {
+export interface DeviceUserAddedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.USER_ADDED
+> {
   username: string;
   schedule?: Schedule; // Schedule object from upstream eufy-security-client
 }
 
-export interface DeviceUserDeletedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.USER_DELETED> {
+export interface DeviceUserDeletedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.USER_DELETED
+> {
   username: string;
 }
 
-export interface DeviceUserErrorEventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.USER_ERROR> {
+export interface DeviceUserErrorEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.USER_ERROR
+> {
   username: string;
   error: string;
 }
 
-export interface DeviceUserUsernameUpdatedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.USER_USERNAME_UPDATED
-  > {
+export interface DeviceUserUsernameUpdatedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.USER_USERNAME_UPDATED
+> {
   username: string;
 }
 
-export interface DeviceUserScheduleUpdatedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.USER_SCHEDULE_UPDATED
-  > {
+export interface DeviceUserScheduleUpdatedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.USER_SCHEDULE_UPDATED
+> {
   username: string;
   schedule: Schedule; // Schedule object from upstream eufy-security-client
 }
 
-export interface DeviceUserPasscodeUpdatedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.USER_PASSCODE_UPDATED
-  > {
+export interface DeviceUserPasscodeUpdatedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.USER_PASSCODE_UPDATED
+> {
   username: string;
 }
 
-export interface DevicePinVerifiedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.PIN_VERIFIED> {
+export interface DevicePinVerifiedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.PIN_VERIFIED
+> {
   username: string;
 }
 
 // Streaming event payloads
-export interface DeviceLivestreamStartedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.LIVESTREAM_STARTED
-  > {
+export interface DeviceLivestreamStartedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.LIVESTREAM_STARTED
+> {
   // No additional properties beyond base
 }
 
-export interface DeviceLivestreamStoppedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.LIVESTREAM_STOPPED
-  > {
+export interface DeviceLivestreamStoppedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.LIVESTREAM_STOPPED
+> {
   // No additional properties beyond base
 }
 
-export interface DeviceLivestreamVideoDataEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.LIVESTREAM_VIDEO_DATA
-  > {
+export interface DeviceLivestreamVideoDataEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.LIVESTREAM_VIDEO_DATA
+> {
   buffer: JSONBuffer;
   metadata: VideoMetadata; // Video metadata using upstream types
 }
 
-export interface DeviceLivestreamAudioDataEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.LIVESTREAM_AUDIO_DATA
-  > {
+export interface DeviceLivestreamAudioDataEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.LIVESTREAM_AUDIO_DATA
+> {
   buffer: JSONBuffer;
   metadata: AudioMetadata; // Audio metadata using upstream types
 }
 
-export interface DeviceGotRtspUrlEventPayload
-  extends BaseDeviceEventPayloadWithSerial<typeof DEVICE_EVENTS.GOT_RTSP_URL> {
+export interface DeviceGotRtspUrlEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.GOT_RTSP_URL
+> {
   rtspUrl: string;
 }
 
 // Download event payloads
-export interface DeviceDownloadStartedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.DOWNLOAD_STARTED
-  > {
+export interface DeviceDownloadStartedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.DOWNLOAD_STARTED
+> {
   // No additional properties beyond base
 }
 
-export interface DeviceDownloadFinishedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.DOWNLOAD_FINISHED
-  > {
+export interface DeviceDownloadFinishedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.DOWNLOAD_FINISHED
+> {
   // No additional properties beyond base
 }
 
-export interface DeviceDownloadVideoDataEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.DOWNLOAD_VIDEO_DATA
-  > {
+export interface DeviceDownloadVideoDataEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.DOWNLOAD_VIDEO_DATA
+> {
   buffer: JSONValue; // Video data serialized as JSONValue (array of numbers or base64 string over WebSocket)
   metadata: VideoMetadata; // Video metadata using upstream types
 }
 
-export interface DeviceDownloadAudioDataEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.DOWNLOAD_AUDIO_DATA
-  > {
+export interface DeviceDownloadAudioDataEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.DOWNLOAD_AUDIO_DATA
+> {
   buffer: JSONValue; // Audio data serialized as JSONValue (array of numbers or base64 string over WebSocket)
   metadata: AudioMetadata; // Audio metadata using upstream types
 }
 
 // Command result event payloads
-export interface DeviceCommandResultEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.COMMAND_RESULT
-  > {
+export interface DeviceCommandResultEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.COMMAND_RESULT
+> {
   command: string;
   returnCode: number;
   returnCodeName: string;
@@ -424,17 +414,15 @@ export interface DeviceCommandResultEventPayload
 }
 
 // Talkback event payloads
-export interface DeviceTalkbackStartedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.TALKBACK_STARTED
-  > {
+export interface DeviceTalkbackStartedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.TALKBACK_STARTED
+> {
   // No additional properties beyond base
 }
 
-export interface DeviceTalkbackStoppedEventPayload
-  extends BaseDeviceEventPayloadWithSerial<
-    typeof DEVICE_EVENTS.TALKBACK_STOPPED
-  > {
+export interface DeviceTalkbackStoppedEventPayload extends BaseDeviceEventPayloadWithSerial<
+  typeof DEVICE_EVENTS.TALKBACK_STOPPED
+> {
   // No additional properties beyond base
 }
 

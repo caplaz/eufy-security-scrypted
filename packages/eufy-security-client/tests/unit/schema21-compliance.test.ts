@@ -129,7 +129,7 @@ describe("Schema 21 Compliance Tests", () => {
       // Should not contain any test or debug commands
       expect(allDeviceCommands.some((cmd) => cmd.includes("test"))).toBe(false);
       expect(allDeviceCommands.some((cmd) => cmd.includes("debug"))).toBe(
-        false
+        false,
       );
     });
   });
@@ -142,10 +142,10 @@ describe("Schema 21 Compliance Tests", () => {
       expect(DEVICE_COMMANDS.START_LIVESTREAM).toBe("device.start_livestream");
       expect(DEVICE_COMMANDS.STOP_LIVESTREAM).toBe("device.stop_livestream");
       expect(DEVICE_COMMANDS.START_RTSP_LIVESTREAM).toBe(
-        "device.start_rtsp_livestream"
+        "device.start_rtsp_livestream",
       );
       expect(DEVICE_COMMANDS.STOP_RTSP_LIVESTREAM).toBe(
-        "device.stop_rtsp_livestream"
+        "device.stop_rtsp_livestream",
       );
       expect(DEVICE_COMMANDS.START_DOWNLOAD).toBe("device.start_download");
       expect(DEVICE_COMMANDS.CANCEL_DOWNLOAD).toBe("device.cancel_download");

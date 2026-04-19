@@ -46,7 +46,7 @@ describe("Utils Module", () => {
         };
         const customProcessor = new WebSocketMessageProcessor(
           undefined,
-          config
+          config,
         );
         expect(customProcessor).toBeDefined();
       });
@@ -78,7 +78,7 @@ describe("Utils Module", () => {
 
       it("should reject messages without type field", () => {
         const result = processor.processMessage(
-          JSON.stringify({ data: "no type" })
+          JSON.stringify({ data: "no type" }),
         );
 
         expect(result.valid).toBe(false);
@@ -95,7 +95,7 @@ describe("Utils Module", () => {
       it("should reject messages with extremely long type", () => {
         const longType = "a".repeat(100);
         const result = processor.processMessage(
-          JSON.stringify({ type: longType })
+          JSON.stringify({ type: longType }),
         );
 
         expect(result.valid).toBe(false);
@@ -104,7 +104,7 @@ describe("Utils Module", () => {
 
       it("should reject non-object messages", () => {
         const result = processor.processMessage(
-          JSON.stringify("string message")
+          JSON.stringify("string message"),
         );
 
         expect(result.valid).toBe(false);
@@ -116,7 +116,7 @@ describe("Utils Module", () => {
           JSON.stringify({
             type: "test",
             messageId: "valid-id",
-          })
+          }),
         );
         expect(validResult.valid).toBe(true);
 
@@ -124,7 +124,7 @@ describe("Utils Module", () => {
           JSON.stringify({
             type: "test",
             messageId: 123,
-          })
+          }),
         );
         expect(invalidResult.valid).toBe(false);
         expect(invalidResult.error).toBe("MessageId must be a string");
@@ -139,7 +139,7 @@ describe("Utils Module", () => {
         };
         const rateLimitedProcessor = new WebSocketMessageProcessor(
           undefined,
-          config
+          config,
         );
 
         // First two messages should pass
@@ -190,7 +190,7 @@ describe("Utils Module", () => {
         };
         const strictProcessor = new WebSocketMessageProcessor(
           undefined,
-          config
+          config,
         );
 
         const largeMessage = {
@@ -199,7 +199,7 @@ describe("Utils Module", () => {
         };
 
         const result = strictProcessor.processMessage(
-          JSON.stringify(largeMessage)
+          JSON.stringify(largeMessage),
         );
         expect(result.valid).toBe(false);
         expect(result.error).toBe("Message too large");
@@ -268,7 +268,7 @@ describe("Utils Module", () => {
     describe("buffer message handling", () => {
       it("should handle buffer messages", () => {
         const bufferMessage = Buffer.from(
-          JSON.stringify({ type: "buffer-test" })
+          JSON.stringify({ type: "buffer-test" }),
         );
         const result = processor.processMessage(bufferMessage);
 
