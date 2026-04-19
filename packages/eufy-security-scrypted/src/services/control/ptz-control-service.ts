@@ -27,7 +27,7 @@ export class PtzControlService {
   constructor(
     private deviceApi: DeviceApi,
     private getDeviceType: () => number | undefined,
-    private logger: Logger<ILogObj>
+    private logger: Logger<ILogObj>,
   ) {}
 
   /**

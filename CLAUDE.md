@@ -71,6 +71,8 @@ npm install          # install all dependencies
 npm run build        # build all packages via lerna
 npm run test         # run all tests via lerna
 npm run lint         # lint all packages
+npm run format       # format JS/TS/JSON files with prettier
+npm run format:check # check formatting (also runs in pre-commit hook)
 ```
 
 ### Per-package (cd into package directory first)

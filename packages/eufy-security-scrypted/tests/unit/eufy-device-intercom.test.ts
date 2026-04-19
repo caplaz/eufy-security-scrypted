@@ -85,9 +85,7 @@ describe("EufyDevice Intercom Flow", () => {
   let listeners: Array<{ eventType: string; cb: (payload?: any) => void }>;
 
   const fireEvent = (eventType: string) => {
-    listeners
-      .filter((l) => l.eventType === eventType)
-      .forEach((l) => l.cb());
+    listeners.filter((l) => l.eventType === eventType).forEach((l) => l.cb());
   };
 
   beforeEach(() => {
@@ -137,7 +135,7 @@ describe("EufyDevice Intercom Flow", () => {
             if (idx >= 0) listeners.splice(idx, 1);
             return idx >= 0;
           };
-        }
+        },
       ),
       removeEventListenersBySerialNumber: jest.fn(),
     } as any;
@@ -187,7 +185,7 @@ describe("EufyDevice Intercom Flow", () => {
       mockApi.isLivestreaming.mockRejectedValue(new Error("ws closed"));
 
       await expect(device.startIntercom({} as any)).rejects.toThrow(
-        /Failed to query livestream status before starting talkback/
+        /Failed to query livestream status before starting talkback/,
       );
       expect(mockApi.startTalkback).not.toHaveBeenCalled();
     });
@@ -213,8 +211,7 @@ describe("EufyDevice Intercom Flow", () => {
       const waitForListener = async (eventType: string, baseline: number) => {
         for (let i = 0; i < 50; i++) {
           if (
-            listeners.filter((l) => l.eventType === eventType).length >
-            baseline
+            listeners.filter((l) => l.eventType === eventType).length > baseline
           )
             return;
           await Promise.resolve();
@@ -223,7 +220,7 @@ describe("EufyDevice Intercom Flow", () => {
 
       // First session — drive it to active
       const baselineTalk = listeners.filter(
-        (l) => l.eventType === DEVICE_EVENTS.TALKBACK_STARTED
+        (l) => l.eventType === DEVICE_EVENTS.TALKBACK_STARTED,
       ).length;
       const first = device.startIntercom({} as any);
       await waitForListener(DEVICE_EVENTS.TALKBACK_STARTED, baselineTalk);
@@ -315,15 +312,15 @@ describe("EufyDevice Intercom Flow", () => {
 
         const promise = (device as any).waitForDeviceEvent(
           DEVICE_EVENTS.LIVESTREAM_STARTED,
-          1000
+          1000,
         );
         expect(countListeners(DEVICE_EVENTS.LIVESTREAM_STARTED)).toBe(
-          baseline + 1
+          baseline + 1,
         );
 
         jest.advanceTimersByTime(1000);
         await expect(promise).rejects.toThrow(
-          /Timed out waiting for "livestream started"/
+          /Timed out waiting for "livestream started"/,
         );
         // Listener self-removes on timeout.
         expect(countListeners(DEVICE_EVENTS.LIVESTREAM_STARTED)).toBe(baseline);
@@ -337,7 +334,7 @@ describe("EufyDevice Intercom Flow", () => {
 
       const promise = (device as any).waitForDeviceEvent(
         DEVICE_EVENTS.LIVESTREAM_STARTED,
-        5000
+        5000,
       );
       fireEvent(DEVICE_EVENTS.LIVESTREAM_STARTED);
       await expect(promise).resolves.toBeUndefined();

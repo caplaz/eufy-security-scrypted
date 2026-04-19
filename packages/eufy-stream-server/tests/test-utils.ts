@@ -80,56 +80,96 @@ export const createTestHevcData = (): Buffer => {
   const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
 
   // VPS (type 32)
-  const vpsNal = Buffer.concat([makeHevcNalHeader(32), Buffer.from([0xdc, 0x04])]);
+  const vpsNal = Buffer.concat([
+    makeHevcNalHeader(32),
+    Buffer.from([0xdc, 0x04]),
+  ]);
   // SPS (type 33)
-  const spsNal = Buffer.concat([makeHevcNalHeader(33), Buffer.from([0x01, 0x01, 0x60])]);
+  const spsNal = Buffer.concat([
+    makeHevcNalHeader(33),
+    Buffer.from([0x01, 0x01, 0x60]),
+  ]);
   // PPS (type 34)
-  const ppsNal = Buffer.concat([makeHevcNalHeader(34), Buffer.from([0xc0, 0xf3])]);
+  const ppsNal = Buffer.concat([
+    makeHevcNalHeader(34),
+    Buffer.from([0xc0, 0xf3]),
+  ]);
   // IDR_W_RADL (type 19)
-  const idrNal = Buffer.concat([makeHevcNalHeader(19), Buffer.from([0x02, 0x80, 0x00])]);
+  const idrNal = Buffer.concat([
+    makeHevcNalHeader(19),
+    Buffer.from([0x02, 0x80, 0x00]),
+  ]);
 
   return Buffer.concat([
-    startCode, vpsNal,
-    startCode, spsNal,
-    startCode, ppsNal,
-    startCode, idrNal,
+    startCode,
+    vpsNal,
+    startCode,
+    spsNal,
+    startCode,
+    ppsNal,
+    startCode,
+    idrNal,
   ]);
 };
 
 /** VPS-only buffer (for parameter-set caching tests). */
 export const createTestHevcVpsData = (): Buffer => {
   const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
-  return Buffer.concat([startCode, makeHevcNalHeader(32), Buffer.from([0xdc, 0x04])]);
+  return Buffer.concat([
+    startCode,
+    makeHevcNalHeader(32),
+    Buffer.from([0xdc, 0x04]),
+  ]);
 };
 
 /** SPS-only buffer (H.265 SPS = type 33). */
 export const createTestHevcSpsData = (): Buffer => {
   const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
-  return Buffer.concat([startCode, makeHevcNalHeader(33), Buffer.from([0x01, 0x01])]);
+  return Buffer.concat([
+    startCode,
+    makeHevcNalHeader(33),
+    Buffer.from([0x01, 0x01]),
+  ]);
 };
 
 /** PPS-only buffer (H.265 PPS = type 34). */
 export const createTestHevcPpsData = (): Buffer => {
   const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
-  return Buffer.concat([startCode, makeHevcNalHeader(34), Buffer.from([0xc0, 0xf3])]);
+  return Buffer.concat([
+    startCode,
+    makeHevcNalHeader(34),
+    Buffer.from([0xc0, 0xf3]),
+  ]);
 };
 
 /** Non-keyframe H.265 P-frame (TRAIL_R, type 1). */
 export const createTestHevcPFrameData = (): Buffer => {
   const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
-  return Buffer.concat([startCode, makeHevcNalHeader(1), Buffer.from([0x44, 0x01])]);
+  return Buffer.concat([
+    startCode,
+    makeHevcNalHeader(1),
+    Buffer.from([0x44, 0x01]),
+  ]);
 };
 
 /** IDR_N_LP (type 20) — tests the other HEVC IDR variant. */
 export const createTestHevcIdrNlpData = (): Buffer => {
   const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
-  return Buffer.concat([startCode, makeHevcNalHeader(20), Buffer.from([0x00, 0x80])]);
+  return Buffer.concat([
+    startCode,
+    makeHevcNalHeader(20),
+    Buffer.from([0x00, 0x80]),
+  ]);
 };
 
 /** CRA_NUT (type 21) — Clean Random Access, also a keyframe. */
 export const createTestHevcCraData = (): Buffer => {
   const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
-  return Buffer.concat([startCode, makeHevcNalHeader(21), Buffer.from([0x00, 0x80])]);
+  return Buffer.concat([
+    startCode,
+    makeHevcNalHeader(21),
+    Buffer.from([0x00, 0x80]),
+  ]);
 };
 
 // Wait for a specified time

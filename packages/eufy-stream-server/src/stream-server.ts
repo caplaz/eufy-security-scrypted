@@ -165,7 +165,7 @@ export class StreamServer extends EventEmitter {
       "clientConnected",
       async (connectionId, connectionInfo) => {
         this.logger.info(
-          `Client connected: ${connectionId} from ${connectionInfo.remoteAddress}:${connectionInfo.remotePort}`
+          `Client connected: ${connectionId} from ${connectionInfo.remoteAddress}:${connectionInfo.remotePort}`,
         );
         this.emit("clientConnected", connectionId, connectionInfo);
 
@@ -173,9 +173,12 @@ export class StreamServer extends EventEmitter {
         this.sendCachedHeaders(connectionId);
 
         // Start livestream if this is the first consumer overall
-        // (TCP clients + muxer clients combined).
+        // (TCP clients + muxer clients combined). The helper internally
+        // checks `livestreamIntendedState` so re-entering on every connect
+        // is a no-op once the stream is up — equivalent to the old
+        // `previousCount === 0` guard but muxer-aware.
         await this.updateLivestreamStateForMuxerClients();
-      }
+      },
     );
 
     this.connectionManager.on("clientDisconnected", async (connectionId) => {
@@ -196,7 +199,7 @@ export class StreamServer extends EventEmitter {
     const hasHeaders = this.cachedVPS || this.cachedSPS || this.cachedPPS;
     if (!hasHeaders) {
       this.logger.debug(
-        `No cached parameter-set headers available for client ${connectionId}`
+        `No cached parameter-set headers available for client ${connectionId}`,
       );
       return;
     }
@@ -204,21 +207,21 @@ export class StreamServer extends EventEmitter {
     // H.265: send VPS → SPS → PPS (order matters for decoder initialisation)
     if (this.cachedVPS) {
       this.logger.debug(
-        `Sending cached VPS header (${this.cachedVPS.length} bytes) to ${connectionId}`
+        `Sending cached VPS header (${this.cachedVPS.length} bytes) to ${connectionId}`,
       );
       this.connectionManager.sendToClient(connectionId, this.cachedVPS);
     }
 
     if (this.cachedSPS) {
       this.logger.debug(
-        `Sending cached SPS header (${this.cachedSPS.length} bytes) to ${connectionId}`
+        `Sending cached SPS header (${this.cachedSPS.length} bytes) to ${connectionId}`,
       );
       this.connectionManager.sendToClient(connectionId, this.cachedSPS);
     }
 
     if (this.cachedPPS) {
       this.logger.debug(
-        `Sending cached PPS header (${this.cachedPPS.length} bytes) to ${connectionId}`
+        `Sending cached PPS header (${this.cachedPPS.length} bytes) to ${connectionId}`,
       );
       this.connectionManager.sendToClient(connectionId, this.cachedPPS);
     }
@@ -248,11 +251,19 @@ export class StreamServer extends EventEmitter {
 
       if (timeSinceActivity > this.ACTIVITY_TIMEOUT && totalConsumers === 0) {
         this.logger.info(
-          `🕒 No client activity for ${Math.round(timeSinceActivity / 1000)}s and no consumers, stopping camera stream`
+          `🕒 No client activity for ${Math.round(timeSinceActivity / 1000)}s and no active clients, stopping camera stream`,
         );
         this.livestreamIntendedState = false;
         this.stopActivityMonitoring();
         this.ensureLivestreamState();
+      } else if (totalConsumers === 0 && this.livestreamIntendedState) {
+        // Brought over from main: useful diagnostic when the stream is
+        // intended to be running but everyone has temporarily detached
+        // (e.g. between Rebroadcast cycles). `totalConsumers` replaces
+        // the old `activeClients` so muxer clients count.
+        this.logger.debug(
+          `No active clients but stream is intended to run - waiting for connections`,
+        );
       }
     }, 5000); // Check every 5 seconds
 
@@ -287,7 +298,7 @@ export class StreamServer extends EventEmitter {
       const connectionAge = now - info.connectedAt.getTime();
       if (connectionAge > 5 * 60 * 1000) {
         this.logger.info(
-          `Destroying stale connection: ${connectionId} (age: ${Math.round(connectionAge / 1000)}s)`
+          `Cleaning up stale connection: ${connectionId} (age: ${Math.round(connectionAge / 1000)}s)`,
         );
         this.connectionManager.disconnectClient(connectionId);
         cleanedCount++;
@@ -295,7 +306,9 @@ export class StreamServer extends EventEmitter {
     }
 
     if (cleanedCount > 0) {
-      this.logger.info(`Reaped ${cleanedCount} stale connections`);
+      this.logger.debug(
+        `Identified ${cleanedCount} stale connections for cleanup`,
+      );
     }
   }
 
@@ -304,7 +317,7 @@ export class StreamServer extends EventEmitter {
    */
   private setupWebSocketListener(): void {
     this.logger.info(
-      `Setting up WebSocket listener for device: ${this.options.serialNumber}`
+      `Setting up WebSocket listener for device: ${this.options.serialNumber}`,
     );
 
     // Listen for livestream video data events
@@ -319,11 +332,11 @@ export class StreamServer extends EventEmitter {
         // Log that we received a video data event (first few only to avoid spam)
         if (this.stats.framesProcessed < 3) {
           this.logger.debug(
-            `Received video data event for ${event.serialNumber}: ${event.buffer.data.length} bytes, metadata present: ${!!event.metadata}`
+            `Received video data event for ${event.serialNumber}: ${event.buffer.data.length} bytes, metadata present: ${!!event.metadata}`,
           );
           if (event.metadata) {
             this.logger.debug(
-              `Video metadata: codec=${event.metadata.videoCodec}, ${event.metadata.videoWidth}x${event.metadata.videoHeight} @ ${event.metadata.videoFPS}fps`
+              `Video metadata: codec=${event.metadata.videoCodec}, ${event.metadata.videoWidth}x${event.metadata.videoHeight} @ ${event.metadata.videoFPS}fps`,
             );
           }
         }
@@ -338,7 +351,7 @@ export class StreamServer extends EventEmitter {
           };
           this.metadataReceived = true;
           this.logger.info(
-            `📐 Captured video metadata: ${this.videoMetadata.videoWidth}x${this.videoMetadata.videoHeight} @ ${this.videoMetadata.videoFPS}fps, codec: ${this.videoMetadata.videoCodec}`
+            `📐 Captured video metadata: ${this.videoMetadata.videoWidth}x${this.videoMetadata.videoHeight} @ ${this.videoMetadata.videoFPS}fps, codec: ${this.videoMetadata.videoCodec}`,
           );
           this.emit("metadataReceived", this.videoMetadata);
         }
@@ -347,7 +360,7 @@ export class StreamServer extends EventEmitter {
         if (!this.livestreamActualState) {
           this.livestreamActualState = true;
           this.logger.info(
-            "📹 Livestream confirmed active - receiving video data"
+            "📹 Livestream confirmed active - receiving video data",
           );
         }
 
@@ -355,13 +368,13 @@ export class StreamServer extends EventEmitter {
         const activeClients = this.connectionManager.getActiveConnectionCount();
         if (activeClients > 0) {
           this.logger.debug(
-            `Received video data event for ${event.serialNumber}: ${event.buffer.data.length} bytes (${activeClients} active clients)`
+            `Received video data event for ${event.serialNumber}: ${event.buffer.data.length} bytes (${activeClients} active clients)`,
           );
         } else {
           // Log less frequently when no clients - only every 10th frame
           if (this.stats.framesProcessed % 10 === 0) {
             this.logger.debug(
-              `Received video data event for ${event.serialNumber}: ${event.buffer.data.length} bytes (no active clients, frame ${this.stats.framesProcessed})`
+              `Received video data event for ${event.serialNumber}: ${event.buffer.data.length} bytes (no active clients, frame ${this.stats.framesProcessed})`,
             );
           }
         }
@@ -392,11 +405,11 @@ export class StreamServer extends EventEmitter {
       {
         source: "device",
         serialNumber: this.options.serialNumber,
-      }
+      },
     );
 
     this.logger.info(
-      `WebSocket listener setup complete for device: ${this.options.serialNumber}`
+      `WebSocket listener setup complete for device: ${this.options.serialNumber}`,
     );
 
     // Listen for livestream audio data events
@@ -411,7 +424,7 @@ export class StreamServer extends EventEmitter {
         if (!this.audioMetadata && event.metadata) {
           this.audioMetadata = event.metadata;
           this.logger.info(
-            `Captured audio metadata: codec=${event.metadata.audioCodec}`
+            `Captured audio metadata: codec=${event.metadata.audioCodec}`,
           );
         }
 
@@ -424,7 +437,7 @@ export class StreamServer extends EventEmitter {
             .subarray(0, Math.min(16, audioBuffer.length))
             .toString("hex");
           this.logger.debug(
-            `Audio frame #${audioFrameCount}: ${audioBuffer.length} bytes, first bytes: ${hex}`
+            `Audio frame #${audioFrameCount}: ${audioBuffer.length} bytes, first bytes: ${hex}`,
           );
           audioFrameCount++;
         }
@@ -454,7 +467,7 @@ export class StreamServer extends EventEmitter {
       {
         source: "device",
         serialNumber: this.options.serialNumber,
-      }
+      },
     );
   }
 
@@ -462,9 +475,7 @@ export class StreamServer extends EventEmitter {
    * ADTS sync word check. Bytes 0..1 must be 0xFFFx (12-bit sync).
    */
   private isAdtsFrame(data: Buffer): boolean {
-    return (
-      data.length >= 7 && data[0] === 0xff && (data[1] & 0xf0) === 0xf0
-    );
+    return data.length >= 7 && data[0] === 0xff && (data[1] & 0xf0) === 0xf0;
   }
 
   /**
@@ -490,19 +501,19 @@ export class StreamServer extends EventEmitter {
             .isLivestreaming();
           actualStreamingStatus = statusResponse.livestreaming;
           this.logger.debug(
-            `Current device livestream status: ${actualStreamingStatus}`
+            `Current device livestream status: ${actualStreamingStatus}`,
           );
         } catch (error: any) {
           this.logger.warn(
             "Failed to check livestream status, continuing with command:",
-            error.message || error
+            error.message || error,
           );
         }
 
         if (this.livestreamIntendedState && !actualStreamingStatus) {
           // Need to start livestream
           this.logger.info(
-            `🎥 Starting livestream (attempt ${attempt}/${maxRetries})`
+            `🎥 Starting livestream (attempt ${attempt}/${maxRetries})`,
           );
           await this.options.wsClient.commands
             .device(this.options.serialNumber)
@@ -513,7 +524,7 @@ export class StreamServer extends EventEmitter {
           this.startStopTimeout = setTimeout(() => {
             if (this.livestreamIntendedState && !this.livestreamActualState) {
               this.logger.warn(
-                "⚠️ Livestream start timeout - no video data received, will retry"
+                "⚠️ Livestream start timeout - no video data received, will retry",
               );
               this.ensureLivestreamState();
             }
@@ -524,7 +535,7 @@ export class StreamServer extends EventEmitter {
         } else if (!this.livestreamIntendedState && actualStreamingStatus) {
           // Need to stop livestream
           this.logger.info(
-            `🛑 Stopping livestream (attempt ${attempt}/${maxRetries})`
+            `🛑 Stopping livestream (attempt ${attempt}/${maxRetries})`,
           );
           await this.options.wsClient.commands
             .device(this.options.serialNumber)
@@ -541,12 +552,12 @@ export class StreamServer extends EventEmitter {
       } catch (error: any) {
         this.logger.warn(
           `❌ Livestream command failed (attempt ${attempt}/${maxRetries}):`,
-          error.message || error
+          error.message || error,
         );
 
         if (attempt === maxRetries) {
           this.logger.error(
-            `❌ Failed to set livestream state after ${maxRetries} attempts`
+            `❌ Failed to set livestream state after ${maxRetries} attempts`,
           );
           this.emit("streamError", error);
         } else {
@@ -583,7 +594,7 @@ export class StreamServer extends EventEmitter {
         this.isActive = true;
         this.startTime = new Date();
         this.logger.info(
-          `🚀 Stream server started on ${this.options.host}:${this.options.port}`
+          `🚀 Stream server started on ${this.options.host}:${this.options.port}`,
         );
         this.emit("started");
         resolve();
@@ -644,7 +655,7 @@ export class StreamServer extends EventEmitter {
     duplex.on("data", (chunk: Buffer) => {
       if (!firstChunkLogged) {
         this.logger.info(
-          `JMuxer emitting fMP4 (first chunk: ${chunk.length} bytes, mode=${mode}, fps=${videoFps})`
+          `JMuxer emitting fMP4 (first chunk: ${chunk.length} bytes, mode=${mode}, fps=${videoFps})`,
         );
         firstChunkLogged = true;
       }
@@ -656,7 +667,7 @@ export class StreamServer extends EventEmitter {
 
     this.muxerStreams.set(socket, { muxer, duplex });
     this.logger.info(
-      `Muxed client attached (total active muxers: ${this.muxerStreams.size})`
+      `Muxed client attached (total active muxers: ${this.muxerStreams.size})`,
     );
 
     // This is the first consumer of the stream — bring up the livestream
@@ -672,7 +683,7 @@ export class StreamServer extends EventEmitter {
         this.logger.warn(`JMuxer destroy threw during cleanup: ${e}`);
       }
       this.logger.info(
-        `Muxed client detached (total active muxers: ${this.muxerStreams.size})`
+        `Muxed client detached (total active muxers: ${this.muxerStreams.size})`,
       );
       this.updateLivestreamStateForMuxerClients();
     };
@@ -805,7 +816,7 @@ export class StreamServer extends EventEmitter {
   async streamVideo(
     data: Buffer,
     timestamp?: number,
-    isKeyFrame?: boolean
+    isKeyFrame?: boolean,
   ): Promise<boolean> {
     if (!data || data.length === 0) {
       this.logger.warn("Cannot stream empty video data");
@@ -824,7 +835,7 @@ export class StreamServer extends EventEmitter {
 
       if (!isValid) {
         this.logger.warn(
-          `Invalid ${isHevc ? "H.265" : "H.264"} data structure`
+          `Invalid ${isHevc ? "H.265" : "H.264"} data structure`,
         );
         return false;
       }
@@ -843,11 +854,11 @@ export class StreamServer extends EventEmitter {
         .map((nal) =>
           isHevc
             ? `${this.h264Parser.getNALTypeNameHevc(nal.type)}(${nal.type})`
-            : `${this.h264Parser.getNALTypeName(nal.type)}(${nal.type})`
+            : `${this.h264Parser.getNALTypeName(nal.type)}(${nal.type})`,
         )
         .join(", ");
       this.logger.debug(
-        `Processing ${isHevc ? "H.265" : "H.264"} data: ${data.length} bytes, NALs: [${nalInfo}], keyFrame: ${isKeyFrame}`
+        `Processing ${isHevc ? "H.265" : "H.264"} data: ${data.length} bytes, NALs: [${nalInfo}], keyFrame: ${isKeyFrame}`,
       );
 
       // Cache parameter-set NAL units so new clients can decode mid-stream.
@@ -876,7 +887,7 @@ export class StreamServer extends EventEmitter {
       let snapshotsHandled = false;
       if (isKeyFrame && this.snapshotResolvers.length > 0) {
         this.logger.debug(
-          `Resolving ${this.snapshotResolvers.length} snapshot request(s) with keyframe data`
+          `Resolving ${this.snapshotResolvers.length} snapshot request(s) with keyframe data`,
         );
         const resolvers = [...this.snapshotResolvers];
         this.snapshotResolvers = [];
@@ -912,11 +923,11 @@ export class StreamServer extends EventEmitter {
       const activeClients = this.connectionManager.getActiveConnectionCount();
       if (activeClients > 0) {
         this.logger.debug(
-          `Streamed video frame: ${data.length} bytes to ${activeClients} clients`
+          `Streamed video frame: ${data.length} bytes to ${activeClients} clients`,
         );
       } else {
         this.logger.debug(
-          `Processed video frame: ${data.length} bytes (no active clients)`
+          `Processed video frame: ${data.length} bytes (no active clients)`,
         );
       }
 
@@ -946,7 +957,7 @@ export class StreamServer extends EventEmitter {
    * Wait for video metadata to be received
    */
   async waitForVideoMetadata(
-    timeoutMs: number = 10000
+    timeoutMs: number = 10000,
   ): Promise<VideoMetadata> {
     if (this.videoMetadata) {
       this.logger.debug("Video metadata already available");
@@ -954,16 +965,16 @@ export class StreamServer extends EventEmitter {
     }
 
     this.logger.debug(
-      `Waiting for video metadata (timeout: ${timeoutMs}ms)...`
+      `Waiting for video metadata (timeout: ${timeoutMs}ms)...`,
     );
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.logger.warn(
-          `Timeout waiting for video metadata (${timeoutMs}ms). Livestream state: ${this.livestreamActualState}, intended: ${this.livestreamIntendedState}`
+          `Timeout waiting for video metadata (${timeoutMs}ms). Livestream state: ${this.livestreamActualState}, intended: ${this.livestreamIntendedState}`,
         );
         reject(
-          new Error(`Timeout waiting for video metadata (${timeoutMs}ms)`)
+          new Error(`Timeout waiting for video metadata (${timeoutMs}ms)`),
         );
       }, timeoutMs);
 
@@ -1065,7 +1076,7 @@ export class StreamServer extends EventEmitter {
         await this.ensureLivestreamState();
       } else {
         this.logger.debug(
-          "Livestream already intended/running, waiting for keyframe"
+          "Livestream already intended/running, waiting for keyframe",
         );
       }
 
@@ -1074,12 +1085,12 @@ export class StreamServer extends EventEmitter {
         const timeoutHandle = setTimeout(() => {
           // Remove this resolver from the list
           this.snapshotResolvers = this.snapshotResolvers.filter(
-            (r) => r.resolve !== resolve
+            (r) => r.resolve !== resolve,
           );
           reject(
             new Error(
-              `Snapshot capture timed out after ${timeoutMs}ms - no keyframe received`
-            )
+              `Snapshot capture timed out after ${timeoutMs}ms - no keyframe received`,
+            ),
           );
         }, timeoutMs);
 
@@ -1097,12 +1108,12 @@ export class StreamServer extends EventEmitter {
         });
 
         this.logger.debug(
-          `Waiting for next keyframe (timeout: ${timeoutMs}ms)...`
+          `Waiting for next keyframe (timeout: ${timeoutMs}ms)...`,
         );
       });
 
       this.logger.info(
-        `✅ Snapshot captured: ${snapshotBuffer.length} bytes (keyframe)`
+        `✅ Snapshot captured: ${snapshotBuffer.length} bytes (keyframe)`,
       );
 
       return snapshotBuffer;
@@ -1110,13 +1121,13 @@ export class StreamServer extends EventEmitter {
       // Stop livestream if it wasn't running before
       if (!wasStreamRunning) {
         this.logger.debug(
-          "Stopping livestream after snapshot capture (was not running before)"
+          "Stopping livestream after snapshot capture (was not running before)",
         );
         this.livestreamIntendedState = false;
         // Don't await here to avoid blocking the snapshot return
         this.ensureLivestreamState().catch((error) => {
           this.logger.warn(
-            `Failed to stop livestream after snapshot: ${error}`
+            `Failed to stop livestream after snapshot: ${error}`,
           );
         });
       }

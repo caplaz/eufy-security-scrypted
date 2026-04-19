@@ -107,7 +107,7 @@ export class ApiManager {
    */
   constructor(
     wsUrl: string,
-    private logger: Logger<ILogObj>
+    private logger: Logger<ILogObj>,
   ) {
     this.stateManager = new ClientStateManager(logger);
     this.client = new WebSocketClient(wsUrl, this.stateManager, logger);
@@ -172,7 +172,7 @@ export class ApiManager {
     options?: {
       source?: S;
       serialNumber?: string;
-    }
+    },
   ): () => boolean {
     const listenerId = `listener_${eventType}_${++this.listenerIdCounter}`;
 
@@ -268,7 +268,7 @@ export class ApiManager {
    */
   removeEventListenersBySerialNumber(
     serialNumber: string,
-    source?: EventSource
+    source?: EventSource,
   ): number {
     let removedCount = 0;
     for (const [id, listener] of this.eventListeners) {
@@ -400,7 +400,7 @@ export class ApiManager {
    */
   async sendCommand<T extends SupportedCommandType>(
     command: T,
-    params: ParamsForCommand<T> = {} as ParamsForCommand<T>
+    params: ParamsForCommand<T> = {} as ParamsForCommand<T>,
   ): Promise<ResponseForCommand<T>> {
     if (
       command !== SERVER_COMMANDS.SET_API_SCHEMA &&
@@ -434,7 +434,7 @@ export class ApiManager {
         if (this.logger) {
           this.logger.info(
             `sendCommand failed (attempt ${attempt}/${MAX_RETRIES}) for command: ${command}`,
-            error
+            error,
           );
         }
 
@@ -449,7 +449,7 @@ export class ApiManager {
     throw (
       lastError ||
       new Error(
-        `sendCommand failed for command: ${command} after ${MAX_RETRIES} attempts`
+        `sendCommand failed for command: ${command} after ${MAX_RETRIES} attempts`,
       )
     );
   }
@@ -494,7 +494,7 @@ export class ApiManager {
     const driverConnected = result.state.driver.connected;
     if (this.logger) {
       this.logger.info(
-        `startListening response: driver connected = ${driverConnected}`
+        `startListening response: driver connected = ${driverConnected}`,
       );
     }
     this.stateManager.setDriverConnected(driverConnected);
@@ -564,7 +564,7 @@ export class ApiManager {
    * @throws Error if schema incompatibility is detected.
    */
   private async handleVersionMessage(
-    versionMessage: WebSocketVersionMessage
+    versionMessage: WebSocketVersionMessage,
   ): Promise<void> {
     const serverMinSchema = versionMessage.minSchemaVersion;
     const serverMaxSchema = versionMessage.maxSchemaVersion;
@@ -597,7 +597,7 @@ export class ApiManager {
     if (!isCompatible) {
       const error = new Error(
         `Schema incompatibility: Server supports ${serverMinSchema}-${serverMaxSchema}, ` +
-          `Client requires minimum ${this.CLIENT_MIN_SCHEMA} (preferred ${this.CLIENT_PREFERRED_SCHEMA})`
+          `Client requires minimum ${this.CLIENT_MIN_SCHEMA} (preferred ${this.CLIENT_PREFERRED_SCHEMA})`,
       );
       this.stateManager.setError(error);
       throw error;
@@ -725,7 +725,7 @@ export class ApiManager {
         case DRIVER_EVENTS.CONNECTED:
           if (this.logger) {
             this.logger.info(
-              "Driver connected event received, updating state to connected"
+              "Driver connected event received, updating state to connected",
             );
           }
           this.stateManager.setDriverConnected(true);
@@ -734,7 +734,7 @@ export class ApiManager {
         case DRIVER_EVENTS.DISCONNECTED:
           if (this.logger) {
             this.logger.info(
-              "Driver disconnected event received, updating state to disconnected"
+              "Driver disconnected event received, updating state to disconnected",
             );
           }
           this.stateManager.setDriverConnected(false);
@@ -794,7 +794,7 @@ export class ApiManager {
 
     if (this.logger) {
       this.logger.info(
-        `MFA verification required - methods: ${methods.join(", ")}`
+        `MFA verification required - methods: ${methods.join(", ")}`,
       );
     }
 

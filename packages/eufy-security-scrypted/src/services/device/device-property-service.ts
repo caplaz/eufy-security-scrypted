@@ -41,7 +41,7 @@ export class DevicePropertyService {
   constructor(
     private wsClient: EufyWebSocketClient,
     private serialNumber: string,
-    private logger: Logger<ILogObj>
+    private logger: Logger<ILogObj>,
   ) {
     this.propertiesLoadedPromise = this.loadInitialProperties();
     this.setupPropertyChangeListener();
@@ -90,7 +90,7 @@ export class DevicePropertyService {
    */
   async updateProperty(
     propertyName: keyof DeviceProperties,
-    value: any
+    value: any,
   ): Promise<void> {
     this.logger.info(`Updating property ${propertyName} to ${value}`);
 
@@ -124,7 +124,7 @@ export class DevicePropertyService {
    * @returns Property value or undefined if not available
    */
   getProperty<K extends keyof DeviceProperties>(
-    propertyName: K
+    propertyName: K,
   ): DeviceProperties[K] | undefined {
     return this.properties?.[propertyName];
   }
@@ -145,7 +145,7 @@ export class DevicePropertyService {
   private async loadInitialProperties(): Promise<void> {
     try {
       this.logger.debug(
-        `Loading initial properties for device ${this.serialNumber}`
+        `Loading initial properties for device ${this.serialNumber}`,
       );
 
       const api = this.wsClient.commands.device(this.serialNumber);
@@ -153,7 +153,7 @@ export class DevicePropertyService {
       this.properties = response.properties;
 
       this.logger.debug(
-        `Initial properties loaded for device ${this.serialNumber}`
+        `Initial properties loaded for device ${this.serialNumber}`,
       );
     } catch (error) {
       this.logger.error(`Failed to load initial properties: ${error}`);
@@ -173,7 +173,7 @@ export class DevicePropertyService {
       {
         source: EVENT_SOURCES.DEVICE,
         serialNumber: this.serialNumber,
-      }
+      },
     );
   }
 
@@ -181,7 +181,7 @@ export class DevicePropertyService {
    * Handle property change event from WebSocket
    */
   private handlePropertyChanged(
-    event: DevicePropertyChangedEventPayload
+    event: DevicePropertyChangedEventPayload,
   ): void {
     const { name, value } = event;
 

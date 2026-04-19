@@ -127,9 +127,7 @@ describe("H264Parser", () => {
       const hevcData = createTestHevcData();
       const nalUnits = parser.extractNALUnitsHevc(hevcData);
 
-      nalUnits.forEach((nal) =>
-        expect(nal.isKeyFrame).toBe(true)
-      );
+      nalUnits.forEach((nal) => expect(nal.isKeyFrame).toBe(true));
     });
 
     it("correctly extracts IDR_N_LP (type 20)", () => {
@@ -151,7 +149,9 @@ describe("H264Parser", () => {
     });
 
     it("returns empty array for data without start codes", () => {
-      expect(parser.extractNALUnitsHevc(createInvalidH264Data())).toHaveLength(0);
+      expect(parser.extractNALUnitsHevc(createInvalidH264Data())).toHaveLength(
+        0,
+      );
     });
   });
 
@@ -164,7 +164,10 @@ describe("H264Parser", () => {
       // createTestHevcData includes VPS+SPS+PPS+IDR; verify IDR alone also works
       const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
       // IDR_W_RADL byte0 = 0x26
-      const idrBuf = Buffer.concat([startCode, Buffer.from([0x26, 0x01, 0x02])]);
+      const idrBuf = Buffer.concat([
+        startCode,
+        Buffer.from([0x26, 0x01, 0x02]),
+      ]);
       expect(parser.isKeyFrameHevc(idrBuf)).toBe(true);
     });
 
@@ -217,7 +220,10 @@ describe("H264Parser", () => {
     it("misidentifies H.265 IDR_W_RADL as non-keyframe (type 6 SEI in H.264 space)", () => {
       const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
       // IDR_W_RADL: byte0 = 0x26, H.264 parser sees 0x26 & 0x1F = 6 (SEI)
-      const idrBuf = Buffer.concat([startCode, Buffer.from([0x26, 0x01, 0x02])]);
+      const idrBuf = Buffer.concat([
+        startCode,
+        Buffer.from([0x26, 0x01, 0x02]),
+      ]);
       expect(parser.isKeyFrame(idrBuf)).toBe(false); // wrong!
       expect(parser.isKeyFrameHevc(idrBuf)).toBe(true); // correct
     });

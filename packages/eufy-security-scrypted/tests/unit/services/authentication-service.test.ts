@@ -182,13 +182,13 @@ describe("AuthenticationService", () => {
       });
 
       await expect(service.submitCaptcha("")).rejects.toThrow(
-        "CAPTCHA code is required"
+        "CAPTCHA code is required",
       );
     });
 
     it("should reject CAPTCHA submission without CAPTCHA data", async () => {
       await expect(service.submitCaptcha("ABC123")).rejects.toThrow(
-        "No CAPTCHA data available"
+        "No CAPTCHA data available",
       );
     });
   });
@@ -232,7 +232,7 @@ describe("AuthenticationService", () => {
       });
 
       await expect(service.submitMfaCode("")).rejects.toThrow(
-        "Verification code is required"
+        "Verification code is required",
       );
     });
   });

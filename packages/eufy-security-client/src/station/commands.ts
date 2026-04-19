@@ -12,50 +12,58 @@ import { StationProperties } from "./properties";
 /**
  * Base interface for station commands
  */
-export interface BaseStationCommand<T extends StationCommandType>
-  extends BaseCommandWithSerial<T> {}
+export interface BaseStationCommand<
+  T extends StationCommandType,
+> extends BaseCommandWithSerial<T> {}
 
 /**
  * Station reboot command
  */
-export interface StationRebootCommand
-  extends BaseStationCommand<typeof STATION_COMMANDS.REBOOT> {}
+export interface StationRebootCommand extends BaseStationCommand<
+  typeof STATION_COMMANDS.REBOOT
+> {}
 
 /**
  * Check if station is connected
  */
-export interface StationIsConnectedCommand
-  extends BaseStationCommand<typeof STATION_COMMANDS.IS_CONNECTED> {}
+export interface StationIsConnectedCommand extends BaseStationCommand<
+  typeof STATION_COMMANDS.IS_CONNECTED
+> {}
 
 /**
  * Connect to station
  */
-export interface StationConnectCommand
-  extends BaseStationCommand<typeof STATION_COMMANDS.CONNECT> {}
+export interface StationConnectCommand extends BaseStationCommand<
+  typeof STATION_COMMANDS.CONNECT
+> {}
 
 /**
  * Disconnect from station
  */
-export interface StationDisconnectCommand
-  extends BaseStationCommand<typeof STATION_COMMANDS.DISCONNECT> {}
+export interface StationDisconnectCommand extends BaseStationCommand<
+  typeof STATION_COMMANDS.DISCONNECT
+> {}
 
 /**
  * Get station properties metadata
  */
-export interface StationGetPropertiesMetadataCommand
-  extends BaseStationCommand<typeof STATION_COMMANDS.GET_PROPERTIES_METADATA> {}
+export interface StationGetPropertiesMetadataCommand extends BaseStationCommand<
+  typeof STATION_COMMANDS.GET_PROPERTIES_METADATA
+> {}
 
 /**
  * Get station properties
  */
-export interface StationGetPropertiesCommand
-  extends BaseStationCommand<typeof STATION_COMMANDS.GET_PROPERTIES> {}
+export interface StationGetPropertiesCommand extends BaseStationCommand<
+  typeof STATION_COMMANDS.GET_PROPERTIES
+> {}
 
 /**
  * Set station property
  */
-export interface StationSetPropertyCommand
-  extends BaseStationCommand<typeof STATION_COMMANDS.SET_PROPERTY> {
+export interface StationSetPropertyCommand extends BaseStationCommand<
+  typeof STATION_COMMANDS.SET_PROPERTY
+> {
   name: keyof StationProperties;
   value: StationProperties[keyof StationProperties];
 }
@@ -63,60 +71,68 @@ export interface StationSetPropertyCommand
 /**
  * Check if station has property
  */
-export interface StationHasPropertyCommand
-  extends BaseStationCommand<typeof STATION_COMMANDS.HAS_PROPERTY> {
+export interface StationHasPropertyCommand extends BaseStationCommand<
+  typeof STATION_COMMANDS.HAS_PROPERTY
+> {
   propertyName: keyof StationProperties;
 }
 
 /**
  * Get station commands
  */
-export interface StationGetCommandsCommand
-  extends BaseStationCommand<typeof STATION_COMMANDS.GET_COMMANDS> {}
+export interface StationGetCommandsCommand extends BaseStationCommand<
+  typeof STATION_COMMANDS.GET_COMMANDS
+> {}
 
 /**
  * Check if station has command
  */
-export interface StationHasCommandCommand
-  extends BaseStationCommand<typeof STATION_COMMANDS.HAS_COMMAND> {
+export interface StationHasCommandCommand extends BaseStationCommand<
+  typeof STATION_COMMANDS.HAS_COMMAND
+> {
   commandName: string;
 }
 
 /**
  * Trigger station alarm
  */
-export interface StationTriggerAlarmCommand
-  extends BaseStationCommand<typeof STATION_COMMANDS.TRIGGER_ALARM> {
+export interface StationTriggerAlarmCommand extends BaseStationCommand<
+  typeof STATION_COMMANDS.TRIGGER_ALARM
+> {
   seconds: number;
 }
 
 /**
  * Reset station alarm
  */
-export interface StationResetAlarmCommand
-  extends BaseStationCommand<typeof STATION_COMMANDS.RESET_ALARM> {}
+export interface StationResetAlarmCommand extends BaseStationCommand<
+  typeof STATION_COMMANDS.RESET_ALARM
+> {}
 
 /**
  * Set station guard mode
  */
-export interface StationSetGuardModeCommand
-  extends BaseStationCommand<typeof STATION_COMMANDS.SET_GUARD_MODE> {
+export interface StationSetGuardModeCommand extends BaseStationCommand<
+  typeof STATION_COMMANDS.SET_GUARD_MODE
+> {
   mode: number;
 }
 
 /**
  * Station chime command
  */
-export interface StationChimeCommand
-  extends BaseStationCommand<typeof STATION_COMMANDS.CHIME> {
+export interface StationChimeCommand extends BaseStationCommand<
+  typeof STATION_COMMANDS.CHIME
+> {
   ringtone: number;
 }
 
 /**
  * Download image from station
  */
-export interface StationDownloadImageCommand
-  extends BaseStationCommand<typeof STATION_COMMANDS.DOWNLOAD_IMAGE> {
+export interface StationDownloadImageCommand extends BaseStationCommand<
+  typeof STATION_COMMANDS.DOWNLOAD_IMAGE
+> {
   file: string;
 }
 
@@ -124,8 +140,9 @@ export interface StationDownloadImageCommand
  * Query database records by date range from station
  * Results are delivered as a station event (database query by date)
  */
-export interface StationDatabaseQueryByDateCommand
-  extends BaseStationCommand<typeof STATION_COMMANDS.DATABASE_QUERY_BY_DATE> {
+export interface StationDatabaseQueryByDateCommand extends BaseStationCommand<
+  typeof STATION_COMMANDS.DATABASE_QUERY_BY_DATE
+> {
   serialNumbers: string[];
   startDate: string;
   endDate: string;

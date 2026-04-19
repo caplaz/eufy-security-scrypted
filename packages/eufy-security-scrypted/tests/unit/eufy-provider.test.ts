@@ -88,7 +88,7 @@ describe("EufySecurityProvider.registerDevicesFromServerState", () => {
   let mockCreateDeviceManifest: jest.Mock;
 
   beforeEach(() => {
-    mockOnDevicesChanged = (sdk.deviceManager.onDevicesChanged as jest.Mock);
+    mockOnDevicesChanged = sdk.deviceManager.onDevicesChanged as jest.Mock;
     mockOnDevicesChanged.mockClear();
 
     mockCreateDeviceManifest = DeviceUtils.createDeviceManifest as jest.Mock;
@@ -100,9 +100,21 @@ describe("EufySecurityProvider.registerDevicesFromServerState", () => {
   it("groups 3 devices across 2 stations into exactly 2 onDevicesChanged calls", async () => {
     // Two devices on station A, one device on station B
     const manifests = [
-      { nativeId: "device_CAM001", providerNativeId: "station_STA001", name: "Cam 1" },
-      { nativeId: "device_CAM002", providerNativeId: "station_STA001", name: "Cam 2" },
-      { nativeId: "device_CAM003", providerNativeId: "station_STA002", name: "Cam 3" },
+      {
+        nativeId: "device_CAM001",
+        providerNativeId: "station_STA001",
+        name: "Cam 1",
+      },
+      {
+        nativeId: "device_CAM002",
+        providerNativeId: "station_STA001",
+        name: "Cam 2",
+      },
+      {
+        nativeId: "device_CAM003",
+        providerNativeId: "station_STA002",
+        name: "Cam 3",
+      },
     ];
 
     mockCreateDeviceManifest
@@ -123,12 +135,12 @@ describe("EufySecurityProvider.registerDevicesFromServerState", () => {
 
     const calls = mockOnDevicesChanged.mock.calls;
     const callByStation = new Map(
-      calls.map((c: any[]) => [c[0].providerNativeId, c[0].devices])
+      calls.map((c: any[]) => [c[0].providerNativeId, c[0].devices]),
     );
 
     expect(callByStation.get("station_STA001")).toHaveLength(2);
     expect(callByStation.get("station_STA001")).toEqual(
-      expect.arrayContaining([manifests[0], manifests[1]])
+      expect.arrayContaining([manifests[0], manifests[1]]),
     );
     expect(callByStation.get("station_STA002")).toHaveLength(1);
     expect(callByStation.get("station_STA002")).toEqual([manifests[2]]);
@@ -136,8 +148,16 @@ describe("EufySecurityProvider.registerDevicesFromServerState", () => {
 
   it("makes a single onDevicesChanged call when all devices belong to one station", async () => {
     const manifests = [
-      { nativeId: "device_CAM001", providerNativeId: "station_STA001", name: "Cam 1" },
-      { nativeId: "device_CAM002", providerNativeId: "station_STA001", name: "Cam 2" },
+      {
+        nativeId: "device_CAM001",
+        providerNativeId: "station_STA001",
+        name: "Cam 1",
+      },
+      {
+        nativeId: "device_CAM002",
+        providerNativeId: "station_STA001",
+        name: "Cam 2",
+      },
     ];
 
     mockCreateDeviceManifest
@@ -170,8 +190,16 @@ describe("EufySecurityProvider.registerDevicesFromServerState", () => {
 
   it("groups devices with undefined providerNativeId into their own onDevicesChanged call", async () => {
     const manifests = [
-      { nativeId: "device_CAM001", providerNativeId: "station_STA001", name: "Cam 1" },
-      { nativeId: "device_CAM002", providerNativeId: undefined, name: "Orphan Cam" },
+      {
+        nativeId: "device_CAM001",
+        providerNativeId: "station_STA001",
+        name: "Cam 1",
+      },
+      {
+        nativeId: "device_CAM002",
+        providerNativeId: undefined,
+        name: "Orphan Cam",
+      },
     ];
 
     mockCreateDeviceManifest
@@ -187,8 +215,12 @@ describe("EufySecurityProvider.registerDevicesFromServerState", () => {
     expect(mockOnDevicesChanged).toHaveBeenCalledTimes(2);
 
     const calls = mockOnDevicesChanged.mock.calls;
-    const stationCall = calls.find((c: any[]) => c[0].providerNativeId === "station_STA001");
-    const undefinedCall = calls.find((c: any[]) => c[0].providerNativeId === undefined);
+    const stationCall = calls.find(
+      (c: any[]) => c[0].providerNativeId === "station_STA001",
+    );
+    const undefinedCall = calls.find(
+      (c: any[]) => c[0].providerNativeId === undefined,
+    );
 
     expect(stationCall).toBeDefined();
     expect(stationCall![0].devices).toEqual([manifests[0]]);

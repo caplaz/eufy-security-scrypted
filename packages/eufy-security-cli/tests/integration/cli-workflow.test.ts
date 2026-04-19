@@ -50,7 +50,7 @@ describe("CLI Workflow Integration", () => {
       ];
 
       expect(() => CLIParser.parse(args)).toThrow(
-        "Unknown command: list-devices"
+        "Unknown command: list-devices",
       );
     });
 
@@ -64,7 +64,7 @@ describe("CLI Workflow Integration", () => {
       ];
 
       expect(() => CLIParser.parse(args)).toThrow(
-        "Unknown command: device-info"
+        "Unknown command: device-info",
       );
     });
 
@@ -94,7 +94,7 @@ describe("CLI Workflow Integration", () => {
       };
 
       expect(() => CLIParser.validateArgs(args)).toThrow(
-        "WebSocket host is required"
+        "WebSocket host is required",
       );
     });
 
@@ -102,7 +102,7 @@ describe("CLI Workflow Integration", () => {
       const args = ["unknown-command"];
 
       expect(() => CLIParser.parse(args)).toThrow(
-        "Unknown command: unknown-command"
+        "Unknown command: unknown-command",
       );
     });
 
@@ -110,7 +110,7 @@ describe("CLI Workflow Integration", () => {
       const args = ["device", "--invalid-flag"];
 
       expect(() => CLIParser.parse(args)).toThrow(
-        "Unknown argument: --invalid-flag"
+        "Unknown argument: --invalid-flag",
       );
     });
   });
@@ -123,7 +123,7 @@ describe("CLI Workflow Integration", () => {
       await app.run(args);
 
       expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("USAGE:")
+        expect.stringContaining("USAGE:"),
       );
     });
 
@@ -131,7 +131,7 @@ describe("CLI Workflow Integration", () => {
       CLIApplication.displayVersion();
 
       expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Eufy Camera CLI v")
+        expect.stringContaining("Eufy Camera CLI v"),
       );
     });
 
@@ -139,7 +139,7 @@ describe("CLI Workflow Integration", () => {
       CLIApplication.displayCommands();
 
       expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Available commands:")
+        expect.stringContaining("Available commands:"),
       );
     });
   });

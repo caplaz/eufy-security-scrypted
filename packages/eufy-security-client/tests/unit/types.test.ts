@@ -168,7 +168,7 @@ describe("Types Module", () => {
           expect(typeof payload.device).toBe("string");
           expect(payload.source).toBe("device");
           expect(payload.event).toBe(DEVICE_EVENTS.DEVICE_ADDED);
-        }
+        },
       );
 
       // Test 2: Driver connect event - should NOT have device/serialNumber
@@ -180,7 +180,7 @@ describe("Types Module", () => {
           expect(payload.source).toBe("driver");
           expect(payload.event).toBe(DRIVER_EVENTS.CONNECTED);
           // device/serialNumber should NOT exist (would cause TypeScript error if accessed)
-        }
+        },
       );
 
       // Test 3: Property changed event - should have name, value (no timestamp in schema 13+)
@@ -193,7 +193,7 @@ describe("Types Module", () => {
           expect(typeof payload.serialNumber).toBe("string");
           expect(payload.source).toBe("device");
           expect(payload.event).toBe(DEVICE_EVENTS.PROPERTY_CHANGED);
-        }
+        },
       );
 
       // Test cleanup functions
@@ -225,7 +225,7 @@ describe("Types Module", () => {
         {
           source: "device",
           serialNumber: "TEST123",
-        }
+        },
       );
 
       expect(typeof cleanup).toBe("function");

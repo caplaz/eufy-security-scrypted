@@ -94,7 +94,7 @@ describe("CLIParser", () => {
       const args = ["--unknown-flag"];
 
       expect(() => CLIParser.parse(args)).toThrow(
-        "Unknown argument: --unknown-flag"
+        "Unknown argument: --unknown-flag",
       );
     });
 
@@ -102,7 +102,7 @@ describe("CLIParser", () => {
       const args = ["--ws-host"];
 
       expect(() => CLIParser.parse(args)).toThrow(
-        "WebSocket host is required after --ws-host"
+        "WebSocket host is required after --ws-host",
       );
     });
 
@@ -110,7 +110,7 @@ describe("CLIParser", () => {
       const args = ["--port", "invalid"];
 
       expect(() => CLIParser.parse(args)).toThrow(
-        "Port must be a valid number"
+        "Port must be a valid number",
       );
     });
 
@@ -118,7 +118,7 @@ describe("CLIParser", () => {
       const args = ["--port", "70000"];
 
       expect(() => CLIParser.parse(args)).toThrow(
-        "Port must be a valid number between 0 and 65535"
+        "Port must be a valid number between 0 and 65535",
       );
     });
   });
@@ -150,7 +150,7 @@ describe("CLIParser", () => {
       };
 
       expect(() => CLIParser.validateArgs(args)).toThrow(
-        "WebSocket host is required"
+        "WebSocket host is required",
       );
     });
 
@@ -166,7 +166,7 @@ describe("CLIParser", () => {
       };
 
       expect(() => CLIParser.validateArgs(args)).toThrow(
-        "Camera serial is required for the device stream command"
+        "Camera serial is required for the device stream command",
       );
     });
 
@@ -195,7 +195,7 @@ describe("CLIParser", () => {
       };
 
       expect(() => CLIParser.validateArgs(args)).toThrow(
-        "Invalid WebSocket host format"
+        "Invalid WebSocket host format",
       );
     });
 
@@ -211,7 +211,7 @@ describe("CLIParser", () => {
       };
 
       expect(() => CLIParser.validateArgs(args)).toThrow(
-        "Invalid camera serial format"
+        "Invalid camera serial format",
       );
     });
 
@@ -279,13 +279,13 @@ describe("CLIParser", () => {
       CLIParser.printUsage();
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Eufy Camera CLI Streamer")
+        expect.stringContaining("Eufy Camera CLI Streamer"),
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("COMMANDS:")
+        expect.stringContaining("COMMANDS:"),
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("device list")
+        expect.stringContaining("device list"),
       );
 
       consoleSpy.mockRestore();

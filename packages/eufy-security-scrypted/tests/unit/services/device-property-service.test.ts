@@ -70,7 +70,7 @@ describe("DevicePropertyService", () => {
       expect(properties).toEqual(mockProperties);
       expect(mockWsClient.commands.device).toHaveBeenCalledWith(serialNumber);
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        `Loading initial properties for device ${serialNumber}`
+        `Loading initial properties for device ${serialNumber}`,
       );
     });
 
@@ -78,7 +78,7 @@ describe("DevicePropertyService", () => {
       expect(mockWsClient.addEventListener).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(Function),
-        expect.objectContaining({ serialNumber })
+        expect.objectContaining({ serialNumber }),
       );
     });
   });
@@ -88,7 +88,7 @@ describe("DevicePropertyService", () => {
       const newService = new DevicePropertyService(
         mockWsClient,
         serialNumber,
-        mockLogger
+        mockLogger,
       );
 
       expect(newService.getProperties()).toBeUndefined();
@@ -116,7 +116,7 @@ describe("DevicePropertyService", () => {
       expect(result).toEqual(updatedProperties);
       expect(service.getProperties()).toEqual(updatedProperties);
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        "Refreshing device properties"
+        "Refreshing device properties",
       );
     });
   });
@@ -133,7 +133,7 @@ describe("DevicePropertyService", () => {
 
       expect(mockApi.setProperty).toHaveBeenCalledWith("enabled", false);
       expect(mockLogger.info).toHaveBeenCalledWith(
-        "Updating property enabled to false"
+        "Updating property enabled to false",
       );
     });
 
@@ -156,7 +156,7 @@ describe("DevicePropertyService", () => {
 
       // Simulate property change event
       const eventCallback = mockEventListeners.get(
-        "property changed-TEST-DEVICE-123"
+        "property changed-TEST-DEVICE-123",
       );
       eventCallback?.({
         name: "enabled",
@@ -171,7 +171,7 @@ describe("DevicePropertyService", () => {
 
     it("should update local cache on property change event", async () => {
       const eventCallback = mockEventListeners.get(
-        "property changed-TEST-DEVICE-123"
+        "property changed-TEST-DEVICE-123",
       );
       eventCallback?.({
         name: "enabled",
@@ -190,7 +190,7 @@ describe("DevicePropertyService", () => {
       service.onPropertyChange(callback2);
 
       const eventCallback = mockEventListeners.get(
-        "property changed-TEST-DEVICE-123"
+        "property changed-TEST-DEVICE-123",
       );
       eventCallback?.({
         name: "enabled",
@@ -211,7 +211,7 @@ describe("DevicePropertyService", () => {
       service.onPropertyChange(goodCallback);
 
       const eventCallback = mockEventListeners.get(
-        "property changed-TEST-DEVICE-123"
+        "property changed-TEST-DEVICE-123",
       );
       eventCallback?.({
         name: "enabled",
@@ -221,7 +221,7 @@ describe("DevicePropertyService", () => {
       expect(badCallback).toHaveBeenCalled();
       expect(goodCallback).toHaveBeenCalled();
       expect(mockLogger.error).toHaveBeenCalledWith(
-        expect.stringContaining("Error in property change callback")
+        expect.stringContaining("Error in property change callback"),
       );
     });
 
@@ -232,7 +232,7 @@ describe("DevicePropertyService", () => {
       unsubscribe();
 
       const eventCallback = mockEventListeners.get(
-        "propertyChanged-TEST-DEVICE-123"
+        "propertyChanged-TEST-DEVICE-123",
       );
       eventCallback?.({
         name: "enabled",
@@ -262,7 +262,7 @@ describe("DevicePropertyService", () => {
       const newService = new DevicePropertyService(
         mockWsClient,
         serialNumber,
-        mockLogger
+        mockLogger,
       );
 
       expect(newService.getProperty("name")).toBeUndefined();
@@ -288,7 +288,7 @@ describe("DevicePropertyService", () => {
       const newService = new DevicePropertyService(
         mockWsClient,
         serialNumber,
-        mockLogger
+        mockLogger,
       );
 
       expect(newService.hasProperty("name")).toBe(false);
@@ -307,7 +307,7 @@ describe("DevicePropertyService", () => {
       const newService = new DevicePropertyService(
         mockWsClient,
         serialNumber,
-        mockLogger
+        mockLogger,
       );
 
       newService.dispose();
@@ -323,7 +323,7 @@ describe("DevicePropertyService", () => {
 
       // Callbacks should be cleared, so this should not call the callback
       const eventCallback = mockEventListeners.get(
-        "propertyChanged-TEST-DEVICE-123"
+        "propertyChanged-TEST-DEVICE-123",
       );
       eventCallback?.({
         name: "enabled",

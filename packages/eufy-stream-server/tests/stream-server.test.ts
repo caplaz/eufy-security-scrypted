@@ -305,7 +305,7 @@ describe("StreamServer", () => {
 
       // Try to capture snapshot with short timeout and no keyframe
       await expect(serverWithWs.captureSnapshot(100)).rejects.toThrow(
-        /Snapshot capture timed out/
+        /Snapshot capture timed out/,
       );
 
       await serverWithWs.stop();
@@ -394,7 +394,7 @@ describe("StreamServer", () => {
         {
           source: "device",
           serialNumber: "TEST123",
-        }
+        },
       );
     });
 
@@ -753,7 +753,7 @@ describe("StreamServer", () => {
       client.on("data", (d) => receivedData.push(d as Buffer));
 
       await new Promise<void>((resolve) =>
-        client.connect(testPort, "127.0.0.1", resolve)
+        client.connect(testPort, "127.0.0.1", resolve),
       );
       await wait(100);
 

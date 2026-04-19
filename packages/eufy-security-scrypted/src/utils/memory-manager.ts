@@ -90,7 +90,7 @@ export class MemoryManager {
 
   private constructor(
     logger: Logger<ILogObj>,
-    config: Partial<MemoryManagerConfig> = {}
+    config: Partial<MemoryManagerConfig> = {},
   ) {
     this.logger = logger;
     this.config = {
@@ -111,7 +111,7 @@ export class MemoryManager {
    */
   static getInstance(
     logger: Logger<ILogObj>,
-    config?: Partial<MemoryManagerConfig>
+    config?: Partial<MemoryManagerConfig>,
   ): MemoryManager {
     if (!MemoryManager.instance) {
       MemoryManager.instance = new MemoryManager(logger, config);
@@ -138,7 +138,7 @@ export class MemoryManager {
    */
   static setMemoryThreshold(
     thresholdMB: number,
-    logger?: Logger<ILogObj>
+    logger?: Logger<ILogObj>,
   ): void {
     if (MemoryManager.instance) {
       MemoryManager.instance.updateThreshold(thresholdMB);
@@ -161,11 +161,11 @@ export class MemoryManager {
   registerCleanupCallback(
     id: string,
     callback: MemoryCleanupCallback,
-    description?: string
+    description?: string,
   ): void {
     this.cleanupCallbacks.set(id, { id, callback, description });
     this.logger.debug(
-      `🧩 Registered memory cleanup callback: ${id}${description ? ` (${description})` : ""}`
+      `🧩 Registered memory cleanup callback: ${id}${description ? ` (${description})` : ""}`,
     );
 
     // Start monitoring when first callback is registered
@@ -236,8 +236,8 @@ export class MemoryManager {
       if (needsCooldown) {
         this.logger.debug(
           `⏱️ Cleanup cooldown active: ${Math.round(
-            timeSinceLastCleanup / 1000
-          )}s / ${Math.round(this.config.cleanupCooldownMs / 1000)}s`
+            timeSinceLastCleanup / 1000,
+          )}s / ${Math.round(this.config.cleanupCooldownMs / 1000)}s`,
         );
         return false;
       }
@@ -251,7 +251,7 @@ export class MemoryManager {
         timeSinceLastCleanup > this.config.cleanupCooldownMs * 0.5
       ) {
         this.logger.warn(
-          `🔄 Escalating to aggressive cleanup - gentle cleanup wasn't sufficient`
+          `🔄 Escalating to aggressive cleanup - gentle cleanup wasn't sufficient`,
         );
         cleanupLevel = CleanupLevel.AGGRESSIVE;
         threshold = aggressiveThreshold;
@@ -277,7 +277,7 @@ export class MemoryManager {
   updateThreshold(thresholdMB: number): void {
     this.config.baseThresholdMB = Math.max(50, thresholdMB);
     this.logger.debug(
-      `🎯 Updated memory threshold to ${this.config.baseThresholdMB}MB`
+      `🎯 Updated memory threshold to ${this.config.baseThresholdMB}MB`,
     );
   }
 
@@ -313,7 +313,7 @@ export class MemoryManager {
 
     this.isMonitoring = true;
     this.logger.debug(
-      `🔍 Starting memory monitoring (threshold: ${this.config.baseThresholdMB}MB, interval: ${this.config.monitorIntervalMs}ms)`
+      `🔍 Starting memory monitoring (threshold: ${this.config.baseThresholdMB}MB, interval: ${this.config.monitorIntervalMs}ms)`,
     );
 
     this.monitorInterval = setInterval(() => {
@@ -352,7 +352,7 @@ export class MemoryManager {
     if (this.config.enableDetailedLogging) {
       this.logger.debug(
         `📊 Memory check: ${rssMB}MB RSS, ${heapMB}MB heap, ` +
-          `${this.cleanupCallbacks.size} registered callbacks`
+          `${this.cleanupCallbacks.size} registered callbacks`,
       );
     }
 
@@ -380,7 +380,7 @@ export class MemoryManager {
     }[level];
 
     this.logger.warn(
-      `${levelIcon} ${level.toUpperCase()} memory cleanup triggered: ${rssMB}MB > ${threshold}MB`
+      `${levelIcon} ${level.toUpperCase()} memory cleanup triggered: ${rssMB}MB > ${threshold}MB`,
     );
 
     // Call all registered cleanup callbacks
@@ -391,7 +391,7 @@ export class MemoryManager {
         callbacksExecuted++;
       } catch (error) {
         this.logger.error(
-          `❌ Error in cleanup callback ${registration.id}: ${error}`
+          `❌ Error in cleanup callback ${registration.id}: ${error}`,
         );
       }
     }
@@ -426,7 +426,7 @@ export class MemoryManager {
  */
 export function getMemoryManager(
   logger: Logger<ILogObj>,
-  config?: Partial<MemoryManagerConfig>
+  config?: Partial<MemoryManagerConfig>,
 ): MemoryManager {
   return MemoryManager.getInstance(logger, config);
 }

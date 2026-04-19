@@ -66,7 +66,7 @@ describe("DriverCommand", () => {
     it("should initialize with correct name and description", () => {
       expect(command.name).toBe("driver");
       expect(command.description).toBe(
-        "Manage Eufy Security driver connections"
+        "Manage Eufy Security driver connections",
       );
     });
   });
@@ -98,15 +98,15 @@ describe("DriverCommand", () => {
       await command.execute(validArgs);
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("🔍 Eufy Security Driver Status")
+        expect.stringContaining("🔍 Eufy Security Driver Status"),
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("✅ Status: FULLY CONNECTED")
+        expect.stringContaining("✅ Status: FULLY CONNECTED"),
       );
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          "You can now use other CLI commands to interact with your devices."
-        )
+          "You can now use other CLI commands to interact with your devices.",
+        ),
       );
 
       consoleSpy.mockRestore();
@@ -120,10 +120,10 @@ describe("DriverCommand", () => {
       await command.execute(validArgs);
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("🔍 Eufy Security Driver Status")
+        expect.stringContaining("🔍 Eufy Security Driver Status"),
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("❌ Status: WEBSOCKET DISCONNECTED")
+        expect.stringContaining("❌ Status: WEBSOCKET DISCONNECTED"),
       );
 
       consoleSpy.mockRestore();
@@ -133,7 +133,7 @@ describe("DriverCommand", () => {
       mockClient.connect.mockRejectedValue(new Error("Connection refused"));
 
       await expect(command.execute(validArgs)).rejects.toThrow(
-        "Failed to connect to WebSocket server"
+        "Failed to connect to WebSocket server",
       );
     });
 
@@ -183,10 +183,10 @@ describe("DriverCommand", () => {
       await command.execute(validArgs);
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("🔗 Eufy Security Driver Connection")
+        expect.stringContaining("🔗 Eufy Security Driver Connection"),
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("✅ Connection Successful: FULLY CONNECTED")
+        expect.stringContaining("✅ Connection Successful: FULLY CONNECTED"),
       );
 
       consoleSpy.mockRestore();
@@ -196,7 +196,7 @@ describe("DriverCommand", () => {
       mockClient.isConnected.mockReturnValue(false);
 
       await expect(command.execute(validArgs)).rejects.toThrow(
-        "❌ WebSocket connection failed"
+        "❌ WebSocket connection failed",
       );
     });
 
@@ -204,7 +204,7 @@ describe("DriverCommand", () => {
       mockClient.connect.mockRejectedValue(new Error("Connection refused"));
 
       await expect(command.execute(validArgs)).rejects.toThrow(
-        "Failed to connect to WebSocket server"
+        "Failed to connect to WebSocket server",
       );
     });
 
@@ -239,7 +239,7 @@ describe("DriverCommand", () => {
       };
 
       await expect(command.execute(args)).rejects.toThrow(
-        "Driver command requires a subcommand. Use 'driver status' or 'driver connect'"
+        "Driver command requires a subcommand. Use 'driver status' or 'driver connect'",
       );
     });
 
@@ -255,7 +255,7 @@ describe("DriverCommand", () => {
       };
 
       await expect(command.execute(args)).rejects.toThrow(
-        "Unknown driver subcommand: invalid. Valid subcommands: status, connect, set_captcha, set_verify_code"
+        "Unknown driver subcommand: invalid. Valid subcommands: status, connect, set_captcha, set_verify_code",
       );
     });
   });

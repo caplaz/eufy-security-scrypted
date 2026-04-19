@@ -60,7 +60,7 @@ describe("AuthenticationManager", () => {
       mockApiManager,
       mockLogger,
       mockStateChangeCallback,
-      mockDeviceRegistrationCallback
+      mockDeviceRegistrationCallback,
     );
   });
 
@@ -118,14 +118,14 @@ describe("AuthenticationManager", () => {
       authManager.updateCaptchaCode("");
 
       await expect(authManager.submitCaptcha()).rejects.toThrow(
-        "Please enter a CAPTCHA code"
+        "Please enter a CAPTCHA code",
       );
     });
 
     it("should reject submission without pending captcha", async () => {
       authManager.updateCaptchaCode("ABC");
       await expect(authManager.submitCaptcha()).rejects.toThrow(
-        "No CAPTCHA challenge found"
+        "No CAPTCHA challenge found",
       );
     });
 
@@ -180,7 +180,7 @@ describe("AuthenticationManager", () => {
       authManager.updateVerifyCode("");
 
       await expect(authManager.submitVerifyCode()).rejects.toThrow(
-        "Please enter a verification code"
+        "Please enter a verification code",
       );
     });
 

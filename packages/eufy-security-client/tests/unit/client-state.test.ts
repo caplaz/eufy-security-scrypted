@@ -41,22 +41,22 @@ describe("ClientStateManager", () => {
 
       stateManager.setConnectionState(ConnectionState.CONNECTING);
       expect(stateManager.getState().connection).toBe(
-        ConnectionState.CONNECTING
+        ConnectionState.CONNECTING,
       );
       expect(callback).toHaveBeenCalledWith(
         expect.objectContaining({
           connection: ConnectionState.CONNECTING,
-        })
+        }),
       );
 
       stateManager.setConnectionState(ConnectionState.CONNECTED);
       expect(stateManager.getState().connection).toBe(
-        ConnectionState.CONNECTED
+        ConnectionState.CONNECTED,
       );
       expect(callback).toHaveBeenCalledWith(
         expect.objectContaining({
           connection: ConnectionState.CONNECTED,
-        })
+        }),
       );
     });
 
@@ -93,7 +93,7 @@ describe("ClientStateManager", () => {
       stateManager.setSchemaSetupComplete(true);
       expect(stateManager.getState().schemaSetupComplete).toBe(true);
       expect(stateManager.getState().connection).not.toBe(
-        ConnectionState.READY
+        ConnectionState.READY,
       );
 
       // Reset schema setup to false first
@@ -104,7 +104,7 @@ describe("ClientStateManager", () => {
       stateManager.setWebSocketConnected(true);
       expect(stateManager.getState().wsConnected).toBe(true);
       expect(stateManager.getState().connection).toBe(
-        ConnectionState.DISCONNECTED
+        ConnectionState.DISCONNECTED,
       );
 
       // Completing schema setup with WebSocket connected should transition to READY
@@ -162,7 +162,7 @@ describe("ClientStateManager", () => {
         expect.objectContaining({
           lastError: error,
           connection: ConnectionState.ERROR,
-        })
+        }),
       );
     });
 
@@ -209,12 +209,12 @@ describe("ClientStateManager", () => {
       expect(callback1).toHaveBeenCalledWith(
         expect.objectContaining({
           connection: ConnectionState.CONNECTED,
-        })
+        }),
       );
       expect(callback2).toHaveBeenCalledWith(
         expect.objectContaining({
           connection: ConnectionState.CONNECTED,
-        })
+        }),
       );
 
       // Test unsubscribe
@@ -225,7 +225,7 @@ describe("ClientStateManager", () => {
       expect(callback2).toHaveBeenCalledWith(
         expect.objectContaining({
           connection: ConnectionState.DISCONNECTED,
-        })
+        }),
       );
 
       unsubscribe2();
@@ -252,7 +252,7 @@ describe("ClientStateManager", () => {
           index + 1,
           expect.objectContaining({
             connection: state,
-          })
+          }),
         );
       });
     });
@@ -331,7 +331,7 @@ describe("ClientStateManager", () => {
       // Modifying returned state should not affect internal state
       (state1 as any).connection = ConnectionState.CONNECTED;
       expect(stateManager.getState().connection).toBe(
-        ConnectionState.DISCONNECTED
+        ConnectionState.DISCONNECTED,
       );
     });
   });

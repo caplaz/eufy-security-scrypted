@@ -32,7 +32,7 @@ export class H264Parser {
    */
   private findStartCode(
     data: Buffer,
-    startOffset: number
+    startOffset: number,
   ): { position: number; length: number } | null {
     for (let i = startOffset; i <= data.length - 3; i++) {
       if (
@@ -58,7 +58,7 @@ export class H264Parser {
   private scanNALUnits(
     data: Buffer,
     extractType: (nalPayload: Buffer) => number,
-    isKeyFrameType: (nalType: number) => boolean
+    isKeyFrameType: (nalType: number) => boolean,
   ): NALUnit[] {
     const nalUnits: NALUnit[] = [];
     let offset = 0;
@@ -79,7 +79,11 @@ export class H264Parser {
         const nalData = data.subarray(nalStart, nalEnd);
         if (nalData.length > 0) {
           const nalType = extractType(nalData);
-          nalUnits.push({ type: nalType, data: nalData, isKeyFrame: isKeyFrameType(nalType) });
+          nalUnits.push({
+            type: nalType,
+            data: nalData,
+            isKeyFrame: isKeyFrameType(nalType),
+          });
         }
       }
 
@@ -110,7 +114,11 @@ export class H264Parser {
   }
 
   extractNALUnits(data: Buffer): NALUnit[] {
-    return this.scanNALUnits(data, this.extractH264Type.bind(this), this.isKeyFrameNAL.bind(this));
+    return this.scanNALUnits(
+      data,
+      this.extractH264Type.bind(this),
+      this.isKeyFrameNAL.bind(this),
+    );
   }
 
   isKeyFrame(data: Buffer): boolean {
@@ -176,7 +184,11 @@ export class H264Parser {
   }
 
   extractNALUnitsHevc(data: Buffer): NALUnit[] {
-    return this.scanNALUnits(data, this.extractHevcType.bind(this), this.isKeyFrameHevcNAL.bind(this));
+    return this.scanNALUnits(
+      data,
+      this.extractHevcType.bind(this),
+      this.isKeyFrameHevcNAL.bind(this),
+    );
   }
 
   isKeyFrameHevc(data: Buffer): boolean {

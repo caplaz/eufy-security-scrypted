@@ -56,7 +56,7 @@ export class AuthenticationService {
 
   constructor(
     private wsClient: EufyWebSocketClient,
-    private logger: Logger<ILogObj>
+    private logger: Logger<ILogObj>,
   ) {
     this.setupEventListeners();
   }
@@ -257,7 +257,7 @@ export class AuthenticationService {
         };
         this.setState("captcha_required");
       },
-      { source: "driver" }
+      { source: "driver" },
     );
 
     // Listen for MFA requests
@@ -268,7 +268,7 @@ export class AuthenticationService {
         this.mfaData = { methods: event.methods || [] };
         this.setState("mfa_required");
       },
-      { source: "driver" }
+      { source: "driver" },
     );
 
     // Listen for driver connected events
@@ -280,7 +280,7 @@ export class AuthenticationService {
         this.captchaData = null;
         this.mfaData = null;
       },
-      { source: "driver" }
+      { source: "driver" },
     );
   }
 

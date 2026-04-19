@@ -101,8 +101,8 @@ export class CLIApplication {
       if (!command) {
         throw new Error(
           `Unknown command: ${commandName}. Available commands: ${getAvailableCommands().join(
-            ", "
-          )}`
+            ", ",
+          )}`,
         );
       }
 
@@ -153,19 +153,19 @@ export class CLIApplication {
   static displayCommands(): void {
     console.log("\nAvailable commands:");
     console.log(
-      "  driver status     Check the connection status of the driver"
+      "  driver status     Check the connection status of the driver",
     );
     console.log(
-      "  driver connect    Establish connection to the Eufy Security driver"
+      "  driver connect    Establish connection to the Eufy Security driver",
     );
     console.log("  device list       List all available camera devices");
     console.log("  device info       Show detailed information about a device");
     console.log("  device stream     Start streaming from a camera device");
     console.log(
-      "  device monitor    Monitor camera connection status and events"
+      "  device monitor    Monitor camera connection status and events",
     );
     console.log(
-      "\nUse 'eufy-security-cli <command> --help' for command-specific help."
+      "\nUse 'eufy-security-cli <command> --help' for command-specific help.",
     );
   }
 }

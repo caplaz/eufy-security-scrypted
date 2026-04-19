@@ -123,7 +123,7 @@ describe("BaseCommand", () => {
       expect(processOnSpy).toHaveBeenCalledWith("SIGINT", expect.any(Function));
       expect(processOnSpy).toHaveBeenCalledWith(
         "SIGTERM",
-        expect.any(Function)
+        expect.any(Function),
       );
 
       processOnSpy.mockRestore();

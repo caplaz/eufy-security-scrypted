@@ -51,7 +51,7 @@ export class StreamService {
   constructor(
     private serialNumber: string,
     private streamServer: IStreamServer,
-    private logger: Logger<ILogObj>
+    private logger: Logger<ILogObj>,
   ) {}
 
   /**
@@ -84,7 +84,7 @@ export class StreamService {
   getVideoStreamOptions(quality?: VideoQuality): ResponseMediaStreamOptions[] {
     const { width, height } = this.getVideoDimensions(quality);
     const codec = FFmpegUtils.toScryptedCodec(
-      this.streamServer.getVideoMetadata()?.videoCodec ?? "H264"
+      this.streamServer.getVideoMetadata()?.videoCodec ?? "H264",
     );
 
     return [
@@ -116,7 +116,7 @@ export class StreamService {
    */
   async getVideoStream(
     quality: VideoQuality | undefined,
-    options?: RequestMediaStreamOptions
+    options?: RequestMediaStreamOptions,
   ): Promise<MediaObject> {
     this.logger.info("Getting video stream, starting stream server if needed");
 
@@ -134,7 +134,7 @@ export class StreamService {
 
     this.logger.info(`Stream server is listening on port ${port}`);
     this.logger.info(
-      "Creating MediaObject with fallback dimensions (metadata will be updated when stream starts)"
+      "Creating MediaObject with fallback dimensions (metadata will be updated when stream starts)",
     );
 
     return await this.createOptimizedMediaObject(port, quality, options);
@@ -177,7 +177,7 @@ export class StreamService {
   private async createOptimizedMediaObject(
     port: number,
     quality: VideoQuality | undefined,
-    options?: RequestMediaStreamOptions
+    options?: RequestMediaStreamOptions,
   ): Promise<MediaObject> {
     const { width, height } = this.getVideoDimensions(quality);
 
@@ -198,21 +198,33 @@ export class StreamService {
     const inputArguments = useMuxed
       ? [
           "-hide_banner",
-          "-loglevel", "error",
-          "-fflags", "+genpts+nobuffer",
-          "-analyzeduration", "2000000",
-          "-probesize", "1000000",
-          "-f", "mp4",
-          "-i", `tcp://127.0.0.1:${muxedPort}`,
+          "-loglevel",
+          "error",
+          "-fflags",
+          "+genpts+nobuffer",
+          "-analyzeduration",
+          "2000000",
+          "-probesize",
+          "1000000",
+          "-f",
+          "mp4",
+          "-i",
+          `tcp://127.0.0.1:${muxedPort}`,
         ]
       : [
           "-hide_banner",
-          "-loglevel", "error",
-          "-use_wallclock_as_timestamps", "1",
-          "-analyzeduration", "5000000",
-          "-probesize", "5000000",
-          "-f", FFmpegUtils.toFFmpegFormat(eufyCodec),
-          "-i", `tcp://127.0.0.1:${port}`,
+          "-loglevel",
+          "error",
+          "-use_wallclock_as_timestamps",
+          "1",
+          "-analyzeduration",
+          "5000000",
+          "-probesize",
+          "5000000",
+          "-f",
+          FFmpegUtils.toFFmpegFormat(eufyCodec),
+          "-i",
+          `tcp://127.0.0.1:${port}`,
           "-an",
         ];
 

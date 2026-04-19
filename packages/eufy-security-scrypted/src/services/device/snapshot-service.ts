@@ -23,7 +23,7 @@ export class SnapshotService {
   constructor(
     private serialNumber: string,
     private streamServer: IStreamServer,
-    private logger: Logger<ILogObj>
+    private logger: Logger<ILogObj>,
   ) {}
 
   /**
@@ -59,7 +59,7 @@ export class SnapshotService {
       const h264Keyframe = await this.streamServer.captureSnapshot(timeout);
 
       this.logger.info(
-        `Captured H.264 keyframe: ${h264Keyframe.length} bytes - converting to JPEG`
+        `Captured H.264 keyframe: ${h264Keyframe.length} bytes - converting to JPEG`,
       );
 
       // Detect codec from last received stream metadata (H264 or H265)
@@ -70,11 +70,11 @@ export class SnapshotService {
       const jpegBuffer = await FFmpegUtils.convertH264ToJPEG(
         h264Keyframe,
         2,
-        videoCodec
+        videoCodec,
       );
 
       this.logger.info(
-        `✅ Snapshot converted to JPEG: ${jpegBuffer.length} bytes`
+        `✅ Snapshot converted to JPEG: ${jpegBuffer.length} bytes`,
       );
 
       // Create MediaObject with JPEG image

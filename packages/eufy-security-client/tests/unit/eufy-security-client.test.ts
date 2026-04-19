@@ -81,7 +81,7 @@ describe("EufySecurityClient", () => {
       expect(client).toBeInstanceOf(EufySecurityClient);
       expect(MockApiManager).toHaveBeenCalledWith(
         config.wsUrl,
-        expect.any(Logger)
+        expect.any(Logger),
       );
     });
 
@@ -108,15 +108,15 @@ describe("EufySecurityClient", () => {
     it("should set up event handlers during construction", () => {
       expect(mockApiManager.addEventListener).toHaveBeenCalledWith(
         "device added",
-        expect.any(Function)
+        expect.any(Function),
       );
       expect(mockApiManager.addEventListener).toHaveBeenCalledWith(
         "device removed",
-        expect.any(Function)
+        expect.any(Function),
       );
       expect(mockApiManager.addEventListener).toHaveBeenCalledWith(
         "livestream started",
-        expect.any(Function)
+        expect.any(Function),
       );
     });
   });
@@ -164,7 +164,7 @@ describe("EufySecurityClient", () => {
 
       // Should timeout since isConnected never returns true
       await expect(connectPromise).rejects.toThrow(
-        "Timeout waiting for client to be ready"
+        "Timeout waiting for client to be ready",
       );
     }, 15000);
   });
@@ -221,7 +221,7 @@ describe("EufySecurityClient", () => {
       const disconnectedClient = new EufySecurityClient(config);
 
       await expect(disconnectedClient.getDevices()).rejects.toThrow(
-        "Client not connected. Call connect() first."
+        "Client not connected. Call connect() first.",
       );
     });
 
@@ -273,7 +273,7 @@ describe("EufySecurityClient", () => {
 
     it("should throw error for non-existent device", async () => {
       await expect(client.startStream("UNKNOWN_DEVICE")).rejects.toThrow(
-        "Device not found: UNKNOWN_DEVICE"
+        "Device not found: UNKNOWN_DEVICE",
       );
     });
 
@@ -281,17 +281,17 @@ describe("EufySecurityClient", () => {
       const disconnectedClient = new EufySecurityClient(config);
 
       await expect(
-        disconnectedClient.startStream("DEVICE_001")
+        disconnectedClient.startStream("DEVICE_001"),
       ).rejects.toThrow("Client not connected. Call connect() first.");
     });
 
     it("should handle stream start errors", async () => {
       mockDeviceCommand.startLivestream.mockRejectedValue(
-        new Error("Stream start failed")
+        new Error("Stream start failed"),
       );
 
       await expect(client.startStream("DEVICE_001")).rejects.toThrow(
-        "Stream start failed"
+        "Stream start failed",
       );
     });
   });
@@ -328,7 +328,7 @@ describe("EufySecurityClient", () => {
 
     it("should throw error for non-existent device", async () => {
       await expect(client.stopStream("UNKNOWN_DEVICE")).rejects.toThrow(
-        "Device not found: UNKNOWN_DEVICE"
+        "Device not found: UNKNOWN_DEVICE",
       );
     });
 
@@ -337,11 +337,11 @@ describe("EufySecurityClient", () => {
         livestreaming: true,
       });
       mockDeviceCommand.stopLivestream.mockRejectedValue(
-        new Error("Stop failed")
+        new Error("Stop failed"),
       );
 
       await expect(client.stopStream("DEVICE_001")).rejects.toThrow(
-        "Stop failed"
+        "Stop failed",
       );
     });
   });
@@ -355,7 +355,7 @@ describe("EufySecurityClient", () => {
     it("should handle device added events", () => {
       const deviceAddedHandler =
         mockApiManager.addEventListener.mock.calls.find(
-          (call) => call[0] === "device added"
+          (call) => call[0] === "device added",
         )?.[1];
 
       expect(deviceAddedHandler).toBeDefined();
@@ -375,7 +375,7 @@ describe("EufySecurityClient", () => {
     it("should handle device removed events", () => {
       const deviceRemovedHandler =
         mockApiManager.addEventListener.mock.calls.find(
-          (call) => call[0] === "device removed"
+          (call) => call[0] === "device removed",
         )?.[1];
 
       expect(deviceRemovedHandler).toBeDefined();
@@ -392,7 +392,7 @@ describe("EufySecurityClient", () => {
     it("should forward livestream events", () => {
       const streamStartedHandler =
         mockApiManager.addEventListener.mock.calls.find(
-          (call) => call[0] === "livestream started"
+          (call) => call[0] === "livestream started",
         )?.[1];
 
       expect(streamStartedHandler).toBeDefined();
@@ -413,7 +413,7 @@ describe("EufySecurityClient", () => {
 
     it("should handle video data events", () => {
       const videoDataHandler = mockApiManager.addEventListener.mock.calls.find(
-        (call) => call[0] === "livestream video data"
+        (call) => call[0] === "livestream video data",
       )?.[1];
 
       expect(videoDataHandler).toBeDefined();
@@ -438,7 +438,7 @@ describe("EufySecurityClient", () => {
 
     it("should handle audio data events", () => {
       const audioDataHandler = mockApiManager.addEventListener.mock.calls.find(
-        (call) => call[0] === "livestream audio data"
+        (call) => call[0] === "livestream audio data",
       )?.[1];
 
       expect(audioDataHandler).toBeDefined();

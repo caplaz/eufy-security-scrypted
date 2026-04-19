@@ -103,7 +103,7 @@ export class EufyStation
   constructor(
     nativeId: string,
     wsClient: EufyWebSocketClient,
-    parentLogger: Logger<ILogObj>
+    parentLogger: Logger<ILogObj>,
   ) {
     super(nativeId);
     this.wsClient = wsClient;
@@ -124,7 +124,7 @@ export class EufyStation
       STATION_EVENTS.PROPERTY_CHANGED,
       ((event: StationPropertyChangedEventPayload) => {
         this.handlePropertyChangedEvent(event);
-      }).bind(this)
+      }).bind(this),
     );
 
     this.addEventListener(STATION_EVENTS.GUARD_MODE_CHANGED, (_event) => {
@@ -158,7 +158,7 @@ export class EufyStation
 
   private addEventListener<T extends StationEventType>(
     eventType: T,
-    eventCallback: EventCallbackForType<T, StationEventSource>
+    eventCallback: EventCallbackForType<T, StationEventSource>,
   ): () => boolean {
     return this.wsClient.addEventListener(eventType, eventCallback, {
       source: EVENT_SOURCES.STATION,
@@ -180,7 +180,7 @@ export class EufyStation
       case "currentMode":
         this.onDeviceEvent(
           ScryptedInterface.SecuritySystem,
-          this.securitySystemState
+          this.securitySystemState,
         );
         break;
       case "guardMode":
@@ -267,13 +267,13 @@ export class EufyStation
         metadata["currentMode"],
         this.latestProperties?.currentMode,
         "Indicates the current operating mode of the security system (e.g., Home, Away, Disarmed). This field is read-only and reflects the system's present state.",
-        securitySystemGroup
+        securitySystemGroup,
       ),
       DeviceUtils.settingFromMetadata(
         metadata["guardMode"],
         this.latestProperties?.guardMode,
         "Guard mode determines how the security system responds to events. For example: 'Home' arms only outdoor sensors, 'Away' arms all sensors, and 'Disarmed' disables alarms. Other modes include 'Geofencing' (automatically arms/disarms based on your phone's location) and 'Schedule' (arms/disarms according to a set timetable). Select the mode that matches your current needs.",
-        securitySystemGroup
+        securitySystemGroup,
       ),
     ];
   }
@@ -297,8 +297,8 @@ export class EufyStation
             "guardMode",
             DeviceUtils.valueAdjustedWithMetadata(
               value,
-              this.info?.metadata["guardMode"]
-            )
+              this.info?.metadata["guardMode"],
+            ),
           )
           .catch((error) => {
             this.logger.warn(`Failed to set guardMode: ${error}`);
@@ -362,7 +362,7 @@ export class EufyStation
 
   async refresh(
     refreshInterface?: string,
-    userInitiated?: boolean
+    userInitiated?: boolean,
   ): Promise<void> {
     // since I don't have a way to get a single property, we just refresh everything
     if (!refreshInterface) {
@@ -371,7 +371,7 @@ export class EufyStation
         this.updateStateFromProperties(this.latestProperties);
       } catch (error) {
         this.logger.warn(
-          `Failed to get station properties: ${error}, user initiated: ${userInitiated}`
+          `Failed to get station properties: ${error}, user initiated: ${userInitiated}`,
         );
       }
     }

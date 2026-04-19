@@ -43,7 +43,7 @@ export class RefreshService {
 
   constructor(
     private deviceApi: IDeviceRefreshAPI,
-    private logger: Logger<ILogObj>
+    private logger: Logger<ILogObj>,
   ) {}
 
   /**
@@ -67,13 +67,13 @@ export class RefreshService {
    */
   async refresh(
     refreshInterface?: string,
-    userInitiated?: boolean
+    userInitiated?: boolean,
   ): Promise<DeviceProperties | undefined> {
     // Currently we don't have a way to refresh a single property,
     // so we always refresh everything
     if (refreshInterface) {
       this.logger.debug(
-        `Refresh requested for interface ${refreshInterface}, but refreshing all properties`
+        `Refresh requested for interface ${refreshInterface}, but refreshing all properties`,
       );
     }
 
@@ -94,7 +94,7 @@ export class RefreshService {
       const errorObj =
         error instanceof Error ? error : new Error(String(error));
       this.logger.warn(
-        `Failed to refresh device properties: ${errorObj.message}, user initiated: ${userInitiated}`
+        `Failed to refresh device properties: ${errorObj.message}, user initiated: ${userInitiated}`,
       );
 
       // Notify error callbacks

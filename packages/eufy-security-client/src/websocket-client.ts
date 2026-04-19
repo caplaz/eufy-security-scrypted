@@ -107,7 +107,7 @@ export class WebSocketClient {
   constructor(
     wsUrl: string,
     stateManager: ClientStateManager,
-    logger: Logger<ILogObj>
+    logger: Logger<ILogObj>,
   ) {
     this.wsUrl = wsUrl;
     this.stateManager = stateManager;
@@ -396,7 +396,7 @@ export class WebSocketClient {
     // Exponential backoff with jitter to prevent thundering herd
     const baseDelay = Math.min(
       1000 * Math.pow(2, state.reconnectAttempts),
-      30000
+      30000,
     );
     const jitter = Math.random() * 0.1 * baseDelay; // 10% jitter
     const delay = baseDelay + jitter;
@@ -407,7 +407,7 @@ export class WebSocketClient {
       this.logger.info(
         `Scheduling reconnection attempt ${state.reconnectAttempts + 1}/${
           this.maxReconnectAttempts
-        } in ${Math.round(delay)}ms`
+        } in ${Math.round(delay)}ms`,
       );
     }
 

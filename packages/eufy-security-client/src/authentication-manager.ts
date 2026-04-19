@@ -56,7 +56,7 @@ export type AuthStateChangeCallback = () => void;
  * Callback for device registration after successful authentication
  */
 export type DeviceRegistrationCallback = (
-  result: StartListeningResponse
+  result: StartListeningResponse,
 ) => Promise<void>;
 
 /**
@@ -109,7 +109,7 @@ export class AuthenticationManager {
     wsClient: ApiManager,
     logger: Logger<ILogObj>,
     onStateChange: AuthStateChangeCallback,
-    onDeviceRegistration: DeviceRegistrationCallback
+    onDeviceRegistration: DeviceRegistrationCallback,
   ) {
     this.wsClient = wsClient;
     this.logger = logger;
@@ -226,7 +226,7 @@ export class AuthenticationManager {
     }
 
     this.logger.info(
-      `🔐 Submitting CAPTCHA code for ID: ${this.captchaData.captchaId}`
+      `🔐 Submitting CAPTCHA code for ID: ${this.captchaData.captchaId}`,
     );
 
     try {
@@ -336,7 +336,7 @@ export class AuthenticationManager {
         this.authState = AUTH_STATE.CAPTCHA_REQUIRED;
         this.onStateChange();
       },
-      { source: "driver" }
+      { source: "driver" },
     );
 
     // Listen for MFA requests
@@ -348,7 +348,7 @@ export class AuthenticationManager {
         this.authState = AUTH_STATE.MFA_REQUIRED;
         this.onStateChange();
       },
-      { source: "driver" }
+      { source: "driver" },
     );
 
     // Listen for driver connected events
@@ -359,7 +359,7 @@ export class AuthenticationManager {
         this.resetAuthState();
         this.onStateChange();
       },
-      { source: "driver" }
+      { source: "driver" },
     );
   }
 

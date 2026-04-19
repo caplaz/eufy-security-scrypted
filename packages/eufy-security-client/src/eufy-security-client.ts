@@ -166,7 +166,7 @@ export class EufySecurityClient extends EventEmitter {
 
     // Clean up all API manager event listeners
     this.logger.debug(
-      `Cleaning up ${this.eventListenerCleanup.length} event listeners`
+      `Cleaning up ${this.eventListenerCleanup.length} event listeners`,
     );
     this.eventListenerCleanup.forEach((cleanup) => {
       try {
@@ -282,7 +282,7 @@ export class EufySecurityClient extends EventEmitter {
     } catch (error) {
       this.logger.error(
         `Failed to start stream for device ${deviceSerial}:`,
-        error
+        error,
       );
       throw error;
     }
@@ -326,7 +326,7 @@ export class EufySecurityClient extends EventEmitter {
     } catch (error) {
       this.logger.error(
         `Failed to stop stream for device ${deviceSerial}:`,
-        error
+        error,
       );
       throw error;
     }
@@ -397,7 +397,7 @@ export class EufySecurityClient extends EventEmitter {
     this.eventListenerCleanup.push(
       this.apiManager.addEventListener("device added", (event) => {
         this.addDevice(event);
-      })
+      }),
     );
 
     this.eventListenerCleanup.push(
@@ -408,7 +408,7 @@ export class EufySecurityClient extends EventEmitter {
         if (serialNumber) {
           this.removeDevice(serialNumber);
         }
-      })
+      }),
     );
 
     // Forward stream events
@@ -417,7 +417,7 @@ export class EufySecurityClient extends EventEmitter {
         this.logger.info("🎬 Livestream started event received:", event);
         // Emit as streamStarted for compatibility
         super.emit("streamStarted", event);
-      })
+      }),
     );
 
     this.eventListenerCleanup.push(
@@ -425,7 +425,7 @@ export class EufySecurityClient extends EventEmitter {
         this.logger.info("⏹️ Livestream stopped event received:", event);
         // Emit as streamStopped for compatibility
         super.emit("streamStopped", event);
-      })
+      }),
     );
 
     this.eventListenerCleanup.push(
@@ -434,7 +434,7 @@ export class EufySecurityClient extends EventEmitter {
         (event) => {
           const bufferSize = event.buffer?.data?.length || 0;
           this.logger.debug(
-            `📹 Video data received: ${bufferSize} bytes from device ${event.serialNumber}`
+            `📹 Video data received: ${bufferSize} bytes from device ${event.serialNumber}`,
           );
 
           // Convert JSONBuffer to Buffer for compatibility
@@ -449,8 +449,8 @@ export class EufySecurityClient extends EventEmitter {
             deviceSerial: event.serialNumber,
             metadata: event.metadata, // Pass through video metadata with dimensions
           });
-        }
-      )
+        },
+      ),
     );
 
     this.eventListenerCleanup.push(
@@ -459,7 +459,7 @@ export class EufySecurityClient extends EventEmitter {
         (event) => {
           const bufferSize = event.buffer?.data?.length || 0;
           this.logger.debug(
-            `🎵 Audio data received: ${bufferSize} bytes from device ${event.serialNumber}`
+            `🎵 Audio data received: ${bufferSize} bytes from device ${event.serialNumber}`,
           );
 
           // Convert JSONBuffer to Buffer for compatibility
@@ -473,8 +473,8 @@ export class EufySecurityClient extends EventEmitter {
             buffer: buffer,
             deviceSerial: event.serialNumber,
           });
-        }
-      )
+        },
+      ),
     );
   }
 
@@ -496,14 +496,14 @@ export class EufySecurityClient extends EventEmitter {
 
       this.logger.info(
         "Start listening result:",
-        JSON.stringify(startListeningResult, null, 2)
+        JSON.stringify(startListeningResult, null, 2),
       );
 
       if (startListeningResult?.state?.devices) {
         const deviceSerials = startListeningResult.state.devices;
         this.logger.info(
           `Found ${deviceSerials.length} device(s):`,
-          deviceSerials
+          deviceSerials,
         );
 
         // For each device serial, get the device properties
@@ -515,13 +515,13 @@ export class EufySecurityClient extends EventEmitter {
             // Log only the keys to avoid massive binary data output
             this.logger.info(
               `Device ${serialNumber} property keys:`,
-              Object.keys(deviceProps || {})
+              Object.keys(deviceProps || {}),
             );
 
             if (deviceProps?.properties) {
               this.logger.info(
                 `Device ${serialNumber} nested property keys:`,
-                Object.keys(deviceProps.properties).slice(0, 20) // Show first 20 keys
+                Object.keys(deviceProps.properties).slice(0, 20), // Show first 20 keys
               );
             }
 
@@ -536,7 +536,7 @@ export class EufySecurityClient extends EventEmitter {
                 `Device ${serialNumber}`,
               serialNumber: serialNumber,
               type: this.getDeviceTypeName(
-                (props as any)?.type || (props as any)?.deviceType || 0
+                (props as any)?.type || (props as any)?.deviceType || 0,
               ),
               stationSerial:
                 (props as any)?.stationSerial ||
@@ -558,12 +558,12 @@ export class EufySecurityClient extends EventEmitter {
 
             this.devices.set(serialNumber, deviceInfo);
             this.logger.info(
-              `Added device: ${deviceInfo.name} (${deviceInfo.serialNumber})`
+              `Added device: ${deviceInfo.name} (${deviceInfo.serialNumber})`,
             );
           } catch (deviceError) {
             this.logger.warn(
               `Failed to get properties for device ${serialNumber}:`,
-              deviceError
+              deviceError,
             );
 
             // Add device with minimal info
@@ -579,7 +579,7 @@ export class EufySecurityClient extends EventEmitter {
 
             this.devices.set(serialNumber, device);
             this.logger.info(
-              `Added device with minimal info: ${device.name} (${device.serialNumber})`
+              `Added device with minimal info: ${device.name} (${device.serialNumber})`,
             );
           }
         }
@@ -588,7 +588,7 @@ export class EufySecurityClient extends EventEmitter {
       }
 
       this.logger.info(
-        `Device loading completed. Total devices: ${this.devices.size}`
+        `Device loading completed. Total devices: ${this.devices.size}`,
       );
     } catch (error) {
       this.logger.error("Failed to load devices:", error);

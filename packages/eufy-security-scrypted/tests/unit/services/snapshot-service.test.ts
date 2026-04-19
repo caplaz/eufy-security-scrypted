@@ -57,7 +57,7 @@ describe("SnapshotService", () => {
       mimeType: "image/jpeg",
     } as any;
     (sdk.mediaManager.createMediaObject as jest.Mock).mockReturnValue(
-      mockMediaObject
+      mockMediaObject,
     );
 
     service = new SnapshotService(serialNumber, mockStreamServer, mockLogger);
@@ -81,15 +81,15 @@ describe("SnapshotService", () => {
       expect(FFmpegUtils.convertH264ToJPEG).toHaveBeenCalledWith(
         mockH264Data,
         2,
-        "H264" // default when getVideoMetadata returns null
+        "H264", // default when getVideoMetadata returns null
       );
       expect(sdk.mediaManager.createMediaObject).toHaveBeenCalledWith(
         mockJpegData,
         "image/jpeg",
-        { sourceId: serialNumber }
+        { sourceId: serialNumber },
       );
       expect(mockLogger.info).toHaveBeenCalledWith(
-        "📸 Taking snapshot from camera stream"
+        "📸 Taking snapshot from camera stream",
       );
     });
 
@@ -103,10 +103,10 @@ describe("SnapshotService", () => {
       await service.takePicture();
 
       expect(mockLogger.info).toHaveBeenCalledWith(
-        `Captured H.264 keyframe: ${mockH264Data.length} bytes - converting to JPEG`
+        `Captured H.264 keyframe: ${mockH264Data.length} bytes - converting to JPEG`,
       );
       expect(mockLogger.info).toHaveBeenCalledWith(
-        `✅ Snapshot converted to JPEG: ${mockJpegData.length} bytes`
+        `✅ Snapshot converted to JPEG: ${mockJpegData.length} bytes`,
       );
     });
 
@@ -116,7 +116,7 @@ describe("SnapshotService", () => {
 
       await expect(service.takePicture()).rejects.toThrow("Capture failed");
       expect(mockLogger.error).toHaveBeenCalledWith(
-        `Failed to capture snapshot: ${error}`
+        `Failed to capture snapshot: ${error}`,
       );
     });
 
@@ -126,7 +126,7 @@ describe("SnapshotService", () => {
 
       await expect(service.takePicture()).rejects.toThrow("Conversion failed");
       expect(mockLogger.error).toHaveBeenCalledWith(
-        `Failed to capture snapshot: ${error}`
+        `Failed to capture snapshot: ${error}`,
       );
     });
 
@@ -144,7 +144,7 @@ describe("SnapshotService", () => {
       service.dispose();
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        "Snapshot service disposed"
+        "Snapshot service disposed",
       );
     });
 

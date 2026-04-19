@@ -16,8 +16,9 @@ export interface BaseServerEventPayload<TEventName extends ServerEventType> {
 }
 
 // Connection event payload - sent when server is ready
-export interface ShutdownEventPayload
-  extends BaseServerEventPayload<typeof SERVER_EVENTS.SHUTDOWN> {}
+export interface ShutdownEventPayload extends BaseServerEventPayload<
+  typeof SERVER_EVENTS.SHUTDOWN
+> {}
 
 // Union type for all server event payloads
 export type ServerEventPayload = ShutdownEventPayload;

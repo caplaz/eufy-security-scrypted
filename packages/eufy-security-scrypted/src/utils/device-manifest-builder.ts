@@ -28,7 +28,7 @@ export class DeviceManifestBuilder {
    */
   static async buildStationManifest(
     wsClient: EufyWebSocketClient,
-    serialNumber: string
+    serialNumber: string,
   ): Promise<Device> {
     const api = wsClient.commands.station(serialNumber);
     const properties = (await api.getProperties()).properties;
@@ -38,7 +38,7 @@ export class DeviceManifestBuilder {
     const modelName = this.resolveModelName(
       properties.model,
       properties.type,
-      metadata.type
+      metadata.type,
     );
 
     return {
@@ -73,7 +73,7 @@ export class DeviceManifestBuilder {
    */
   static async buildDeviceManifest(
     wsClient: EufyWebSocketClient,
-    serialNumber: string
+    serialNumber: string,
   ): Promise<Device> {
     const api = wsClient.commands.device(serialNumber);
     const properties = (await api.getProperties()).properties;
@@ -90,12 +90,12 @@ export class DeviceManifestBuilder {
     const modelName = this.resolveModelName(
       properties.model,
       properties.type,
-      metadata.type
+      metadata.type,
     );
 
     // Clean device name (remove confusing suffixes)
     const cleanedName = this.cleanDeviceName(
-      properties.name || `Eufy ${properties.model}`
+      properties.name || `Eufy ${properties.model}`,
     );
 
     return {
@@ -122,7 +122,7 @@ export class DeviceManifestBuilder {
    */
   private static buildInterfaceList(
     capabilities: ReturnType<typeof getDeviceCapabilities>,
-    properties: any
+    properties: any,
   ): string[] {
     const interfaces: string[] = [
       ScryptedInterface.Camera,
@@ -171,7 +171,7 @@ export class DeviceManifestBuilder {
   private static resolveModelName(
     model: string | undefined,
     deviceType: number,
-    typeMetadata: any
+    typeMetadata: any,
   ): string {
     if (model && MODEL_NAMES[model]) {
       return MODEL_NAMES[model];

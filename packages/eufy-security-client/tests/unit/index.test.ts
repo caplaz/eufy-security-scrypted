@@ -45,7 +45,7 @@ describe("EufyClient Module Exports", () => {
     test("should export server commands", () => {
       expect(EufyClient.SERVER_COMMANDS).toBeDefined();
       expect(EufyClient.SERVER_COMMANDS.START_LISTENING).toBe(
-        "start_listening"
+        "start_listening",
       );
       expect(EufyClient.SERVER_COMMANDS.SET_API_SCHEMA).toBe("set_api_schema");
     });
@@ -53,7 +53,7 @@ describe("EufyClient Module Exports", () => {
     test("should export device commands", () => {
       expect(EufyClient.DEVICE_COMMANDS).toBeDefined();
       expect(EufyClient.DEVICE_COMMANDS.GET_PROPERTIES).toBe(
-        "device.get_properties"
+        "device.get_properties",
       );
     });
 
@@ -65,7 +65,7 @@ describe("EufyClient Module Exports", () => {
     test("should export station commands", () => {
       expect(EufyClient.STATION_COMMANDS).toBeDefined();
       expect(EufyClient.STATION_COMMANDS.GET_PROPERTIES).toBe(
-        "station.get_properties"
+        "station.get_properties",
       );
     });
   });
@@ -91,7 +91,7 @@ describe("EufyClient Module Exports", () => {
       const logger = new Logger<ILogObj>();
       const client = new EufyClient.EufyWebSocketClient(
         "ws://localhost:3000",
-        logger
+        logger,
       );
       expect(client).toBeDefined();
       expect(typeof client.connect).toBe("function");
@@ -108,7 +108,7 @@ describe("EufyClient Module Exports", () => {
       const client = new EufyClient.WebSocketClient(
         "ws://localhost:3000",
         stateManager,
-        logger
+        logger,
       );
       expect(client).toBeDefined();
       expect(typeof client.connect).toBe("function");
@@ -126,7 +126,7 @@ describe("EufyClient Module Exports", () => {
       expect(typeof stateManager.getState).toBe("function");
       expect(typeof stateManager.onStateChange).toBe("function");
       expect(stateManager.getState().connection).toBe(
-        EufyClient.ConnectionState.DISCONNECTED
+        EufyClient.ConnectionState.DISCONNECTED,
       );
     });
   });
@@ -150,7 +150,7 @@ describe("EufyClient Module Exports", () => {
       const actualExports = Object.keys(EufyClient).filter(
         (key) =>
           !key.startsWith("__") &&
-          typeof (EufyClient as any)[key] !== "undefined"
+          typeof (EufyClient as any)[key] !== "undefined",
       );
 
       // Check that all expected exports are present
@@ -261,7 +261,7 @@ describe("EufyClient Module Exports", () => {
       ];
       const unexpectedExports = actualExports.filter(
         (key) =>
-          !expectedExports.includes(key) && !allowedExtraExports.includes(key)
+          !expectedExports.includes(key) && !allowedExtraExports.includes(key),
       );
       expect(unexpectedExports).toEqual([]);
     });

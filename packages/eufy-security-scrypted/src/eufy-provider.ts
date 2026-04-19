@@ -133,13 +133,13 @@ export class EufySecurityProvider
     this.wsLogger = this.logger.getSubLogger({ name: "WebSocketClient" });
     this.wsClient = new EufyWebSocketClient(
       this.storage.getItem("wsUrl") || "ws://localhost:3000",
-      this.wsLogger
+      this.wsLogger,
     );
 
     // Initialize system memory threshold from storage
     const memoryThreshold = Math.max(
       50,
-      parseInt(this.storage.getItem("memoryThresholdMB") || "120")
+      parseInt(this.storage.getItem("memoryThresholdMB") || "120"),
     );
     const memoryLogger = this.logger.getSubLogger({ name: "Memory" });
     MemoryManager.setMemoryThreshold(memoryThreshold, memoryLogger);
@@ -159,7 +159,7 @@ export class EufySecurityProvider
 
         // Mark connection as complete
         this.isConnecting = false;
-      }
+      },
     );
 
     this.logger.info("🚀 EufySecurityProvider initialized");
@@ -183,7 +183,7 @@ export class EufySecurityProvider
 
     // Check authentication status
     const captchaStatus = this.authManager.getAuthStatusMessage(
-      clientState?.driverConnected || false
+      clientState?.driverConnected || false,
     );
 
     return [
@@ -456,7 +456,7 @@ export class EufySecurityProvider
         if (result.state.driver.connected) {
           // Successfully connected
           this.logger.info(
-            "✅ Driver fully connected - authentication complete"
+            "✅ Driver fully connected - authentication complete",
           );
           this.authManager.resetAuthState();
           this.displayConnectResult(true, true);
@@ -472,31 +472,31 @@ export class EufySecurityProvider
         } else {
           // Not connected - check for pending authentication
           this.logger.info(
-            "⚠️ Driver not connected - checking for authentication challenges"
+            "⚠️ Driver not connected - checking for authentication challenges",
           );
           await this.authManager.checkPendingAuth();
 
           // If no pending auth was found, the connection might just need more time
           if (this.authManager.getAuthState() === AUTH_STATE.NONE) {
             this.logger.info(
-              "💡 No authentication challenges detected. The connection may be in progress."
+              "💡 No authentication challenges detected. The connection may be in progress.",
             );
             this.logger.info(
-              "💡 If you have 2FA enabled, you may need to check your email or app."
+              "💡 If you have 2FA enabled, you may need to check your email or app.",
             );
             this.logger.info("");
             this.logger.info("🔍 Troubleshooting tips:");
             this.logger.info(
-              "   1. Check the eufy-security-ws container logs for errors"
+              "   1. Check the eufy-security-ws container logs for errors",
             );
             this.logger.info(
-              "   2. Verify your Eufy account credentials in the container config"
+              "   2. Verify your Eufy account credentials in the container config",
             );
             this.logger.info(
-              "   3. Ensure the container has internet access to connect to Eufy cloud"
+              "   3. Ensure the container has internet access to connect to Eufy cloud",
             );
             this.logger.info(
-              "   4. Try restarting the eufy-security-ws container"
+              "   4. Try restarting the eufy-security-ws container",
             );
             this.logger.info("");
             this.logger.info("   Container logs command:");
@@ -523,7 +523,7 @@ export class EufySecurityProvider
                 }
                 this.onDeviceEvent(ScryptedInterface.Settings, undefined);
               },
-              { source: "driver" }
+              { source: "driver" },
             );
           }
         }
@@ -611,7 +611,7 @@ export class EufySecurityProvider
     // Handle regular settings (require non-null values)
     if (value === undefined || value === null) {
       this.logger.warn(
-        `⚠️ Ignoring setting update for ${key}: value is null/undefined`
+        `⚠️ Ignoring setting update for ${key}: value is null/undefined`,
       );
       return;
     }
@@ -625,7 +625,7 @@ export class EufySecurityProvider
         this.wsClient.disconnect();
         this.wsClient = new EufyWebSocketClient(
           value.toString(),
-          this.wsLogger
+          this.wsLogger,
         );
 
         // Note: Auth manager was initialized with the old wsClient
@@ -637,7 +637,7 @@ export class EufySecurityProvider
       } catch (error) {
         this.logger.error(
           "❌ Failed to connect with new WebSocket URL:",
-          error
+          error,
         );
         throw error;
       }
@@ -655,7 +655,7 @@ export class EufySecurityProvider
 
       this.storage.setItem("debugLogging", this.debugLogging.toString());
       this.logger.info(
-        `Debug logging ${this.debugLogging ? "enabled" : "disabled"}`
+        `Debug logging ${this.debugLogging ? "enabled" : "disabled"}`,
       );
       // Refresh the settings UI to reflect the immediate change
       this.onDeviceEvent(ScryptedInterface.Settings, undefined);
@@ -682,7 +682,7 @@ export class EufySecurityProvider
 
     if (!this.wsClient.isConnected()) {
       this.logger.warn(
-        "⚠️ WebSocket not connected, attempting to reconnect..."
+        "⚠️ WebSocket not connected, attempting to reconnect...",
       );
       try {
         await this.startConnection();
@@ -711,11 +711,11 @@ export class EufySecurityProvider
       // During connection, this is expected - devices will be registered after auth
       if (this.isConnecting) {
         this.logger.debug(
-          `⏳ Driver connecting, device ${nativeId} will be available after authentication`
+          `⏳ Driver connecting, device ${nativeId} will be available after authentication`,
         );
       } else {
         this.logger.warn(
-          `⚠️ Driver not connected, cannot create device ${nativeId}`
+          `⚠️ Driver not connected, cannot create device ${nativeId}`,
         );
       }
       return undefined;
@@ -779,7 +779,7 @@ export class EufySecurityProvider
       this.isConnecting = false;
     } else {
       this.logger.info(
-        "⏳ Driver not connected yet - authentication may be required. Check settings to connect."
+        "⏳ Driver not connected yet - authentication may be required. Check settings to connect.",
       );
       // Keep isConnecting = true until successful connection
     }
@@ -791,13 +791,13 @@ export class EufySecurityProvider
    * @returns {Promise<void>}
    */
   private async registerStationsFromServerState(
-    serverState: StartListeningResponse
+    serverState: StartListeningResponse,
   ): Promise<void> {
     // Extract station serial numbers from server state (string array)
     const stationSerials: string[] = serverState.state.stations || [];
     this.logger.info(
       `📡 Found ${stationSerials.length} station serials from server:`,
-      stationSerials
+      stationSerials,
     );
 
     if (stationSerials.length === 0) {
@@ -816,7 +816,7 @@ export class EufySecurityProvider
     });
 
     this.logger.info(
-      `✅ Registered ${manifests.length} stations from server state`
+      `✅ Registered ${manifests.length} stations from server state`,
     );
   }
 
@@ -826,13 +826,13 @@ export class EufySecurityProvider
    * @returns {Promise<void>}
    */
   private async registerDevicesFromServerState(
-    serverState: StartListeningResponse
+    serverState: StartListeningResponse,
   ): Promise<void> {
     // Extract device serial numbers from server state (string array)
     const deviceSerials: string[] = serverState.state.devices || [];
     this.logger.info(
       `📱 Found ${deviceSerials.length} device serials from server:`,
-      deviceSerials
+      deviceSerials,
     );
 
     if (deviceSerials.length === 0) {
@@ -845,8 +845,8 @@ export class EufySecurityProvider
     // stable numeric IDs because it sees the full device list in a deterministic order.
     const manifests = await Promise.all(
       deviceSerials.map((serial) =>
-        DeviceUtils.createDeviceManifest(this.wsClient, serial)
-      )
+        DeviceUtils.createDeviceManifest(this.wsClient, serial),
+      ),
     );
 
     const byStation = new Map<string | undefined, typeof manifests>();
@@ -864,7 +864,7 @@ export class EufySecurityProvider
     }
 
     this.logger.info(
-      `✅ Registered ${deviceSerials.length} devices across ${byStation.size} station(s) from server state`
+      `✅ Registered ${deviceSerials.length} devices across ${byStation.size} station(s) from server state`,
     );
   }
 
@@ -880,7 +880,7 @@ export class EufySecurityProvider
     // Only log if we haven't already logged AND we're not currently waiting
     if (!this.hasLoggedReady && !this.isWaitingForReady) {
       this.logger.info(
-        "⏳ Waiting for WebSocket client to be ready for API calls..."
+        "⏳ Waiting for WebSocket client to be ready for API calls...",
       );
       this.isWaitingForReady = true;
     }
@@ -900,8 +900,8 @@ export class EufySecurityProvider
           const state = this.wsClient.getState();
           reject(
             new Error(
-              `Timeout waiting for client to be ready. Current state: ${state.connection}`
-            )
+              `Timeout waiting for client to be ready. Current state: ${state.connection}`,
+            ),
           );
         } else {
           waitTime += checkInterval;
@@ -950,7 +950,7 @@ export class EufySecurityProvider
   private async withTimeout<T>(
     promise: Promise<T>,
     timeoutMs: number,
-    timeoutMessage: string
+    timeoutMessage: string,
   ): Promise<T> {
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
@@ -974,7 +974,7 @@ export class EufySecurityProvider
    */
   private displayConnectResult(
     isWebSocketConnected: boolean,
-    isDriverConnected: boolean
+    isDriverConnected: boolean,
   ): void {
     if (!isWebSocketConnected) {
       this.logger.error("❌ Connection Failed: WEBSOCKET DISCONNECTED");
@@ -987,26 +987,26 @@ export class EufySecurityProvider
       throw new Error("❌ WebSocket connection failed");
     } else if (!isDriverConnected) {
       this.logger.warn(
-        "⚠️  Connection Established: DRIVER NEEDS AUTHENTICATION"
+        "⚠️  Connection Established: DRIVER NEEDS AUTHENTICATION",
       );
       this.logger.warn(
-        "   WebSocket connection established, but Eufy driver is not authenticated."
+        "   WebSocket connection established, but Eufy driver is not authenticated.",
       );
       this.logger.warn("   This typically means:");
       this.logger.warn(
-        "   • 2FA authentication is required (captcha/verification code)"
+        "   • 2FA authentication is required (captcha/verification code)",
       );
       this.logger.warn("   • Eufy account credentials need verification");
       this.logger.warn(
-        "   • Check the settings page for authentication prompts"
+        "   • Check the settings page for authentication prompts",
       );
     } else {
       this.logger.info("✅ Connection Successful: FULLY CONNECTED");
       this.logger.info(
-        "   WebSocket connection established and Eufy driver is authenticated."
+        "   WebSocket connection established and Eufy driver is authenticated.",
       );
       this.logger.info(
-        "   You can now use other Scrypted features to interact with your devices."
+        "   You can now use other Scrypted features to interact with your devices.",
       );
     }
   }
