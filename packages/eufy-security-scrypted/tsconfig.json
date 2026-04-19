@@ -1,5 +1,6 @@
 {
     "compilerOptions": {
+        "types": ["node", "jest"],
         "target": "ESNext",
         "moduleResolution": "bundler",
         "module": "ESNext",
