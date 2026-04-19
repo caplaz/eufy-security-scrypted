@@ -294,6 +294,19 @@ export class ConnectionManager extends EventEmitter {
    * console.log('All connections closed');
    * ```
    */
+  /**
+   * Force-disconnect a specific client by id. Used by the stream server to
+   * reap zombie connections whose sockets never emitted `close` (e.g. when
+   * the peer process was SIGKILL-ed).
+   */
+  disconnectClient(connectionId: string): boolean {
+    if (!this.connections.has(connectionId)) {
+      return false;
+    }
+    this.handleDisconnection(connectionId);
+    return true;
+  }
+
   close(): void {
     this.logger.info(`Closing ${this.connections.size} connections`);
 

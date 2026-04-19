@@ -134,6 +134,14 @@ export interface DeviceStopTalkbackCommand
   extends BaseDeviceCommand<typeof DEVICE_COMMANDS.STOP_TALKBACK> {}
 
 /**
+ * Send audio data during talkback session
+ */
+export interface DeviceTalkbackAudioDataCommand
+  extends BaseDeviceCommand<typeof DEVICE_COMMANDS.TALKBACK_AUDIO_DATA> {
+  buffer: { type: "Buffer"; data: number[] };
+}
+
+/**
  * Unlock device (for locks)
  */
 export interface DeviceUnlockCommand
@@ -174,6 +182,7 @@ export type DeviceCommand =
   | DeviceGetVoicesCommand
   | DeviceStartTalkbackCommand
   | DeviceStopTalkbackCommand
+  | DeviceTalkbackAudioDataCommand
   | DeviceUnlockCommand
   | DeviceTriggerAlarmCommand
   | DeviceResetAlarmCommand;

@@ -549,7 +549,8 @@ describe("StreamServer", () => {
       await serverWithWs.start();
       await serverWithWs.stop();
 
-      expect(mockEventRemover).toHaveBeenCalledTimes(1);
+      // Two event listeners are registered: one for video data, one for audio data
+      expect(mockEventRemover).toHaveBeenCalledTimes(2);
     });
   });
 

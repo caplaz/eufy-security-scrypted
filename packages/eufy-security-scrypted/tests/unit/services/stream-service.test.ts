@@ -44,6 +44,10 @@ describe("StreamService", () => {
       getPort: jest.fn().mockReturnValue(mockPort),
       isRunning: jest.fn().mockReturnValue(false),
       getVideoMetadata: jest.fn().mockReturnValue(null),
+      getAudioPort: jest.fn().mockReturnValue(undefined),
+      getAudioMetadata: jest.fn().mockReturnValue(null),
+      getMuxedPort: jest.fn().mockReturnValue(undefined),
+      captureSnapshot: jest.fn(),
     } as any;
 
     // Mock SDK mediaManager
@@ -101,11 +105,14 @@ describe("StreamService", () => {
       expect(options[0]).toEqual({
         id: "p2p",
         name: "P2P Stream",
-        container: "h264",
+        container: "matroska",
         video: {
           codec: "h264",
           width: 1920,
           height: 1080,
+        },
+        audio: {
+          codec: "aac",
         },
       });
     });
@@ -321,7 +328,7 @@ describe("StreamService", () => {
       expect(args).toContain("h264");
     });
 
-    it("should disable unnecessary streams", async () => {
+    it("should disable audio when no muxed port is available (fallback path)", async () => {
       await service.getVideoStream(VideoQuality.HIGH);
 
       const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
@@ -329,8 +336,20 @@ describe("StreamService", () => {
       const args = call.inputArguments;
 
       expect(args).toContain("-an");
-      expect(args).toContain("-sn");
-      expect(args).toContain("-dn");
+    });
+
+    it("should use matroska input when muxed port is available", async () => {
+      mockStreamServer.getMuxedPort.mockReturnValue(55555);
+      await service.getVideoStream(VideoQuality.HIGH);
+
+      const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
+        .calls[0][0];
+      const args = call.inputArguments;
+
+      expect(args).toContain("matroska");
+      expect(args).toContain("tcp://127.0.0.1:55555");
+      expect(args).not.toContain("-an");
+      expect(call.mediaStreamOptions.audio).toEqual({ codec: "aac" });
     });
   });
 });

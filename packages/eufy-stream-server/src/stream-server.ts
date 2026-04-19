@@ -7,8 +7,9 @@
  * have been removed for simplicity.
  */
 
-import * as net from "net";
-import { EventEmitter } from "events";
+import * as net from "node:net";
+import { EventEmitter } from "node:events";
+import { ChildProcess, spawn } from "node:child_process";
 import { Logger, ILogObj } from "tslog";
 import { ConnectionManager } from "./connection-manager";
 import { H264Parser } from "./h264-parser";
@@ -17,6 +18,7 @@ import {
   EufyWebSocketClient,
   DEVICE_EVENTS,
   VideoMetadata,
+  AudioMetadata,
 } from "@caplaz/eufy-security-client";
 
 /**
@@ -41,6 +43,8 @@ export interface StreamServerOptions {
   wsClient: EufyWebSocketClient;
   /** Device serial number to filter events (required for Eufy cameras) */
   serialNumber: string;
+  /** Path to the ffmpeg binary used for the MPEG-TS muxer (default: "ffmpeg") */
+  ffmpegPath?: string;
 }
 
 /**
@@ -70,11 +74,16 @@ export class StreamServer extends EventEmitter {
     logger?: Logger<ILogObj>;
   };
   private server?: net.Server;
+  private audioServer?: net.Server;
+  private audioClients = new Set<net.Socket>();
+  private muxedServer?: net.Server;
+  private activeMuxers = new Set<ChildProcess>();
   private connectionManager: ConnectionManager;
   private h264Parser: H264Parser;
   private isActive = false;
   private startTime?: Date;
   private eventRemover?: () => boolean;
+  private audioEventRemover?: () => boolean;
 
   // Stream state management
   private livestreamIntendedState = false;
@@ -84,6 +93,9 @@ export class StreamServer extends EventEmitter {
   // Video metadata from first frame
   private videoMetadata: VideoMetadata | null = null;
   private metadataReceived = false;
+
+  // Audio metadata from first audio frame
+  private audioMetadata: AudioMetadata | null = null;
 
   // Client activity monitoring for battery optimization
   private lastClientActivity = 0;
@@ -122,6 +134,7 @@ export class StreamServer extends EventEmitter {
       logger: options.logger,
       wsClient: options.wsClient,
       serialNumber: options.serialNumber,
+      ffmpegPath: options.ffmpegPath ?? "ffmpeg",
     };
 
     // Use external logger if provided, otherwise create internal tslog Logger
@@ -265,7 +278,12 @@ export class StreamServer extends EventEmitter {
   }
 
   /**
-   * Clean up stale TCP connections that may not be actively used
+   * Destroy TCP connections older than 5 minutes. Previously this just
+   * logged; it now actually force-disconnects the socket. Necessary because
+   * when a peer ffmpeg gets SIGKILL-ed the OS sometimes never surfaces a
+   * `close` event on our side, leaving a zombie connection that would keep
+   * the activity-monitor interval alive forever (and spam the logs every
+   * 5 seconds with "Cleaning up stale connection").
    */
   private cleanupStaleConnections(): void {
     const connectionStats = this.connectionManager.getConnectionStats();
@@ -274,23 +292,17 @@ export class StreamServer extends EventEmitter {
 
     for (const [connectionId, info] of Object.entries(connectionStats)) {
       const connectionAge = now - info.connectedAt.getTime();
-
-      // Clean up connections that are older than 5 minutes and have no recent activity
       if (connectionAge > 5 * 60 * 1000) {
-        // 5 minutes
         this.logger.info(
-          `Cleaning up stale connection: ${connectionId} (age: ${Math.round(connectionAge / 1000)}s)`
+          `Destroying stale connection: ${connectionId} (age: ${Math.round(connectionAge / 1000)}s)`
         );
-        // Note: The connection manager will handle the actual cleanup when we emit the disconnect event
-        // For now, we'll just log this - the connection manager handles cleanup on actual disconnects
+        this.connectionManager.disconnectClient(connectionId);
         cleanedCount++;
       }
     }
 
     if (cleanedCount > 0) {
-      this.logger.debug(
-        `Identified ${cleanedCount} stale connections for cleanup`
-      );
+      this.logger.info(`Reaped ${cleanedCount} stale connections`);
     }
   }
 
@@ -378,6 +390,90 @@ export class StreamServer extends EventEmitter {
     this.logger.info(
       `WebSocket listener setup complete for device: ${this.options.serialNumber}`
     );
+
+    // Listen for livestream audio data events
+    let audioFrameCount = 0;
+    this.audioEventRemover = this.options.wsClient.addEventListener(
+      DEVICE_EVENTS.LIVESTREAM_AUDIO_DATA,
+      (event) => {
+        if (event.serialNumber !== this.options.serialNumber) {
+          return;
+        }
+
+        if (!this.audioMetadata && event.metadata) {
+          this.audioMetadata = event.metadata;
+          this.logger.info(
+            `🔊 Captured audio metadata: codec=${event.metadata.audioCodec}`
+          );
+        }
+
+        const audioBuffer = Buffer.isBuffer(event.buffer.data)
+          ? event.buffer.data
+          : Buffer.from(event.buffer.data);
+
+        // Log the first few audio packets so we can tell whether the Eufy
+        // stream is ADTS (starts with 0xFFF sync word) or raw AAC.
+        if (audioFrameCount < 3) {
+          const hex = audioBuffer.subarray(0, Math.min(16, audioBuffer.length)).toString("hex");
+          this.logger.info(
+            `🔊 Audio frame #${audioFrameCount}: ${audioBuffer.length} bytes, first bytes: ${hex}`
+          );
+          audioFrameCount++;
+        }
+
+        if (this.audioClients.size === 0) {
+          return;
+        }
+
+        // Wrap raw AAC frames in ADTS headers when needed. FFmpeg's `aac`
+        // demuxer requires ADTS framing, and Eufy cameras typically emit raw
+        // AAC-LC frames without it.
+        const outgoing = this.wrapAacInAdtsIfNeeded(audioBuffer);
+
+        for (const client of this.audioClients) {
+          if (!client.destroyed) {
+            client.write(outgoing);
+          }
+        }
+      },
+      {
+        source: "device",
+        serialNumber: this.options.serialNumber,
+      }
+    );
+  }
+
+  /**
+   * Prepend an ADTS header to a raw AAC frame if it doesn't already have one.
+   * Assumes AAC-LC, 16 kHz, mono (typical Eufy configuration).
+   */
+  private wrapAacInAdtsIfNeeded(data: Buffer): Buffer {
+    // Already ADTS? (sync word 0xFFF in bytes [0..1])
+    if (data.length >= 2 && data[0] === 0xff && (data[1] & 0xf0) === 0xf0) {
+      return data;
+    }
+
+    // Skip tiny packets (likely AAC Specific Config — 2 bytes — not a frame).
+    if (data.length < 7) {
+      return Buffer.alloc(0);
+    }
+
+    const profile = 2; // AAC-LC
+    const freqIndex = 8; // 16000 Hz
+    const channels = 1;
+    const frameLength = data.length + 7;
+
+    const header = Buffer.alloc(7);
+    header[0] = 0xff;
+    header[1] = 0xf1; // MPEG-4, Layer 0, protection absent
+    header[2] =
+      ((profile - 1) << 6) | (freqIndex << 2) | ((channels >> 2) & 0x01);
+    header[3] = ((channels & 0x03) << 6) | ((frameLength >> 11) & 0x03);
+    header[4] = (frameLength >> 3) & 0xff;
+    header[5] = ((frameLength & 0x07) << 5) | 0x1f;
+    header[6] = 0xfc;
+
+    return Buffer.concat([header, data]);
   }
 
   /**
@@ -479,7 +575,7 @@ export class StreamServer extends EventEmitter {
       throw new Error("Server is already running");
     }
 
-    return new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       this.server = net.createServer();
 
       this.server.on("connection", (socket) => {
@@ -502,6 +598,188 @@ export class StreamServer extends EventEmitter {
         resolve();
       });
     });
+
+    // Start audio server on a random port
+    await new Promise<void>((resolve, reject) => {
+      this.audioServer = net.createServer((socket) => {
+        this.audioClients.add(socket);
+        this.logger.info(
+          `🔊 Audio client connected from ${socket.remoteAddress}:${socket.remotePort} (total: ${this.audioClients.size})`
+        );
+        socket.on("close", () => {
+          this.audioClients.delete(socket);
+          this.logger.info(
+            `🔊 Audio client disconnected (total: ${this.audioClients.size})`
+          );
+        });
+        socket.on("error", (err) => {
+          this.logger.warn(`🔊 Audio client error: ${err.message}`);
+          this.audioClients.delete(socket);
+        });
+      });
+
+      this.audioServer.on("error", (error) => {
+        this.logger.warn("Audio server error:", error);
+        reject(error);
+      });
+
+      this.audioServer.listen(0, "127.0.0.1", () => {
+        const address = this.audioServer.address();
+        const port = address && typeof address === "object" ? address.port : "?";
+        this.logger.info(`🔊 Audio server started on port ${port}`);
+        resolve();
+      });
+    });
+
+    // Start muxed server that remuxes video+audio into MPEG-TS on demand.
+    // Consumers (Scrypted Rebroadcast, WebRTC plugin, etc.) connect here and
+    // get a single stream with codec parameters carried inline in the PMT,
+    // which makes `-acodec copy` into RTSP work reliably.
+    await new Promise<void>((resolve, reject) => {
+      this.muxedServer = net.createServer((socket) => {
+        this.handleMuxedClient(socket);
+      });
+
+      this.muxedServer.on("error", (error) => {
+        this.logger.warn("Muxed server error:", error);
+        reject(error);
+      });
+
+      this.muxedServer.listen(0, "127.0.0.1", () => {
+        const address = this.muxedServer.address();
+        const port = address && typeof address === "object" ? address.port : "?";
+        this.logger.info(`🔀 Muxed (MPEG-TS) server started on port ${port}`);
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Spawn an ffmpeg muxer for a newly connected muxed client. The muxer
+   * reads raw H.264/H.265 from the video TCP server and raw AAC from the
+   * audio TCP server, applies aac_adtstoasc to turn ADTS into MPEG-4 format,
+   * and writes MPEG-TS to stdout which we pipe straight to the client socket.
+   */
+  private handleMuxedClient(socket: net.Socket): void {
+    const videoPort = this.getPort();
+    const audioPort = this.getAudioPort();
+
+    if (!videoPort) {
+      this.logger.warn("Muxed client connected before video server was ready");
+      socket.destroy();
+      return;
+    }
+
+    const videoCodec = this.videoMetadata?.videoCodec?.toUpperCase() ?? "H264";
+    const isHevc = videoCodec.includes("265") || videoCodec.includes("HEVC");
+    const videoInputFormat = isHevc ? "hevc" : "h264";
+
+    const videoFps = this.videoMetadata?.videoFPS ?? 15;
+
+    const args = [
+      "-hide_banner",
+      "-loglevel", "warning",
+      "-fflags", "+nobuffer+discardcorrupt+flush_packets",
+      "-analyzeduration", "0",
+      "-probesize", "32768",
+      "-thread_queue_size", "128",
+      // Use -framerate (demuxer-specific) rather than -r (generic) so the
+      // raw-video demuxer attaches evenly-spaced monotonic PTS to each
+      // frame — 1/fps apart. Without this the H.264 demuxer ships packets
+      // with no PTS ("Timestamps are unset"), and the downstream muxer
+      // falls back to unreliable heuristics that produce jittery output.
+      "-framerate", String(videoFps),
+      "-f", videoInputFormat,
+      "-i", `tcp://127.0.0.1:${videoPort}`,
+      ...(audioPort
+        ? [
+            "-thread_queue_size", "128",
+            "-use_wallclock_as_timestamps", "1",
+            "-f", "aac",
+            "-i", `tcp://127.0.0.1:${audioPort}`,
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            // Re-encode AAC (copy+BSF produced malformed extradata that
+            // Matroska couldn't parse).
+            "-c:a", "aac",
+            "-b:a", "64k",
+            "-ar", "16000",
+            "-ac", "1",
+          ]
+        : ["-map", "0:v:0"]),
+      "-c:v", "copy",
+      "-fps_mode", "passthrough",
+      "-avoid_negative_ts", "make_zero",
+      "-f", "matroska",
+      // Streaming-mode Matroska: emit clusters promptly, skip index/cues.
+      "-live", "1",
+      "-cluster_time_limit", "100",
+      "-flush_packets", "1",
+      "pipe:1",
+    ];
+
+    this.logger.info(
+      `🔀 Spawning muxer: ${this.options.ffmpegPath} ${args.join(" ")}`
+    );
+
+    const ffmpeg = spawn(this.options.ffmpegPath, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    this.activeMuxers.add(ffmpeg);
+
+    let firstDataLogged = false;
+    ffmpeg.stdout.on("data", (chunk: Buffer) => {
+      if (!firstDataLogged) {
+        this.logger.info(
+          `🔀 Muxer started producing MPEG-TS output (first chunk: ${chunk.length} bytes)`
+        );
+        firstDataLogged = true;
+      }
+    });
+    ffmpeg.stdout.pipe(socket, { end: false });
+
+    ffmpeg.stderr.on("data", (chunk: Buffer) => {
+      const msg = chunk.toString().trim();
+      if (msg) this.logger.info(`muxer stderr: ${msg}`);
+    });
+
+    ffmpeg.on("error", (err) => {
+      this.logger.error(`Muxer ffmpeg error: ${err}`);
+      socket.destroy();
+    });
+
+    ffmpeg.on("exit", (code, signal) => {
+      this.logger.info(
+        `🔀 Muxer ffmpeg exited (code=${code}, signal=${signal}, producedOutput=${firstDataLogged})`
+      );
+      this.activeMuxers.delete(ffmpeg);
+      if (!socket.destroyed) socket.end();
+    });
+
+    socket.on("close", () => {
+      if (this.activeMuxers.has(ffmpeg)) {
+        ffmpeg.kill("SIGKILL");
+      }
+    });
+
+    socket.on("error", () => {
+      if (this.activeMuxers.has(ffmpeg)) {
+        ffmpeg.kill("SIGKILL");
+      }
+    });
+  }
+
+  /**
+   * Get the port the muxed (MPEG-TS) server is listening on.
+   */
+  getMuxedPort(): number | undefined {
+    if (this.muxedServer) {
+      const address = this.muxedServer.address();
+      if (address && typeof address === "object") {
+        return address.port;
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -528,11 +806,41 @@ export class StreamServer extends EventEmitter {
       await this.ensureLivestreamState();
     }
 
-    // Clean up WebSocket event listener
+    // Clean up WebSocket event listeners
     if (this.eventRemover) {
       this.eventRemover();
       this.eventRemover = undefined;
-      this.logger.debug("WebSocket event listener removed");
+      this.logger.debug("WebSocket video event listener removed");
+    }
+
+    if (this.audioEventRemover) {
+      this.audioEventRemover();
+      this.audioEventRemover = undefined;
+      this.logger.debug("WebSocket audio event listener removed");
+    }
+
+    // Kill any active muxer ffmpeg processes
+    for (const muxer of this.activeMuxers) {
+      muxer.kill("SIGKILL");
+    }
+    this.activeMuxers.clear();
+
+    // Close muxed server
+    if (this.muxedServer) {
+      this.muxedServer.close();
+      this.muxedServer = undefined;
+    }
+
+    // Close all audio clients
+    for (const client of this.audioClients) {
+      client.destroy();
+    }
+    this.audioClients.clear();
+
+    // Close audio server
+    if (this.audioServer) {
+      this.audioServer.close();
+      this.audioServer = undefined;
     }
 
     return new Promise((resolve) => {
@@ -774,6 +1082,27 @@ export class StreamServer extends EventEmitter {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Get the port the audio server is listening on
+   */
+  getAudioPort(): number | undefined {
+    if (this.audioServer) {
+      const address = this.audioServer.address();
+      if (address && typeof address === "object") {
+        return address.port;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Get the last received audio metadata (codec).
+   * Returns null if no audio stream has been received yet.
+   */
+  getAudioMetadata(): AudioMetadata | null {
+    return this.audioMetadata;
   }
 
   /**
