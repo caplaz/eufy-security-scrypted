@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Audio Streaming**: Live audio is now included in the video stream. The stream server captures AAC/ADTS audio frames from Eufy cameras and muxes them in-process using JMuxer into fragmented MP4, which is served over a dedicated local TCP port. Downstream consumers (Scrypted Rebroadcast, FFmpeg) receive a complete A/V fMP4 stream without any extra transcoding step.
+- **Intercom / Talkback**: Cameras that have both microphone and speaker now implement the `Intercom` Scrypted interface, enabling two-way audio. Incoming audio is transcoded by FFmpeg to AAC-LC/ADTS at 16 kHz mono 16 kbps and forwarded to the device over the Eufy talkback channel. The implementation correctly waits for the `TALKBACK_STARTED` confirmation event before sending audio, automatically bootstraps the livestream when none is running, and cleans up on `stopIntercom`.
+- **Zombie Connection Cleanup**: `cleanupStaleConnections` now calls `disconnectClient` to force-close TCP connections older than 5 minutes, fixing a case where a SIGKILL-ed FFmpeg peer would leave the connection open indefinitely and keep the activity monitor running.
+- **`TALKBACK_AUDIO_DATA` Command**: New `talkbackAudioData(buffer)` method on `DeviceCommandBuilder` and matching `DeviceTalkbackAudioDataCommand` interface for sending raw audio to the device during a talkback session.
+- **`IStreamServer.getMuxedPort()`**: New interface method to expose the fMP4 mux server port to the scrypted plugin.
 - **H.265/HEVC Camera Support**: Full H.265 support in `H264Parser` — correct NAL unit type extraction (`(byte0 >> 1) & 0x3F`), IRAP keyframe detection (NAL types 16–23), and parameter set identification (VPS/SPS/PPS, NAL types 32–34)
 - **VPS Caching**: `StreamServer` now caches the H.265 Video Parameter Set alongside SPS/PPS and sends VPS → SPS → PPS in order to new TCP clients, enabling FFmpeg to initialize H.265 streams immediately
 - **Codec Detection**: `StreamServer` reads `videoCodec` from `VideoMetadata` on the first livestream event and dispatches H.264 or H.265 NAL parsing accordingly
@@ -22,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Stream container**: The `P2P Stream` media stream option now reports `container: "mp4"` with `audio: { codec: "aac" }` when the muxed port is available, replacing the previous raw `h264`/`h265` container with no audio.
+- **FFmpeg input for muxed path**: When a muxed port is available, `StreamService` passes an fMP4 TCP input to FFmpeg (`-f mp4 -i tcp://127.0.0.1:<port>`) instead of the raw NAL unit input, so codec parameters are embedded in the stream header and downstream re-encoding is not needed.
+- **Prettier config**: Added `.prettierrc` (2-space, no tabs) so editors with Prettier auto-format stay consistent with the codebase style.
 - **`FFmpegUtils.convertH264ToJPEG`**: Accepts an optional `videoCodec` parameter (default `"H264"`); uses the correct FFmpeg demuxer (`-f hevc` for H.265 cameras)
 - **`StreamService`**: Detects codec from `streamServer.getVideoMetadata()` and passes the correct FFmpeg input format and Scrypted codec string to `createFFmpegMediaObject`
 - **`SnapshotService`**: Passes the detected codec to `FFmpegUtils.convertH264ToJPEG` so H.265 keyframes are decoded correctly
@@ -32,10 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Intercom capability gating**: `Intercom` is only added to a device's Scrypted interface list when both `microphone` and `speaker` properties are present, preventing a non-functional Talk button from appearing on cameras and sensors that do not support talkback.
 - **H.265 NAL type extraction was completely broken**: The old parser used `byte0 & 0x1F` (H.264 formula) on H.265 data, producing wrong NAL types and never detecting keyframes on H.265 cameras
 - **H.265 snapshots always failed**: Snapshot capture timed out on H.265 cameras because no keyframe was ever detected
 - **Wrong FFmpeg demuxer for H.265**: Streams always passed `-f h264` to FFmpeg regardless of camera codec; H.265 cameras now correctly use `-f hevc`
 - **`providerNativeId=undefined` edge case**: `registerDevicesFromServerState` now handles stations with an undefined `providerNativeId` without throwing
+
+*Thanks to [@DTse](https://github.com/DTse) for contributing audio streaming and intercom support.*
 
 ## [0.2.1] - 2025-10-26
 

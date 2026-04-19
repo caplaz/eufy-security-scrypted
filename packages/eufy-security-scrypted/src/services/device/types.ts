@@ -6,7 +6,7 @@
  * @module services/device
  */
 
-import { AudioMetadata, VideoMetadata } from "@caplaz/eufy-security-client";
+import { VideoMetadata } from "@caplaz/eufy-security-client";
 
 /**
  * StreamServer interface (from @caplaz/eufy-stream-server)
@@ -49,12 +49,6 @@ export interface IStreamServer {
    * Returns null if no stream has been received yet.
    */
   getVideoMetadata(): VideoMetadata | null;
-
-  /**
-   * Get the last received audio metadata (codec).
-   * Returns null if no audio stream has been received yet.
-   */
-  getAudioMetadata(): AudioMetadata | null;
 
   /**
    * Get the TCP port the MPEG-TS muxed server is listening on.

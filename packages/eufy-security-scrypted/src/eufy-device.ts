@@ -756,13 +756,11 @@ export class EufyDevice
 
     this.talkbackProcess = spawn("ffmpeg", args);
 
-    this.talkbackProcess.stdout?.on("data", async (chunk: Buffer) => {
+    this.talkbackProcess.stdout?.on("data", (chunk: Buffer) => {
       if (!this.talkbackActive) return;
-      try {
-        await this.api.talkbackAudioData(chunk);
-      } catch (e) {
+      this.api.talkbackAudioData(chunk).catch((e) => {
         this.logger.warn(`Failed to send talkback audio chunk: ${e}`);
-      }
+      });
     });
 
     this.talkbackProcess.stderr?.on("data", (data: Buffer) => {

@@ -609,12 +609,18 @@ export class StreamServer extends EventEmitter {
         this.handleMuxedClient(socket);
       });
 
+      let started = false;
       this.muxedServer.on("error", (error) => {
-        this.logger.warn("Muxed server error:", error);
-        reject(error);
+        if (!started) {
+          reject(error);
+        } else {
+          this.logger.error(`Muxed server runtime error: ${error}`);
+          this.emit("error", error);
+        }
       });
 
       this.muxedServer.listen(0, "127.0.0.1", () => {
+        started = true;
         const address = this.muxedServer!.address();
         const port =
           address && typeof address === "object" ? address.port : "?";
@@ -1027,14 +1033,6 @@ export class StreamServer extends EventEmitter {
       }
     }
     return undefined;
-  }
-
-  /**
-   * Get the last received audio metadata (codec).
-   * Returns null if no audio stream has been received yet.
-   */
-  getAudioMetadata(): AudioMetadata | null {
-    return this.audioMetadata;
   }
 
   /**

@@ -19,8 +19,21 @@ import {
 jest.mock("@caplaz/eufy-security-client", () => ({
   DEVICE_EVENTS: {
     LIVESTREAM_VIDEO_DATA: "livestream video data",
+    LIVESTREAM_AUDIO_DATA: "livestream audio data",
   },
 }));
+
+jest.mock("jmuxer", () => {
+  const { Duplex } = require("stream");
+  return {
+    __esModule: true,
+    default: jest.fn().mockImplementation(() => ({
+      feed: jest.fn(),
+      createStream: jest.fn(() => new Duplex({ read() {} })),
+      destroy: jest.fn(),
+    })),
+  };
+});
 
 describe("StreamServer", () => {
   let server: StreamServer;
