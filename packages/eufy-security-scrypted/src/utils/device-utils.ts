@@ -280,6 +280,7 @@ export class DeviceUtils {
       ScryptedInterface.MotionSensor,
       ScryptedInterface.Settings,
       ScryptedInterface.Refresh,
+      ScryptedInterface.Intercom,
     ];
 
     // Add Battery interface only for battery-powered devices
