@@ -32,6 +32,8 @@ import {
   Brightness,
   Camera,
   Charger,
+  FFmpegInput,
+  Intercom,
   MediaObject,
   MotionSensor,
   OnOff,
@@ -44,6 +46,7 @@ import {
   ResponsePictureOptions,
   ScryptedDeviceBase,
   ScryptedInterface,
+  ScryptedMimeTypes,
   Sensors,
   Setting,
   SettingValue,
@@ -54,6 +57,7 @@ import {
   VideoClipThumbnailOptions,
   VideoClips,
 } from "@scrypted/sdk";
+import sdk from "@scrypted/sdk";
 
 import {
   DEVICE_EVENTS,
@@ -69,6 +73,7 @@ import {
 } from "@caplaz/eufy-security-client";
 
 import { Logger, ILogObj } from "tslog";
+import { ChildProcess, spawn } from "child_process";
 import { StreamServer } from "@caplaz/eufy-stream-server";
 
 // Device Services
@@ -126,10 +131,14 @@ export class EufyDevice
     Brightness,
     Sensors,
     Settings,
-    Refresh
+    Refresh,
+    Intercom
 {
   private wsClient: EufyWebSocketClient;
   private logger: Logger<ILogObj>;
+  private talkbackProcess?: ChildProcess;
+  private talkbackActive = false;
+  private intercomStartedLivestream = false;
 
   // Device info and state
   private latestProperties?: DeviceProperties;
@@ -632,6 +641,178 @@ export class EufyDevice
     );
   }
 
+  // =================== INTERCOM INTERFACE ===================
+
+  /**
+   * Wait for a device event for this device's serial number. The listener
+   * self-removes on first match or on timeout.
+   */
+  private waitForDeviceEvent<T extends DeviceEventType>(
+    eventType: T,
+    timeoutMs: number,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let remove: (() => boolean) | undefined;
+      const timeout = setTimeout(() => {
+        remove?.();
+        reject(new Error(`Timed out waiting for "${eventType}"`));
+      }, timeoutMs);
+      // The waiter is a fail-safe — don't keep the event loop alive on
+      // its own. If the wait promise is abandoned (e.g. caller threw
+      // before awaiting it), we don't want to delay process exit.
+      timeout.unref?.();
+      const callback: EventCallbackForType<T, DeviceEventSource> = () => {
+        clearTimeout(timeout);
+        remove?.();
+        resolve();
+      };
+      remove = this.wsClient.addEventListener(eventType, callback, {
+        source: EVENT_SOURCES.DEVICE,
+        serialNumber: this.serialNumber,
+      });
+    });
+  }
+
+  async startIntercom(media: MediaObject): Promise<void> {
+    // Scrypted can call startIntercom mid-session. Re-entering is fine as
+    // long as we tear the previous session down cleanly first.
+    if (this.talkbackActive) {
+      await this.stopIntercom();
+    }
+
+    // Talkback on Eufy requires an active livestream owned by our ws
+    // session. Start it ourselves if not already running — the camera
+    // returns "device_livestream_not_running" otherwise.
+    let livestreaming = false;
+    try {
+      const status = await this.api.isLivestreaming();
+      livestreaming = status.livestreaming;
+    } catch (e) {
+      throw new Error(
+        `Failed to query livestream status before starting talkback: ${e}`,
+      );
+    }
+    if (!livestreaming) {
+      this.logger.info("Starting livestream to host talkback session");
+      const livestreamStarted = this.waitForDeviceEvent(
+        DEVICE_EVENTS.LIVESTREAM_STARTED,
+        10000,
+      );
+      await this.api.startLivestream();
+      await livestreamStarted;
+      this.intercomStartedLivestream = true;
+    }
+
+    // Start talkback and wait for confirmation. bropat's client emits
+    // "talkback started" once the camera has opened its receive channel;
+    // writing before that event silently drops the audio.
+    this.logger.info("Starting talkback session on device");
+    const talkbackStarted = this.waitForDeviceEvent(
+      DEVICE_EVENTS.TALKBACK_STARTED,
+      10000,
+    );
+    // Always attach a handler — the promise has its own 10s timeout, and
+    // if startTalkback throws below we'd leak an unhandled rejection
+    // when that timeout eventually fires.
+    talkbackStarted.catch(() => {});
+    try {
+      await this.api.startTalkback();
+    } catch (e) {
+      this.logger.warn(`Failed to start talkback: ${e}`);
+      if (this.intercomStartedLivestream) {
+        this.intercomStartedLivestream = false;
+        await this.api.stopLivestream().catch(() => {});
+      }
+      throw e;
+    }
+    await talkbackStarted;
+    this.talkbackActive = true;
+    this.logger.info("Talkback ready — forwarding audio");
+
+    // Transcode the incoming intercom audio to AAC-LC/ADTS at 16 kHz mono
+    // 16 kbps — the exact format bropat's eufy-security-client expects on
+    // the talkback channel.
+    const ffmpegInput =
+      await sdk.mediaManager.convertMediaObjectToJSON<FFmpegInput>(
+        media,
+        ScryptedMimeTypes.FFmpegInput,
+      );
+
+    const args = [
+      ...(ffmpegInput.inputArguments ?? []),
+      "-vn",
+      "-acodec",
+      "aac",
+      "-ar",
+      "16000",
+      "-ac",
+      "1",
+      "-b:a",
+      "16k",
+      "-f",
+      "adts",
+      "pipe:1",
+    ];
+
+    this.talkbackProcess = spawn("ffmpeg", args);
+
+    this.talkbackProcess.stdout?.on("data", async (chunk: Buffer) => {
+      if (!this.talkbackActive) return;
+      try {
+        await this.api.talkbackAudioData(chunk);
+      } catch (e) {
+        this.logger.warn(`Failed to send talkback audio chunk: ${e}`);
+      }
+    });
+
+    this.talkbackProcess.stderr?.on("data", (data: Buffer) => {
+      this.logger.debug(`Talkback FFmpeg: ${data.toString().trim()}`);
+    });
+
+    this.talkbackProcess.on("error", (e) => {
+      this.logger.error(`Talkback FFmpeg process error: ${e}`);
+    });
+
+    this.talkbackProcess.on("exit", (code) => {
+      this.logger.debug(`Talkback FFmpeg exited with code ${code}`);
+      this.talkbackProcess = undefined;
+    });
+  }
+
+  async stopIntercom(): Promise<void> {
+    if (this.talkbackProcess) {
+      this.talkbackProcess.kill();
+      this.talkbackProcess = undefined;
+    }
+
+    // Only send the stop command if we actually started talkback. Scrypted
+    // fires stopIntercom() during every WebRTC teardown, and hammering the
+    // camera with "device_talkback_not_running" errors can destabilize the
+    // P2P session and take down the video feed.
+    if (this.talkbackActive) {
+      this.talkbackActive = false;
+      try {
+        await this.api.stopTalkback();
+      } catch (e) {
+        this.logger.warn(`Failed to stop talkback: ${e}`);
+      }
+    }
+
+    // If we bootstrapped the livestream just for the intercom, stop it —
+    // but only if no other stream clients are watching.
+    if (this.intercomStartedLivestream) {
+      this.intercomStartedLivestream = false;
+      const hasViewers = this.streamServer.getActiveConnectionCount() > 0;
+      if (!hasViewers) {
+        try {
+          await this.api.stopLivestream();
+        } catch (e) {
+          this.logger.warn(`Failed to stop livestream: ${e}`);
+        }
+      }
+    }
+  }
+
   // =================== UTILITY METHODS ===================
 
   /**
@@ -656,6 +837,13 @@ export class EufyDevice
    * Clean up resources on disposal
    */
   dispose(): void {
+    if (this.talkbackProcess) {
+      this.talkbackProcess.kill();
+      this.talkbackProcess = undefined;
+    }
+    this.talkbackActive = false;
+    this.intercomStartedLivestream = false;
+
     // Dispose stream service (will stop stream server if running)
     this.streamService
       .dispose()

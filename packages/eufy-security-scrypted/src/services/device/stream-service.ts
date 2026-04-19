@@ -91,11 +91,14 @@ export class StreamService {
       {
         id: "p2p",
         name: "P2P Stream",
-        container: codec, // "h264" or "h265" raw stream
+        container: "mp4",
         video: {
           codec,
           width,
           height,
+        },
+        audio: {
+          codec: "aac",
         },
       },
     ];
@@ -181,41 +184,64 @@ export class StreamService {
     // Detect codec from last received stream metadata; default to H264
     const eufyCodec =
       this.streamServer.getVideoMetadata()?.videoCodec ?? "H264";
-    const inputFormat = FFmpegUtils.toFFmpegFormat(eufyCodec); // "h264" or "hevc"
     const scryptedCodec = FFmpegUtils.toScryptedCodec(eufyCodec); // "h264" or "h265"
 
-    // FFmpeg configuration for Eufy camera streaming
+    // Use the muxed fMP4 port if available. The stream server runs an
+    // in-process JMuxer (no ffmpeg subprocess) that consumes raw H.264
+    // and ADTS AAC from the WebSocket events directly and produces
+    // fragmented MP4 — the codec config is in the `moov` init segment so
+    // the downstream Rebroadcast plugin's `-acodec copy -vcodec copy` to
+    // RTSP works without any extradata dance.
+    const muxedPort = this.streamServer.getMuxedPort();
+    const useMuxed = !!muxedPort;
+
+    const inputArguments = useMuxed
+      ? [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-fflags",
+          "+genpts+nobuffer",
+          "-analyzeduration",
+          "2000000",
+          "-probesize",
+          "1000000",
+          "-f",
+          "mp4",
+          "-i",
+          `tcp://127.0.0.1:${muxedPort}`,
+        ]
+      : [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-use_wallclock_as_timestamps",
+          "1",
+          "-analyzeduration",
+          "5000000",
+          "-probesize",
+          "5000000",
+          "-f",
+          FFmpegUtils.toFFmpegFormat(eufyCodec),
+          "-i",
+          `tcp://127.0.0.1:${port}`,
+          "-an",
+        ];
+
     const ffmpegInput: FFmpegInput = {
       url: undefined,
-      inputArguments: [
-        "-hide_banner",
-        "-loglevel",
-        "error", // Suppress informational output; only show errors
-        "-use_wallclock_as_timestamps",
-        "1", // Critical for Eufy streams - fixes timestamp issues
-        "-analyzeduration",
-        "5000000", // 5 s — enough time to find SPS/PPS/VPS headers
-        "-probesize",
-        "5000000", // 5 MB probe budget for header detection
-        "-f",
-        inputFormat, // "h264" for H.264 cameras, "hevc" for H.265 cameras
-        "-i",
-        `tcp://127.0.0.1:${port}`, // TCP input from local stream server
-        "-an", // Disable audio
-        "-sn", // Disable subtitles
-        "-dn", // Disable data streams
-      ],
+      inputArguments,
       mediaStreamOptions: {
         id: options?.id || "main",
         name: options?.name || "Eufy Camera Stream",
-        container: options?.container,
+        container: useMuxed ? "mp4" : options?.container,
         video: {
           codec: scryptedCodec,
           width,
           height,
           ...options?.video,
         },
-        // Audio support can be added later when needed
+        ...(useMuxed && { audio: { codec: "aac" } }),
       },
     };
 

@@ -7,8 +7,10 @@
  * have been removed for simplicity.
  */
 
-import * as net from "net";
-import { EventEmitter } from "events";
+import * as net from "node:net";
+import { EventEmitter } from "node:events";
+import { Duplex } from "node:stream";
+import JMuxer from "jmuxer";
 import { Logger, ILogObj } from "tslog";
 import { ConnectionManager } from "./connection-manager";
 import { H264Parser } from "./h264-parser";
@@ -17,6 +19,7 @@ import {
   EufyWebSocketClient,
   DEVICE_EVENTS,
   VideoMetadata,
+  AudioMetadata,
 } from "@caplaz/eufy-security-client";
 
 /**
@@ -70,11 +73,22 @@ export class StreamServer extends EventEmitter {
     logger?: Logger<ILogObj>;
   };
   private server?: net.Server;
+  private muxedServer?: net.Server;
+  /**
+   * Map of muxed-client socket → its dedicated JMuxer instance. Each
+   * connection gets its own muxer so every consumer receives a complete
+   * fMP4 init segment at the start of its stream.
+   */
+  private muxerStreams = new Map<
+    net.Socket,
+    { muxer: JMuxer; duplex: Duplex }
+  >();
   private connectionManager: ConnectionManager;
   private h264Parser: H264Parser;
   private isActive = false;
   private startTime?: Date;
   private eventRemover?: () => boolean;
+  private audioEventRemover?: () => boolean;
 
   // Stream state management
   private livestreamIntendedState = false;
@@ -84,6 +98,9 @@ export class StreamServer extends EventEmitter {
   // Video metadata from first frame
   private videoMetadata: VideoMetadata | null = null;
   private metadataReceived = false;
+
+  // Audio metadata from first audio frame
+  private audioMetadata: AudioMetadata | null = null;
 
   // Client activity monitoring for battery optimization
   private lastClientActivity = 0;
@@ -147,9 +164,6 @@ export class StreamServer extends EventEmitter {
     this.connectionManager.on(
       "clientConnected",
       async (connectionId, connectionInfo) => {
-        const previousCount =
-          this.connectionManager.getActiveConnectionCount() - 1;
-
         this.logger.info(
           `Client connected: ${connectionId} from ${connectionInfo.remoteAddress}:${connectionInfo.remotePort}`,
         );
@@ -158,29 +172,21 @@ export class StreamServer extends EventEmitter {
         // Send cached SPS/PPS headers immediately so FFmpeg can parse the stream
         this.sendCachedHeaders(connectionId);
 
-        // Start livestream when first client connects
-        if (previousCount === 0) {
-          this.livestreamIntendedState = true;
-          this.lastClientActivity = Date.now();
-          this.startActivityMonitoring();
-          await this.ensureLivestreamState();
-        }
+        // Start livestream if this is the first consumer overall
+        // (TCP clients + muxer clients combined). The helper internally
+        // checks `livestreamIntendedState` so re-entering on every connect
+        // is a no-op once the stream is up — equivalent to the old
+        // `previousCount === 0` guard but muxer-aware.
+        await this.updateLivestreamStateForMuxerClients();
       },
     );
 
     this.connectionManager.on("clientDisconnected", async (connectionId) => {
-      const previousCount =
-        this.connectionManager.getActiveConnectionCount() + 1;
-
       this.logger.info(`Client disconnected: ${connectionId}`);
       this.emit("clientDisconnected", connectionId);
 
-      // Stop livestream when last client disconnects
-      if (previousCount === 1) {
-        this.livestreamIntendedState = false;
-        this.stopActivityMonitoring();
-        await this.ensureLivestreamState();
-      }
+      // Stop livestream only if no consumers remain.
+      await this.updateLivestreamStateForMuxerClients();
     });
   }
 
@@ -234,16 +240,27 @@ export class StreamServer extends EventEmitter {
       // Clean up any stale connections first
       this.cleanupStaleConnections();
 
-      const activeClients = this.connectionManager.getActiveConnectionCount();
+      // Total consumer count = TCP video clients (snapshot, raw video) +
+      // in-process muxer clients (fMP4 over the muxed port). Without
+      // counting the muxers here the activity timer was killing the
+      // livestream whenever the muxer was the only consumer, which broke
+      // long-lived downstream rebroadcast sessions.
+      const totalConsumers =
+        this.connectionManager.getActiveConnectionCount() +
+        this.muxerStreams.size;
 
-      if (timeSinceActivity > this.ACTIVITY_TIMEOUT && activeClients === 0) {
+      if (timeSinceActivity > this.ACTIVITY_TIMEOUT && totalConsumers === 0) {
         this.logger.info(
           `🕒 No client activity for ${Math.round(timeSinceActivity / 1000)}s and no active clients, stopping camera stream`,
         );
         this.livestreamIntendedState = false;
         this.stopActivityMonitoring();
         this.ensureLivestreamState();
-      } else if (activeClients === 0 && this.livestreamIntendedState) {
+      } else if (totalConsumers === 0 && this.livestreamIntendedState) {
+        // Brought over from main: useful diagnostic when the stream is
+        // intended to be running but everyone has temporarily detached
+        // (e.g. between Rebroadcast cycles). `totalConsumers` replaces
+        // the old `activeClients` so muxer clients count.
         this.logger.debug(
           `No active clients but stream is intended to run - waiting for connections`,
         );
@@ -265,7 +282,12 @@ export class StreamServer extends EventEmitter {
   }
 
   /**
-   * Clean up stale TCP connections that may not be actively used
+   * Destroy TCP connections older than 5 minutes. Previously this just
+   * logged; it now actually force-disconnects the socket. Necessary because
+   * when a peer ffmpeg gets SIGKILL-ed the OS sometimes never surfaces a
+   * `close` event on our side, leaving a zombie connection that would keep
+   * the activity-monitor interval alive forever (and spam the logs every
+   * 5 seconds with "Cleaning up stale connection").
    */
   private cleanupStaleConnections(): void {
     const connectionStats = this.connectionManager.getConnectionStats();
@@ -274,15 +296,11 @@ export class StreamServer extends EventEmitter {
 
     for (const [connectionId, info] of Object.entries(connectionStats)) {
       const connectionAge = now - info.connectedAt.getTime();
-
-      // Clean up connections that are older than 5 minutes and have no recent activity
       if (connectionAge > 5 * 60 * 1000) {
-        // 5 minutes
         this.logger.info(
           `Cleaning up stale connection: ${connectionId} (age: ${Math.round(connectionAge / 1000)}s)`,
         );
-        // Note: The connection manager will handle the actual cleanup when we emit the disconnect event
-        // For now, we'll just log this - the connection manager handles cleanup on actual disconnects
+        this.connectionManager.disconnectClient(connectionId);
         cleanedCount++;
       }
     }
@@ -366,7 +384,22 @@ export class StreamServer extends EventEmitter {
           ? event.buffer.data
           : Buffer.from(event.buffer.data);
 
-        // Stream the video data
+        // Fan-out to muxer clients (fMP4 via in-process JMuxer). Update
+        // the activity clock so the inactivity timer doesn't kill the
+        // livestream while muxer clients are actively consuming it.
+        if (this.muxerStreams.size > 0) {
+          this.lastClientActivity = Date.now();
+          for (const { muxer } of this.muxerStreams.values()) {
+            try {
+              muxer.feed({ video: videoBuffer });
+            } catch (e) {
+              this.logger.warn(`Muxer video feed error: ${e}`);
+            }
+          }
+        }
+
+        // Stream the video data to raw TCP clients (snapshot service,
+        // direct-video stream consumers).
         this.streamVideo(videoBuffer, Date.now(), undefined);
       },
       {
@@ -378,6 +411,71 @@ export class StreamServer extends EventEmitter {
     this.logger.info(
       `WebSocket listener setup complete for device: ${this.options.serialNumber}`,
     );
+
+    // Listen for livestream audio data events
+    let audioFrameCount = 0;
+    this.audioEventRemover = this.options.wsClient.addEventListener(
+      DEVICE_EVENTS.LIVESTREAM_AUDIO_DATA,
+      (event) => {
+        if (event.serialNumber !== this.options.serialNumber) {
+          return;
+        }
+
+        if (!this.audioMetadata && event.metadata) {
+          this.audioMetadata = event.metadata;
+          this.logger.info(
+            `Captured audio metadata: codec=${event.metadata.audioCodec}`,
+          );
+        }
+
+        const audioBuffer = Buffer.isBuffer(event.buffer.data)
+          ? event.buffer.data
+          : Buffer.from(event.buffer.data);
+
+        if (audioFrameCount < 3) {
+          const hex = audioBuffer
+            .subarray(0, Math.min(16, audioBuffer.length))
+            .toString("hex");
+          this.logger.debug(
+            `Audio frame #${audioFrameCount}: ${audioBuffer.length} bytes, first bytes: ${hex}`,
+          );
+          audioFrameCount++;
+        }
+
+        if (this.muxerStreams.size === 0) {
+          return;
+        }
+
+        // Eufy delivers AAC pre-wrapped in ADTS — JMuxer consumes ADTS
+        // directly. Anything else (e.g. AudioSpecificConfig, which is the
+        // 2-byte codec config packet that arrives ahead of the first frame)
+        // is dropped because synthesizing an ADTS header without knowing
+        // the actual sample rate/channel count would produce a stream the
+        // decoder would misinterpret.
+        if (!this.isAdtsFrame(audioBuffer)) {
+          return;
+        }
+
+        for (const { muxer } of this.muxerStreams.values()) {
+          try {
+            muxer.feed({ audio: audioBuffer });
+          } catch (e) {
+            this.logger.warn(`Muxer audio feed error: ${e}`);
+          }
+        }
+      },
+      {
+        source: "device",
+        serialNumber: this.options.serialNumber,
+      },
+    );
+  }
+
+  /**
+   * ADTS sync word check. Bytes 0..1 must be 0xFFFx (12-bit sync).
+   */
+  private isAdtsFrame(data: Buffer): boolean {
+    return data.length >= 7 && data[0] === 0xff && (data[1] & 0xf0) === 0xf0;
   }
 
   /**
@@ -479,7 +577,7 @@ export class StreamServer extends EventEmitter {
       throw new Error("Server is already running");
     }
 
-    return new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       this.server = net.createServer();
 
       this.server.on("connection", (socket) => {
@@ -502,6 +600,138 @@ export class StreamServer extends EventEmitter {
         resolve();
       });
     });
+
+    // Start muxed server — each client connection gets its own in-process
+    // JMuxer that produces fragmented MP4 directly from the camera's raw
+    // H.264 + ADTS AAC frames. No ffmpeg subprocess, no audio re-encoding.
+    await new Promise<void>((resolve, reject) => {
+      this.muxedServer = net.createServer((socket) => {
+        this.handleMuxedClient(socket);
+      });
+
+      this.muxedServer.on("error", (error) => {
+        this.logger.warn("Muxed server error:", error);
+        reject(error);
+      });
+
+      this.muxedServer.listen(0, "127.0.0.1", () => {
+        const address = this.muxedServer!.address();
+        const port =
+          address && typeof address === "object" ? address.port : "?";
+        this.logger.info(`Muxed (fMP4) server started on port ${port}`);
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Handle a new connection to the muxed TCP server. Each client gets its
+   * own in-process JMuxer instance that consumes raw H.264 NAL units and
+   * ADTS AAC frames directly from the WebSocket events (no TCP detour,
+   * no ffmpeg subprocess) and emits fragmented MP4 on the socket. This is
+   * meaningfully faster than the previous ffmpeg-subprocess approach and
+   * matches what the Eufy cameras actually deliver byte-for-byte.
+   */
+  private handleMuxedClient(socket: net.Socket): void {
+    const videoFps = this.videoMetadata?.videoFPS ?? 15;
+    // Always declare both tracks. The muxed client connects BEFORE the
+    // first audio frame arrives from Eufy, so `audioMetadata` is null at
+    // this point on a cold start; if we picked mode based on it we'd lock
+    // in video-only and silently drop every audio frame thereafter.
+    // JMuxer's `both` mode correctly holds audio until the video track is
+    // ready, then emits both tracks into the fMP4 moov.
+    const mode = "both";
+
+    const muxer = new JMuxer({
+      mode,
+      fps: videoFps,
+      flushingTime: 0,
+      clearBuffer: false,
+      debug: false,
+    });
+
+    const duplex: Duplex = muxer.createStream();
+    let firstChunkLogged = false;
+    duplex.on("data", (chunk: Buffer) => {
+      if (!firstChunkLogged) {
+        this.logger.info(
+          `JMuxer emitting fMP4 (first chunk: ${chunk.length} bytes, mode=${mode}, fps=${videoFps})`,
+        );
+        firstChunkLogged = true;
+      }
+      if (!socket.destroyed) socket.write(chunk);
+    });
+    duplex.on("error", (err) => {
+      this.logger.warn(`JMuxer duplex error: ${err.message}`);
+    });
+
+    this.muxerStreams.set(socket, { muxer, duplex });
+    this.logger.info(
+      `Muxed client attached (total active muxers: ${this.muxerStreams.size})`,
+    );
+
+    // This is the first consumer of the stream — bring up the livestream
+    // if the stream server's TCP video clients haven't already started it.
+    this.updateLivestreamStateForMuxerClients();
+
+    const cleanup = () => {
+      if (!this.muxerStreams.has(socket)) return;
+      this.muxerStreams.delete(socket);
+      try {
+        muxer.destroy();
+      } catch (e) {
+        this.logger.warn(`JMuxer destroy threw during cleanup: ${e}`);
+      }
+      this.logger.info(
+        `Muxed client detached (total active muxers: ${this.muxerStreams.size})`,
+      );
+      this.updateLivestreamStateForMuxerClients();
+    };
+
+    socket.on("close", cleanup);
+    socket.on("error", cleanup);
+  }
+
+  /**
+   * Start or stop the upstream livestream based on total consumer count
+   * (TCP video clients + in-process muxer clients). Called on every
+   * muxer-client attach/detach.
+   */
+  private async updateLivestreamStateForMuxerClients(): Promise<void> {
+    const totalConsumers =
+      this.connectionManager.getActiveConnectionCount() +
+      this.muxerStreams.size;
+
+    if (totalConsumers > 0 && !this.livestreamIntendedState) {
+      this.livestreamIntendedState = true;
+      this.lastClientActivity = Date.now();
+      this.startActivityMonitoring();
+      await this.ensureLivestreamState();
+    }
+    // Intentionally *not* stopping the livestream the moment consumer
+    // count drops to 0. Scrypted's Rebroadcast plugin cycles its muxer
+    // connection constantly — closes the old one, immediately opens a
+    // new one for the next session. Tearing down the Eufy livestream on
+    // every disconnect meant the new muxer connected to a cold pipeline,
+    // and the downstream FFmpeg would hit "Unable to find sync frame in
+    // rtsp prebuffer" until the next camera keyframe (2-4s).
+    //
+    // The activity monitor handles the genuine "everyone left" case: if
+    // no data flows for ACTIVITY_TIMEOUT ms it stops the livestream
+    // (lastClientActivity only advances while a consumer is reading).
+  }
+
+  /**
+   * Get the port the muxed (MPEG-TS) server is listening on.
+   */
+  getMuxedPort(): number | undefined {
+    if (this.muxedServer) {
+      const address = this.muxedServer.address();
+      if (address && typeof address === "object") {
+        return address.port;
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -528,11 +758,34 @@ export class StreamServer extends EventEmitter {
       await this.ensureLivestreamState();
     }
 
-    // Clean up WebSocket event listener
+    // Clean up WebSocket event listeners
     if (this.eventRemover) {
       this.eventRemover();
       this.eventRemover = undefined;
-      this.logger.debug("WebSocket event listener removed");
+      this.logger.debug("WebSocket video event listener removed");
+    }
+
+    if (this.audioEventRemover) {
+      this.audioEventRemover();
+      this.audioEventRemover = undefined;
+      this.logger.debug("WebSocket audio event listener removed");
+    }
+
+    // Tear down all in-process muxers and disconnect their clients
+    for (const [socket, { muxer }] of this.muxerStreams) {
+      try {
+        muxer.destroy();
+      } catch (e) {
+        this.logger.warn(`JMuxer destroy threw during shutdown: ${e}`);
+      }
+      if (!socket.destroyed) socket.destroy();
+    }
+    this.muxerStreams.clear();
+
+    // Close muxed server
+    if (this.muxedServer) {
+      this.muxedServer.close();
+      this.muxedServer = undefined;
     }
 
     return new Promise((resolve) => {
@@ -774,6 +1027,14 @@ export class StreamServer extends EventEmitter {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Get the last received audio metadata (codec).
+   * Returns null if no audio stream has been received yet.
+   */
+  getAudioMetadata(): AudioMetadata | null {
+    return this.audioMetadata;
   }
 
   /**

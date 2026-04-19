@@ -424,6 +424,16 @@ export class DeviceCommandBuilder {
     });
   }
 
+  /**
+   * Send raw audio data to the device during a talkback session
+   */
+  async talkbackAudioData(buffer: Buffer) {
+    return this.api.command(DEVICE_COMMANDS.TALKBACK_AUDIO_DATA, {
+      serialNumber: this.serialNumber,
+      buffer: { type: "Buffer" as const, data: Array.from(buffer) },
+    });
+  }
+
   // Lock operations
   /**
    * Calibrate the lock mechanism
