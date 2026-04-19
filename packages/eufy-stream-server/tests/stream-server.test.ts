@@ -3,6 +3,7 @@
  */
 
 import * as net from "net";
+import { Duplex } from "stream";
 import { StreamServer } from "../src/stream-server";
 import {
   createTestLogger,
@@ -804,6 +805,213 @@ describe("StreamServer", () => {
       await wait(20);
 
       expect(serverWithWs.getVideoMetadata()?.videoCodec).toBe("H265");
+    });
+  });
+
+  describe("getMuxedPort", () => {
+    it("returns undefined before server starts", () => {
+      expect(server.getMuxedPort()).toBeUndefined();
+    });
+
+    it("returns a positive number after server starts", async () => {
+      await server.start();
+      const port = server.getMuxedPort();
+      expect(typeof port).toBe("number");
+      expect(port).toBeGreaterThan(0);
+    });
+  });
+
+  describe("audio event handler", () => {
+    let audioCallback: (event: any) => void;
+
+    beforeEach(async () => {
+      await server.start();
+      // Audio listener is registered as the second addEventListener call
+      const audioCall = mockWsClient.addEventListener.mock.calls.find(
+        (call: any[]) => call[0] === "livestream audio data",
+      );
+      audioCallback = audioCall[1];
+    });
+
+    it("ignores events for wrong serialNumber", () => {
+      // Connect a muxed client would normally be needed, but we just verify no
+      // crash and no side-effects when serialNumber doesn't match.
+      // Since muxerStreams is empty the early-return for wrong SN is the first guard.
+      const JMuxerMock = require("jmuxer").default;
+      JMuxerMock.mockClear();
+
+      audioCallback({
+        serialNumber: "OTHER_DEVICE",
+        buffer: {
+          data: Buffer.from([0xff, 0xf1, 0x50, 0x80, 0x00, 0x1f, 0xfc]),
+        },
+        metadata: { audioCodec: "AAC" },
+      });
+
+      // JMuxer should never have been constructed or fed
+      expect(JMuxerMock).not.toHaveBeenCalled();
+    });
+
+    it("captures audio metadata on first event", async () => {
+      expect((server as any).audioMetadata).toBeNull();
+
+      const adtsBuffer = Buffer.from([
+        0xff, 0xf1, 0x50, 0x80, 0x00, 0x1f, 0xfc,
+      ]);
+      audioCallback({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: { data: adtsBuffer },
+        metadata: { audioCodec: "AAC" },
+      });
+
+      expect((server as any).audioMetadata).toEqual({ audioCodec: "AAC" });
+    });
+
+    it("drops non-ADTS frames when muxers are attached", async () => {
+      // Connect a muxed client
+      const muxedPort = server.getMuxedPort()!;
+      const socket = net.createConnection({
+        port: muxedPort,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      await wait(50);
+
+      expect((server as any).muxerStreams.size).toBe(1);
+
+      // Get the muxer instance that was created
+      const JMuxerMock = require("jmuxer").default;
+      const muxerInstance =
+        JMuxerMock.mock.results[JMuxerMock.mock.results.length - 1].value;
+      muxerInstance.feed.mockClear();
+
+      // Fire audio event with non-ADTS buffer (doesn't start with 0xFF 0xFx)
+      const nonAdtsBuffer = Buffer.from([
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
+      ]);
+      audioCallback({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: { data: nonAdtsBuffer },
+        metadata: { audioCodec: "AAC" },
+      });
+
+      expect(muxerInstance.feed).not.toHaveBeenCalledWith(
+        expect.objectContaining({ audio: expect.anything() }),
+      );
+
+      socket.destroy();
+    });
+
+    it("feeds valid ADTS frames to all muxers", async () => {
+      // Connect a muxed client
+      const muxedPort = server.getMuxedPort()!;
+      const socket = net.createConnection({
+        port: muxedPort,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      await wait(50);
+
+      expect((server as any).muxerStreams.size).toBe(1);
+
+      const JMuxerMock = require("jmuxer").default;
+      const muxerInstance =
+        JMuxerMock.mock.results[JMuxerMock.mock.results.length - 1].value;
+      muxerInstance.feed.mockClear();
+
+      // Valid ADTS: sync word 0xFFF, ID=0, layer=00, protection_absent=1
+      const adtsBuffer = Buffer.from([
+        0xff, 0xf1, 0x50, 0x80, 0x00, 0x1f, 0xfc,
+      ]);
+      audioCallback({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: { data: adtsBuffer },
+        metadata: { audioCodec: "AAC" },
+      });
+
+      expect(muxerInstance.feed).toHaveBeenCalledWith({ audio: adtsBuffer });
+
+      socket.destroy();
+    });
+  });
+
+  describe("handleMuxedClient", () => {
+    it("adds muxer to map on connection", async () => {
+      await server.start();
+
+      expect((server as any).muxerStreams.size).toBe(0);
+
+      const muxedPort = server.getMuxedPort()!;
+      const socket = net.createConnection({
+        port: muxedPort,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      await wait(50);
+
+      expect((server as any).muxerStreams.size).toBe(1);
+
+      socket.destroy();
+    });
+
+    it("removes muxer on socket close", async () => {
+      await server.start();
+
+      const muxedPort = server.getMuxedPort()!;
+      const socket = net.createConnection({
+        port: muxedPort,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      await wait(50);
+
+      expect((server as any).muxerStreams.size).toBe(1);
+
+      const JMuxerMock = require("jmuxer").default;
+      const muxerInstance =
+        JMuxerMock.mock.results[JMuxerMock.mock.results.length - 1].value;
+
+      socket.destroy();
+      await wait(100);
+
+      expect((server as any).muxerStreams.size).toBe(0);
+      expect(muxerInstance.destroy).toHaveBeenCalled();
+    });
+
+    it("JMuxer duplex data is written to socket", async () => {
+      await server.start();
+
+      const muxedPort = server.getMuxedPort()!;
+      const socket = net.createConnection({
+        port: muxedPort,
+        host: "127.0.0.1",
+      });
+
+      const receivedChunks: Buffer[] = [];
+      socket.on("data", (chunk) => receivedChunks.push(chunk as Buffer));
+
+      await new Promise((resolve) => socket.on("connect", resolve));
+      await wait(50);
+
+      const JMuxerMock = require("jmuxer").default;
+      const muxerInstance =
+        JMuxerMock.mock.results[JMuxerMock.mock.results.length - 1].value;
+
+      // Get the duplex stream that was created by muxer.createStream()
+      const duplex: Duplex =
+        muxerInstance.createStream.mock.results[0]?.value ??
+        muxerInstance.createStream();
+
+      // Push data into the duplex — the handler should write it to the socket
+      const testChunk = Buffer.from("fmp4-data-chunk");
+      duplex.push(testChunk);
+
+      await wait(100);
+
+      const combined = Buffer.concat(receivedChunks);
+      expect(combined).toEqual(testChunk);
+
+      socket.destroy();
     });
   });
 });

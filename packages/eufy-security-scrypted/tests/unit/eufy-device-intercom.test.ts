@@ -62,12 +62,25 @@ jest.mock("@caplaz/eufy-stream-server", () => ({
 jest.mock("child_process", () => ({
   spawn: jest.fn().mockImplementation(() => {
     const handlers: Record<string, (...args: any[]) => void> = {};
+    const stdoutHandlers: Record<string, (...args: any[]) => void> = {};
+    const stderrHandlers: Record<string, (...args: any[]) => void> = {};
     return {
-      stdout: { on: jest.fn() },
-      stderr: { on: jest.fn() },
+      stdout: {
+        on: jest.fn((event: string, cb: (...args: any[]) => void) => {
+          stdoutHandlers[event] = cb;
+        }),
+        _handlers: stdoutHandlers,
+      },
+      stderr: {
+        on: jest.fn((event: string, cb: (...args: any[]) => void) => {
+          stderrHandlers[event] = cb;
+        }),
+        _handlers: stderrHandlers,
+      },
       on: jest.fn((event: string, cb: (...args: any[]) => void) => {
         handlers[event] = cb;
       }),
+      _handlers: handlers,
       kill: jest.fn(),
     };
   }),
@@ -78,6 +91,7 @@ describe("EufyDevice Intercom Flow", () => {
   let mockWsClient: jest.Mocked<EufyWebSocketClient>;
   let mockApi: any;
   let mockLogger: any;
+  let mockSubLogger: any;
 
   // Capture event listeners registered via wsClient.addEventListener so
   // tests can simulate the LIVESTREAM_STARTED / TALKBACK_STARTED events
@@ -91,7 +105,7 @@ describe("EufyDevice Intercom Flow", () => {
   beforeEach(() => {
     listeners = [];
 
-    mockLogger = {
+    mockSubLogger = {
       debug: jest.fn(),
       info: jest.fn(),
       warn: jest.fn(),
@@ -99,6 +113,7 @@ describe("EufyDevice Intercom Flow", () => {
       fatal: jest.fn(),
       silly: jest.fn(),
       trace: jest.fn(),
+      attachTransport: jest.fn(),
       getSubLogger: jest.fn().mockReturnValue({
         debug: jest.fn(),
         info: jest.fn(),
@@ -109,6 +124,17 @@ describe("EufyDevice Intercom Flow", () => {
         trace: jest.fn(),
         attachTransport: jest.fn(),
       }),
+    };
+
+    mockLogger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      fatal: jest.fn(),
+      silly: jest.fn(),
+      trace: jest.fn(),
+      getSubLogger: jest.fn().mockReturnValue(mockSubLogger),
     };
 
     mockApi = {
@@ -298,6 +324,104 @@ describe("EufyDevice Intercom Flow", () => {
 
       expect(mockApi.stopTalkback).toHaveBeenCalledTimes(1);
       expect(mockApi.stopLivestream).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("FFmpeg subprocess callbacks", () => {
+    /**
+     * Helper: start intercom and drive it all the way to talkbackActive so
+     * that the FFmpeg process has been spawned and its handlers registered.
+     */
+    const startIntercomActive = async () => {
+      mockApi.isLivestreaming.mockResolvedValue({ livestreaming: true });
+      const promise = device.startIntercom({} as any);
+      await Promise.resolve();
+      await Promise.resolve();
+      fireEvent(DEVICE_EVENTS.TALKBACK_STARTED);
+      await promise;
+    };
+
+    const getSpawnedProcess = () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { spawn } = require("child_process");
+      return spawn.mock.results[spawn.mock.results.length - 1].value as {
+        stdout: { _handlers: Record<string, (...args: any[]) => void> };
+        stderr: { _handlers: Record<string, (...args: any[]) => void> };
+        _handlers: Record<string, (...args: any[]) => void>;
+      };
+    };
+
+    test("stdout sends audio chunk when talkbackActive is true", async () => {
+      await startIntercomActive();
+      const proc = getSpawnedProcess();
+      const chunk = Buffer.from("audio-data");
+
+      proc.stdout._handlers["data"](chunk);
+      // talkbackAudioData returns a promise — flush it
+      await Promise.resolve();
+
+      expect(mockApi.talkbackAudioData).toHaveBeenCalledWith(chunk);
+    });
+
+    test("stdout is a no-op when talkbackActive is false", async () => {
+      await startIntercomActive();
+      (device as any).talkbackActive = false;
+      const proc = getSpawnedProcess();
+
+      proc.stdout._handlers["data"](Buffer.from("audio-data"));
+      await Promise.resolve();
+
+      expect(mockApi.talkbackAudioData).not.toHaveBeenCalled();
+    });
+
+    test("stdout handles talkbackAudioData rejection without propagating", async () => {
+      mockApi.talkbackAudioData.mockRejectedValueOnce(new Error("send failed"));
+      await startIntercomActive();
+      const proc = getSpawnedProcess();
+
+      proc.stdout._handlers["data"](Buffer.from("audio-data"));
+      // Flush the rejected promise so the .catch() branch executes
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(mockSubLogger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/Failed to send talkback audio chunk/),
+      );
+    });
+
+    test("stderr handler logs FFmpeg output", async () => {
+      await startIntercomActive();
+      const proc = getSpawnedProcess();
+
+      proc.stderr._handlers["data"](Buffer.from("some ffmpeg stderr line\n"));
+
+      expect(mockSubLogger.debug).toHaveBeenCalledWith(
+        expect.stringMatching(/Talkback FFmpeg: some ffmpeg stderr line/),
+      );
+    });
+
+    test("error handler logs process error", async () => {
+      await startIntercomActive();
+      const proc = getSpawnedProcess();
+
+      proc._handlers["error"](new Error("ENOENT"));
+
+      expect(mockSubLogger.error).toHaveBeenCalledWith(
+        expect.stringMatching(/Talkback FFmpeg process error/),
+      );
+    });
+
+    test("exit handler logs exit code and clears talkbackProcess", async () => {
+      await startIntercomActive();
+      expect((device as any).talkbackProcess).toBeDefined();
+      const proc = getSpawnedProcess();
+
+      proc._handlers["exit"](0);
+
+      expect(mockSubLogger.debug).toHaveBeenCalledWith(
+        expect.stringMatching(/Talkback FFmpeg exited with code 0/),
+      );
+      expect((device as any).talkbackProcess).toBeUndefined();
     });
   });
 
