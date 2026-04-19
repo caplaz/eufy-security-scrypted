@@ -1,77 +1,77 @@
 {
-	"name": "@caplaz/eufy-security-cli",
-	"version": "0.2.1",
-	"private": true,
-	"description": "Command-line interface for Eufy Security camera control and streaming",
-	"main": "dist/index.js",
-	"types": "dist/index.d.ts",
-	"bin": {
-		"eufy-security-cli": "dist/main.js",
-		"eufy-security-streamer": "dist/main.js"
-	},
-	"engines": {
-		"node": ">=18.0.0"
-	},
-	"scripts": {
-		"build": "tsc --build",
-		"build:watch": "tsc --build --watch",
-		"build:incremental": "tsc --build --incremental",
-		"test": "jest --passWithNoTests",
-		"test:watch": "jest --watch",
-		"test:coverage": "jest --coverage",
-		"clean": "rm -rf dist .tsbuildinfo tsconfig.tsbuildinfo coverage",
-		"typecheck": "tsc --noEmit --skipLibCheck",
-		"start": "node dist/main.js",
-		"dev": "tsc --build --watch",
-		"lint": "npx eslint src/**/*.ts --max-warnings 0 --cache --config ../../.eslintrc.js",
-		"lint:fix": "eslint src/**/*.ts --fix --cache",
-		"format": "prettier --write src/**/*.ts --cache",
-		"format:check": "prettier --check src/**/*.ts --cache",
-		"prepublishOnly": "npm run clean && npm run build && npm test"
-	},
-	"keywords": [
-		"eufy",
-		"security",
-		"camera",
-		"cli",
-		"streaming"
-	],
-	"author": {
-		"name": "Stefano Acerbetti",
-		"email": "stefano@caplaz.com",
-		"url": "https://www.caplaz.com"
-	},
-	"license": "MIT",
-	"homepage": "https://github.com/caplaz/eufy-security-scrypted/tree/main/packages/eufy-security-cli#readme",
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/caplaz/eufy-security-scrypted.git",
-		"directory": "packages/eufy-security-cli"
-	},
-	"bugs": {
-		"url": "https://github.com/caplaz/eufy-security-scrypted/issues"
-	},
-	"dependencies": {
-		"@caplaz/eufy-security-client": "file:../eufy-security-client",
-		"@caplaz/eufy-stream-server": "file:../eufy-stream-server",
-		"tslog": "^4.9.3"
-	},
-	"devDependencies": {
-		"@types/jest": "^29.5.14",
-		"@types/node": "^22.10.1",
-		"@typescript-eslint/eslint-plugin": "^6.21.0",
-		"@typescript-eslint/parser": "^6.21.0",
-		"eslint": "^8.57.0",
-		"jest": "^29.7.0",
-		"jest-junit": "^16.0.0",
-		"prettier": "^3.2.5",
-		"ts-jest": "^29.1.5",
-		"typescript": "^5.0.0"
-	},
-	"files": [
-		"dist/**/*",
-		"README.md",
-		"CHANGELOG.md",
-		"LICENSE"
-	]
+  "name": "@caplaz/eufy-security-cli",
+  "version": "0.2.1",
+  "private": true,
+  "description": "Command-line interface for Eufy Security camera control and streaming",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "eufy-security-cli": "dist/main.js",
+    "eufy-security-streamer": "dist/main.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "build:watch": "tsc --build --watch",
+    "build:incremental": "tsc --build --incremental",
+    "test": "jest --passWithNoTests",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "clean": "rm -rf dist .tsbuildinfo tsconfig.tsbuildinfo coverage",
+    "typecheck": "tsc --noEmit --skipLibCheck",
+    "start": "node dist/main.js",
+    "dev": "tsc --build --watch",
+    "lint": "npx eslint src/**/*.ts --max-warnings 0 --cache --config ../../.eslintrc.js",
+    "lint:fix": "eslint src/**/*.ts --fix --cache",
+    "format": "prettier --write src/**/*.ts --cache",
+    "format:check": "prettier --check src/**/*.ts --cache",
+    "prepublishOnly": "npm run clean && npm run build && npm test"
+  },
+  "keywords": [
+    "eufy",
+    "security",
+    "camera",
+    "cli",
+    "streaming"
+  ],
+  "author": {
+    "name": "Stefano Acerbetti",
+    "email": "stefano@caplaz.com",
+    "url": "https://www.caplaz.com"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/caplaz/eufy-security-scrypted/tree/main/packages/eufy-security-cli#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/caplaz/eufy-security-scrypted.git",
+    "directory": "packages/eufy-security-cli"
+  },
+  "bugs": {
+    "url": "https://github.com/caplaz/eufy-security-scrypted/issues"
+  },
+  "dependencies": {
+    "@caplaz/eufy-security-client": "file:../eufy-security-client",
+    "@caplaz/eufy-stream-server": "file:../eufy-stream-server",
+    "tslog": "^4.9.3"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.10.1",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "jest-junit": "^16.0.0",
+    "prettier": "^3.2.5",
+    "ts-jest": "^29.1.5",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ]
 }

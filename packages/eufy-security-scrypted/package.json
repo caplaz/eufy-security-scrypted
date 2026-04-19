@@ -1,83 +1,82 @@
 {
-	"name": "@caplaz/eufy-security-scrypted",
-	"version": "0.2.1",
-	"description": "Scrypted plugin for Eufy Security cameras with streaming support via eufy-security-ws server",
-	"scripts": {
-		"scrypted-setup-project": "scrypted-setup-project",
-		"prescrypted-setup-project": "scrypted-package-json",
-		"build": "scrypted-webpack",
-		"build:watch": "scrypted-webpack --watch",
-		"build:incremental": "tsc --build --incremental && scrypted-webpack",
-		"preprepublishOnly": "scrypted-changelog",
-		"prepublishOnly": "NODE_ENV=production scrypted-webpack",
-		"prescrypted-vscode-launch": "scrypted-webpack",
-		"scrypted-vscode-launch": "scrypted-deploy-debug",
-		"scrypted-deploy-debug": "scrypted-deploy-debug",
-		"scrypted-debug": "scrypted-debug",
-		"scrypted-deploy": "scrypted-deploy",
-		"scrypted-changelog": "scrypted-changelog",
-		"scrypted-package-json": "scrypted-package-json",
-		"scrypted-readme": "scrypted-readme",
-		"test": "jest --passWithNoTests",
-		"test:watch": "jest --watch",
-		"test:coverage": "jest --coverage",
-		"clean": "rm -rf dist out .scrypted .tsbuildinfo tsconfig.tsbuildinfo coverage",
-		"typecheck": "tsc --noEmit --skipLibCheck",
-		"dev": "scrypted-webpack --watch",
-		"lint": "npx eslint src/**/*.ts --max-warnings 0 --config ../../.eslintrc.js",
-		"lint:fix": "eslint src/**/*.ts --fix --cache"
-	},
-	"keywords": [
-		"scrypted",
-		"eufy",
-		"security",
-		"camera",
-		"plugin",
-		"home-automation"
-	],
-	"author": {
-		"name": "Stefano Acerbetti",
-		"email": "stefano@caplaz.com",
-		"url": "https://www.caplaz.com"
-	},
-	"license": "MIT",
-	"homepage": "https://github.com/caplaz/eufy-security-scrypted/tree/main/packages/eufy-security-scrypted#readme",
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/caplaz/eufy-security-scrypted.git",
-		"directory": "packages/eufy-security-scrypted"
-	},
-	"bugs": {
-		"url": "https://github.com/caplaz/eufy-security-scrypted/issues"
-	},
-	"scrypted": {
-		"rollup": false,
-		"name": "Eufy Security Plugin",
-		"type": "DeviceProvider",
-		"interfaces": [
-			"DeviceProvider",
-			"Settings",
-			"Refresh",
-			"Readme"
-		]
-	},
-	"dependencies": {
-		"@caplaz/eufy-security-client": "^0.2.1",
-		"@caplaz/eufy-stream-server": "^0.2.1",
-		"@scrypted/sdk": "latest",
-		"jmuxer": "^2.1.0",
-		"tslog": "^4.9.3"
-	},
-	"devDependencies": {
-		"@types/jest": "^29.5.14",
-		"@types/node": "^24.0.10",
-		"@typescript-eslint/eslint-plugin": "^6.21.0",
-		"@typescript-eslint/parser": "^6.21.0",
-		"eslint": "^8.57.0",
-		"jest": "^29.7.0",
-		"prettier": "^3.2.5",
-		"ts-jest": "^29.1.5",
-		"typescript": "^5.0.0"
-	},
-	"gitHead": "eaaa7dba254ecd68e357b4aa9a01fffe576734c8"
+  "name": "@caplaz/eufy-security-scrypted",
+  "version": "0.2.1",
+  "description": "Scrypted plugin for Eufy Security cameras with streaming support via eufy-security-ws server",
+  "scripts": {
+    "scrypted-setup-project": "scrypted-setup-project",
+    "prescrypted-setup-project": "scrypted-package-json",
+    "build": "scrypted-webpack",
+    "build:watch": "scrypted-webpack --watch",
+    "build:incremental": "tsc --build --incremental && scrypted-webpack",
+    "preprepublishOnly": "scrypted-changelog",
+    "prepublishOnly": "NODE_ENV=production scrypted-webpack",
+    "prescrypted-vscode-launch": "scrypted-webpack",
+    "scrypted-vscode-launch": "scrypted-deploy-debug",
+    "scrypted-deploy-debug": "scrypted-deploy-debug",
+    "scrypted-debug": "scrypted-debug",
+    "scrypted-deploy": "scrypted-deploy",
+    "scrypted-changelog": "scrypted-changelog",
+    "scrypted-package-json": "scrypted-package-json",
+    "scrypted-readme": "scrypted-readme",
+    "test": "jest --passWithNoTests",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "clean": "rm -rf dist out .scrypted .tsbuildinfo tsconfig.tsbuildinfo coverage",
+    "typecheck": "tsc --noEmit --skipLibCheck",
+    "dev": "scrypted-webpack --watch",
+    "lint": "npx eslint src/**/*.ts --max-warnings 0 --config ../../.eslintrc.js",
+    "lint:fix": "eslint src/**/*.ts --fix --cache"
+  },
+  "keywords": [
+    "scrypted",
+    "eufy",
+    "security",
+    "camera",
+    "plugin",
+    "home-automation"
+  ],
+  "author": {
+    "name": "Stefano Acerbetti",
+    "email": "stefano@caplaz.com",
+    "url": "https://www.caplaz.com"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/caplaz/eufy-security-scrypted/tree/main/packages/eufy-security-scrypted#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/caplaz/eufy-security-scrypted.git",
+    "directory": "packages/eufy-security-scrypted"
+  },
+  "bugs": {
+    "url": "https://github.com/caplaz/eufy-security-scrypted/issues"
+  },
+  "scrypted": {
+    "rollup": false,
+    "name": "Eufy Security Plugin",
+    "type": "DeviceProvider",
+    "interfaces": [
+      "DeviceProvider",
+      "Settings",
+      "Refresh",
+      "Readme"
+    ]
+  },
+  "dependencies": {
+    "@caplaz/eufy-security-client": "^0.2.1",
+    "@caplaz/eufy-stream-server": "^0.2.1",
+    "@scrypted/sdk": "latest",
+    "tslog": "^4.9.3"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^24.0.10",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.2.5",
+    "ts-jest": "^29.1.5",
+    "typescript": "^5.0.0"
+  },
+  "gitHead": "eaaa7dba254ecd68e357b4aa9a01fffe576734c8"
 }
