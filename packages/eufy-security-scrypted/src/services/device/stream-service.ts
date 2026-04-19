@@ -91,7 +91,7 @@ export class StreamService {
       {
         id: "p2p",
         name: "P2P Stream",
-        container: "matroska",
+        container: "mp4",
         video: {
           codec,
           width,
@@ -186,12 +186,12 @@ export class StreamService {
       this.streamServer.getVideoMetadata()?.videoCodec ?? "H264";
     const scryptedCodec = FFmpegUtils.toScryptedCodec(eufyCodec); // "h264" or "h265"
 
-    // Use the muxed MPEG-TS port if available. The stream server runs an
-    // ffmpeg subprocess that reads raw H.264/H.265 + raw ADTS AAC from the
-    // internal video/audio TCP servers and emits MPEG-TS. Because MPEG-TS
-    // carries codec parameters (including the AAC ASC) in the PMT, the
-    // downstream Rebroadcast plugin's `-acodec copy -vcodec copy` to RTSP
-    // works without any extradata gymnastics.
+    // Use the muxed fMP4 port if available. The stream server runs an
+    // in-process JMuxer (no ffmpeg subprocess) that consumes raw H.264
+    // and ADTS AAC from the WebSocket events directly and produces
+    // fragmented MP4 — the codec config is in the `moov` init segment so
+    // the downstream Rebroadcast plugin's `-acodec copy -vcodec copy` to
+    // RTSP works without any extradata dance.
     const muxedPort = this.streamServer.getMuxedPort();
     const useMuxed = !!muxedPort;
 
@@ -199,10 +199,10 @@ export class StreamService {
       ? [
           "-hide_banner",
           "-loglevel", "error",
-          "-use_wallclock_as_timestamps", "1",
-          "-analyzeduration", "5000000",
-          "-probesize", "5000000",
-          "-f", "matroska",
+          "-fflags", "+genpts+nobuffer",
+          "-analyzeduration", "2000000",
+          "-probesize", "1000000",
+          "-f", "mp4",
           "-i", `tcp://127.0.0.1:${muxedPort}`,
         ]
       : [
@@ -222,7 +222,7 @@ export class StreamService {
       mediaStreamOptions: {
         id: options?.id || "main",
         name: options?.name || "Eufy Camera Stream",
-        container: useMuxed ? "matroska" : options?.container,
+        container: useMuxed ? "mp4" : options?.container,
         video: {
           codec: scryptedCodec,
           width,

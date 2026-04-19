@@ -105,7 +105,7 @@ describe("StreamService", () => {
       expect(options[0]).toEqual({
         id: "p2p",
         name: "P2P Stream",
-        container: "matroska",
+        container: "mp4",
         video: {
           codec: "h264",
           width: 1920,
@@ -338,7 +338,7 @@ describe("StreamService", () => {
       expect(args).toContain("-an");
     });
 
-    it("should use matroska input when muxed port is available", async () => {
+    it("should use fMP4 input when muxed port is available", async () => {
       mockStreamServer.getMuxedPort.mockReturnValue(55555);
       await service.getVideoStream(VideoQuality.HIGH);
 
@@ -346,7 +346,7 @@ describe("StreamService", () => {
         .calls[0][0];
       const args = call.inputArguments;
 
-      expect(args).toContain("matroska");
+      expect(args).toContain("mp4");
       expect(args).toContain("tcp://127.0.0.1:55555");
       expect(args).not.toContain("-an");
       expect(call.mediaStreamOptions.audio).toEqual({ codec: "aac" });

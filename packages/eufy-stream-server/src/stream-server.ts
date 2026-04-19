@@ -9,7 +9,8 @@
 
 import * as net from "node:net";
 import { EventEmitter } from "node:events";
-import { ChildProcess, spawn } from "node:child_process";
+import { Duplex } from "node:stream";
+import JMuxer from "jmuxer";
 import { Logger, ILogObj } from "tslog";
 import { ConnectionManager } from "./connection-manager";
 import { H264Parser } from "./h264-parser";
@@ -43,8 +44,6 @@ export interface StreamServerOptions {
   wsClient: EufyWebSocketClient;
   /** Device serial number to filter events (required for Eufy cameras) */
   serialNumber: string;
-  /** Path to the ffmpeg binary used for the MPEG-TS muxer (default: "ffmpeg") */
-  ffmpegPath?: string;
 }
 
 /**
@@ -74,10 +73,16 @@ export class StreamServer extends EventEmitter {
     logger?: Logger<ILogObj>;
   };
   private server?: net.Server;
-  private audioServer?: net.Server;
-  private audioClients = new Set<net.Socket>();
   private muxedServer?: net.Server;
-  private activeMuxers = new Set<ChildProcess>();
+  /**
+   * Map of muxed-client socket → its dedicated JMuxer instance. Each
+   * connection gets its own muxer so every consumer receives a complete
+   * fMP4 init segment at the start of its stream.
+   */
+  private muxerStreams = new Map<
+    net.Socket,
+    { muxer: any; duplex: Duplex }
+  >();
   private connectionManager: ConnectionManager;
   private h264Parser: H264Parser;
   private isActive = false;
@@ -134,7 +139,6 @@ export class StreamServer extends EventEmitter {
       logger: options.logger,
       wsClient: options.wsClient,
       serialNumber: options.serialNumber,
-      ffmpegPath: options.ffmpegPath ?? "ffmpeg",
     };
 
     // Use external logger if provided, otherwise create internal tslog Logger
@@ -160,9 +164,6 @@ export class StreamServer extends EventEmitter {
     this.connectionManager.on(
       "clientConnected",
       async (connectionId, connectionInfo) => {
-        const previousCount =
-          this.connectionManager.getActiveConnectionCount() - 1;
-
         this.logger.info(
           `Client connected: ${connectionId} from ${connectionInfo.remoteAddress}:${connectionInfo.remotePort}`
         );
@@ -171,29 +172,18 @@ export class StreamServer extends EventEmitter {
         // Send cached SPS/PPS headers immediately so FFmpeg can parse the stream
         this.sendCachedHeaders(connectionId);
 
-        // Start livestream when first client connects
-        if (previousCount === 0) {
-          this.livestreamIntendedState = true;
-          this.lastClientActivity = Date.now();
-          this.startActivityMonitoring();
-          await this.ensureLivestreamState();
-        }
+        // Start livestream if this is the first consumer overall
+        // (TCP clients + muxer clients combined).
+        await this.updateLivestreamStateForMuxerClients();
       }
     );
 
     this.connectionManager.on("clientDisconnected", async (connectionId) => {
-      const previousCount =
-        this.connectionManager.getActiveConnectionCount() + 1;
-
       this.logger.info(`Client disconnected: ${connectionId}`);
       this.emit("clientDisconnected", connectionId);
 
-      // Stop livestream when last client disconnects
-      if (previousCount === 1) {
-        this.livestreamIntendedState = false;
-        this.stopActivityMonitoring();
-        await this.ensureLivestreamState();
-      }
+      // Stop livestream only if no consumers remain.
+      await this.updateLivestreamStateForMuxerClients();
     });
   }
 
@@ -247,19 +237,22 @@ export class StreamServer extends EventEmitter {
       // Clean up any stale connections first
       this.cleanupStaleConnections();
 
-      const activeClients = this.connectionManager.getActiveConnectionCount();
+      // Total consumer count = TCP video clients (snapshot, raw video) +
+      // in-process muxer clients (fMP4 over the muxed port). Without
+      // counting the muxers here the activity timer was killing the
+      // livestream whenever the muxer was the only consumer, which broke
+      // long-lived downstream rebroadcast sessions.
+      const totalConsumers =
+        this.connectionManager.getActiveConnectionCount() +
+        this.muxerStreams.size;
 
-      if (timeSinceActivity > this.ACTIVITY_TIMEOUT && activeClients === 0) {
+      if (timeSinceActivity > this.ACTIVITY_TIMEOUT && totalConsumers === 0) {
         this.logger.info(
-          `🕒 No client activity for ${Math.round(timeSinceActivity / 1000)}s and no active clients, stopping camera stream`
+          `🕒 No client activity for ${Math.round(timeSinceActivity / 1000)}s and no consumers, stopping camera stream`
         );
         this.livestreamIntendedState = false;
         this.stopActivityMonitoring();
         this.ensureLivestreamState();
-      } else if (activeClients === 0 && this.livestreamIntendedState) {
-        this.logger.debug(
-          `No active clients but stream is intended to run - waiting for connections`
-        );
       }
     }, 5000); // Check every 5 seconds
 
@@ -378,7 +371,22 @@ export class StreamServer extends EventEmitter {
           ? event.buffer.data
           : Buffer.from(event.buffer.data);
 
-        // Stream the video data
+        // Fan-out to muxer clients (fMP4 via in-process JMuxer). Update
+        // the activity clock so the inactivity timer doesn't kill the
+        // livestream while muxer clients are actively consuming it.
+        if (this.muxerStreams.size > 0) {
+          this.lastClientActivity = Date.now();
+          for (const { muxer } of this.muxerStreams.values()) {
+            try {
+              muxer.feed({ video: videoBuffer });
+            } catch (e) {
+              this.logger.warn(`Muxer video feed error: ${e}`);
+            }
+          }
+        }
+
+        // Stream the video data to raw TCP clients (snapshot service,
+        // direct-video stream consumers).
         this.streamVideo(videoBuffer, Date.now(), undefined);
       },
       {
@@ -421,18 +429,19 @@ export class StreamServer extends EventEmitter {
           audioFrameCount++;
         }
 
-        if (this.audioClients.size === 0) {
+        if (this.muxerStreams.size === 0) {
           return;
         }
 
-        // Wrap raw AAC frames in ADTS headers when needed. FFmpeg's `aac`
-        // demuxer requires ADTS framing, and Eufy cameras typically emit raw
-        // AAC-LC frames without it.
-        const outgoing = this.wrapAacInAdtsIfNeeded(audioBuffer);
+        // AAC is already in ADTS format from Eufy. JMuxer consumes ADTS.
+        const adtsFrame = this.wrapAacInAdtsIfNeeded(audioBuffer);
+        if (adtsFrame.length === 0) return;
 
-        for (const client of this.audioClients) {
-          if (!client.destroyed) {
-            client.write(outgoing);
+        for (const { muxer } of this.muxerStreams.values()) {
+          try {
+            muxer.feed({ audio: adtsFrame });
+          } catch (e) {
+            this.logger.warn(`Muxer audio feed error: ${e}`);
           }
         }
       },
@@ -599,42 +608,9 @@ export class StreamServer extends EventEmitter {
       });
     });
 
-    // Start audio server on a random port
-    await new Promise<void>((resolve, reject) => {
-      this.audioServer = net.createServer((socket) => {
-        this.audioClients.add(socket);
-        this.logger.info(
-          `🔊 Audio client connected from ${socket.remoteAddress}:${socket.remotePort} (total: ${this.audioClients.size})`
-        );
-        socket.on("close", () => {
-          this.audioClients.delete(socket);
-          this.logger.info(
-            `🔊 Audio client disconnected (total: ${this.audioClients.size})`
-          );
-        });
-        socket.on("error", (err) => {
-          this.logger.warn(`🔊 Audio client error: ${err.message}`);
-          this.audioClients.delete(socket);
-        });
-      });
-
-      this.audioServer.on("error", (error) => {
-        this.logger.warn("Audio server error:", error);
-        reject(error);
-      });
-
-      this.audioServer.listen(0, "127.0.0.1", () => {
-        const address = this.audioServer.address();
-        const port = address && typeof address === "object" ? address.port : "?";
-        this.logger.info(`🔊 Audio server started on port ${port}`);
-        resolve();
-      });
-    });
-
-    // Start muxed server that remuxes video+audio into MPEG-TS on demand.
-    // Consumers (Scrypted Rebroadcast, WebRTC plugin, etc.) connect here and
-    // get a single stream with codec parameters carried inline in the PMT,
-    // which makes `-acodec copy` into RTSP work reliably.
+    // Start muxed server — each client connection gets its own in-process
+    // JMuxer that produces fragmented MP4 directly from the camera's raw
+    // H.264 + ADTS AAC frames. No ffmpeg subprocess, no audio re-encoding.
     await new Promise<void>((resolve, reject) => {
       this.muxedServer = net.createServer((socket) => {
         this.handleMuxedClient(socket);
@@ -646,127 +622,110 @@ export class StreamServer extends EventEmitter {
       });
 
       this.muxedServer.listen(0, "127.0.0.1", () => {
-        const address = this.muxedServer.address();
-        const port = address && typeof address === "object" ? address.port : "?";
-        this.logger.info(`🔀 Muxed (MPEG-TS) server started on port ${port}`);
+        const address = this.muxedServer!.address();
+        const port =
+          address && typeof address === "object" ? address.port : "?";
+        this.logger.info(`🔀 Muxed (fMP4) server started on port ${port}`);
         resolve();
       });
     });
   }
 
   /**
-   * Spawn an ffmpeg muxer for a newly connected muxed client. The muxer
-   * reads raw H.264/H.265 from the video TCP server and raw AAC from the
-   * audio TCP server, applies aac_adtstoasc to turn ADTS into MPEG-4 format,
-   * and writes MPEG-TS to stdout which we pipe straight to the client socket.
+   * Handle a new connection to the muxed TCP server. Each client gets its
+   * own in-process JMuxer instance that consumes raw H.264 NAL units and
+   * ADTS AAC frames directly from the WebSocket events (no TCP detour,
+   * no ffmpeg subprocess) and emits fragmented MP4 on the socket. This is
+   * meaningfully faster than the previous ffmpeg-subprocess approach and
+   * matches what the Eufy cameras actually deliver byte-for-byte.
    */
   private handleMuxedClient(socket: net.Socket): void {
-    const videoPort = this.getPort();
-    const audioPort = this.getAudioPort();
-
-    if (!videoPort) {
-      this.logger.warn("Muxed client connected before video server was ready");
-      socket.destroy();
-      return;
-    }
-
-    const videoCodec = this.videoMetadata?.videoCodec?.toUpperCase() ?? "H264";
-    const isHevc = videoCodec.includes("265") || videoCodec.includes("HEVC");
-    const videoInputFormat = isHevc ? "hevc" : "h264";
-
     const videoFps = this.videoMetadata?.videoFPS ?? 15;
+    // Always declare both tracks. The muxed client connects BEFORE the
+    // first audio frame arrives from Eufy, so `audioMetadata` is null at
+    // this point on a cold start; if we picked mode based on it we'd lock
+    // in video-only and silently drop every audio frame thereafter.
+    // JMuxer's `both` mode correctly holds audio until the video track is
+    // ready, then emits both tracks into the fMP4 moov.
+    const mode = "both";
 
-    const args = [
-      "-hide_banner",
-      "-loglevel", "warning",
-      "-fflags", "+nobuffer+discardcorrupt+flush_packets",
-      "-analyzeduration", "0",
-      "-probesize", "32768",
-      "-thread_queue_size", "128",
-      // Use -framerate (demuxer-specific) rather than -r (generic) so the
-      // raw-video demuxer attaches evenly-spaced monotonic PTS to each
-      // frame — 1/fps apart. Without this the H.264 demuxer ships packets
-      // with no PTS ("Timestamps are unset"), and the downstream muxer
-      // falls back to unreliable heuristics that produce jittery output.
-      "-framerate", String(videoFps),
-      "-f", videoInputFormat,
-      "-i", `tcp://127.0.0.1:${videoPort}`,
-      ...(audioPort
-        ? [
-            "-thread_queue_size", "128",
-            "-use_wallclock_as_timestamps", "1",
-            "-f", "aac",
-            "-i", `tcp://127.0.0.1:${audioPort}`,
-            "-map", "0:v:0",
-            "-map", "1:a:0",
-            // Re-encode AAC (copy+BSF produced malformed extradata that
-            // Matroska couldn't parse).
-            "-c:a", "aac",
-            "-b:a", "64k",
-            "-ar", "16000",
-            "-ac", "1",
-          ]
-        : ["-map", "0:v:0"]),
-      "-c:v", "copy",
-      "-fps_mode", "passthrough",
-      "-avoid_negative_ts", "make_zero",
-      "-f", "matroska",
-      // Streaming-mode Matroska: emit clusters promptly, skip index/cues.
-      "-live", "1",
-      "-cluster_time_limit", "100",
-      "-flush_packets", "1",
-      "pipe:1",
-    ];
+    const muxer = new JMuxer({
+      mode,
+      fps: videoFps,
+      flushingTime: 0,
+      clearBuffer: false,
+      debug: false,
+    });
 
+    const duplex: Duplex = muxer.createStream();
+    let firstChunkLogged = false;
+    duplex.on("data", (chunk: Buffer) => {
+      if (!firstChunkLogged) {
+        this.logger.info(
+          `🔀 JMuxer emitting fMP4 (first chunk: ${chunk.length} bytes, mode=${mode}, fps=${videoFps})`
+        );
+        firstChunkLogged = true;
+      }
+      if (!socket.destroyed) socket.write(chunk);
+    });
+    duplex.on("error", (err) => {
+      this.logger.warn(`JMuxer duplex error: ${err.message}`);
+    });
+
+    this.muxerStreams.set(socket, { muxer, duplex });
     this.logger.info(
-      `🔀 Spawning muxer: ${this.options.ffmpegPath} ${args.join(" ")}`
+      `🔀 Muxed client attached (total active muxers: ${this.muxerStreams.size})`
     );
 
-    const ffmpeg = spawn(this.options.ffmpegPath, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    this.activeMuxers.add(ffmpeg);
+    // This is the first consumer of the stream — bring up the livestream
+    // if the stream server's TCP video clients haven't already started it.
+    this.updateLivestreamStateForMuxerClients();
 
-    let firstDataLogged = false;
-    ffmpeg.stdout.on("data", (chunk: Buffer) => {
-      if (!firstDataLogged) {
-        this.logger.info(
-          `🔀 Muxer started producing MPEG-TS output (first chunk: ${chunk.length} bytes)`
-        );
-        firstDataLogged = true;
+    const cleanup = () => {
+      if (!this.muxerStreams.has(socket)) return;
+      this.muxerStreams.delete(socket);
+      try {
+        muxer.destroy?.();
+      } catch (e) {
+        /* ignore */
       }
-    });
-    ffmpeg.stdout.pipe(socket, { end: false });
-
-    ffmpeg.stderr.on("data", (chunk: Buffer) => {
-      const msg = chunk.toString().trim();
-      if (msg) this.logger.info(`muxer stderr: ${msg}`);
-    });
-
-    ffmpeg.on("error", (err) => {
-      this.logger.error(`Muxer ffmpeg error: ${err}`);
-      socket.destroy();
-    });
-
-    ffmpeg.on("exit", (code, signal) => {
       this.logger.info(
-        `🔀 Muxer ffmpeg exited (code=${code}, signal=${signal}, producedOutput=${firstDataLogged})`
+        `🔀 Muxed client detached (total active muxers: ${this.muxerStreams.size})`
       );
-      this.activeMuxers.delete(ffmpeg);
-      if (!socket.destroyed) socket.end();
-    });
+      this.updateLivestreamStateForMuxerClients();
+    };
 
-    socket.on("close", () => {
-      if (this.activeMuxers.has(ffmpeg)) {
-        ffmpeg.kill("SIGKILL");
-      }
-    });
+    socket.on("close", cleanup);
+    socket.on("error", cleanup);
+  }
 
-    socket.on("error", () => {
-      if (this.activeMuxers.has(ffmpeg)) {
-        ffmpeg.kill("SIGKILL");
-      }
-    });
+  /**
+   * Start or stop the upstream livestream based on total consumer count
+   * (TCP video clients + in-process muxer clients). Called on every
+   * muxer-client attach/detach.
+   */
+  private async updateLivestreamStateForMuxerClients(): Promise<void> {
+    const totalConsumers =
+      this.connectionManager.getActiveConnectionCount() +
+      this.muxerStreams.size;
+
+    if (totalConsumers > 0 && !this.livestreamIntendedState) {
+      this.livestreamIntendedState = true;
+      this.lastClientActivity = Date.now();
+      this.startActivityMonitoring();
+      await this.ensureLivestreamState();
+    }
+    // Intentionally *not* stopping the livestream the moment consumer
+    // count drops to 0. Scrypted's Rebroadcast plugin cycles its muxer
+    // connection constantly — closes the old one, immediately opens a
+    // new one for the next session. Tearing down the Eufy livestream on
+    // every disconnect meant the new muxer connected to a cold pipeline,
+    // and the downstream FFmpeg would hit "Unable to find sync frame in
+    // rtsp prebuffer" until the next camera keyframe (2-4s).
+    //
+    // The activity monitor handles the genuine "everyone left" case: if
+    // no data flows for ACTIVITY_TIMEOUT ms it stops the livestream
+    // (lastClientActivity only advances while a consumer is reading).
   }
 
   /**
@@ -819,28 +778,21 @@ export class StreamServer extends EventEmitter {
       this.logger.debug("WebSocket audio event listener removed");
     }
 
-    // Kill any active muxer ffmpeg processes
-    for (const muxer of this.activeMuxers) {
-      muxer.kill("SIGKILL");
+    // Tear down all in-process muxers and disconnect their clients
+    for (const [socket, { muxer }] of this.muxerStreams) {
+      try {
+        muxer.destroy?.();
+      } catch (e) {
+        /* ignore */
+      }
+      if (!socket.destroyed) socket.destroy();
     }
-    this.activeMuxers.clear();
+    this.muxerStreams.clear();
 
     // Close muxed server
     if (this.muxedServer) {
       this.muxedServer.close();
       this.muxedServer = undefined;
-    }
-
-    // Close all audio clients
-    for (const client of this.audioClients) {
-      client.destroy();
-    }
-    this.audioClients.clear();
-
-    // Close audio server
-    if (this.audioServer) {
-      this.audioServer.close();
-      this.audioServer = undefined;
     }
 
     return new Promise((resolve) => {
@@ -1085,15 +1037,11 @@ export class StreamServer extends EventEmitter {
   }
 
   /**
-   * Get the port the audio server is listening on
+   * @deprecated Audio is now muxed in-process via JMuxer. The dedicated
+   * audio TCP server was removed. Kept for API compatibility; always
+   * returns undefined.
    */
   getAudioPort(): number | undefined {
-    if (this.audioServer) {
-      const address = this.audioServer.address();
-      if (address && typeof address === "object") {
-        return address.port;
-      }
-    }
     return undefined;
   }
 
