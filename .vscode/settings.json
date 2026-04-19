@@ -1,3 +1,23 @@
 {
-  "scrypted.debugHost": "scrypted.local"
+"scrypted.debugHost": "scrypted.local",
+"workbench.colorCustomizations": {
+    "activityBar.activeBackground": "#ee8bc7",
+    "activityBar.background": "#ee8bc7",
+    "activityBar.foreground": "#15202b",
+    "activityBar.inactiveForeground": "#15202b99",
+    "activityBarBadge.background": "#e4f7c7",
+    "activityBarBadge.foreground": "#15202b",
+    "commandCenter.border": "#15202b99",
+    "sash.hoverBorder": "#ee8bc7",
+    "statusBar.background": "#e85eb2",
+    "statusBar.foreground": "#15202b",
+    "statusBarItem.hoverBackground": "#e2319d",
+    "statusBarItem.remoteBackground": "#e85eb2",
+    "statusBarItem.remoteForeground": "#15202b",
+    "titleBar.activeBackground": "#e85eb2",
+    "titleBar.activeForeground": "#15202b",
+    "titleBar.inactiveBackground": "#e85eb299",
+    "titleBar.inactiveForeground": "#15202b99"
+},
+"peacock.color": "#e85eb2"
 }
