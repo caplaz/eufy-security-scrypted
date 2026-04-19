@@ -1,6 +1,6 @@
 {
   "name": "@caplaz/eufy-security-scrypted",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Scrypted plugin for Eufy Security cameras with streaming support via eufy-security-ws server",
   "scripts": {
     "scrypted-setup-project": "scrypted-setup-project",
@@ -24,7 +24,7 @@
     "clean": "rm -rf dist out .scrypted .tsbuildinfo tsconfig.tsbuildinfo coverage",
     "typecheck": "tsc --noEmit --skipLibCheck",
     "dev": "scrypted-webpack --watch",
-    "lint": "npx eslint src/**/*.ts --max-warnings 0 --config ../../.eslintrc.js",
+    "lint": "npx eslint src/**/*.ts --max-warnings 0",
     "lint:fix": "eslint src/**/*.ts --fix --cache"
   },
   "keywords": [
@@ -62,21 +62,21 @@
     ]
   },
   "dependencies": {
-    "@caplaz/eufy-security-client": "^0.2.1",
-    "@caplaz/eufy-stream-server": "^0.2.1",
+    "@caplaz/eufy-security-client": "^0.3.0",
+    "@caplaz/eufy-stream-server": "^0.3.0",
     "@scrypted/sdk": "latest",
     "tslog": "^4.9.3"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",
-    "@types/node": "^24.0.10",
-    "@typescript-eslint/eslint-plugin": "^6.21.0",
-    "@typescript-eslint/parser": "^6.21.0",
-    "eslint": "^8.57.0",
+    "@types/node": "^25.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.58.2",
+    "@typescript-eslint/parser": "^8.58.2",
+    "eslint": "^10.2.1",
     "jest": "^29.7.0",
-    "prettier": "^3.2.5",
-    "ts-jest": "^29.1.5",
-    "typescript": "^5.0.0"
+    "prettier": "^3.8.3",
+    "ts-jest": "^29.4.9",
+    "typescript": "^6.0.0"
   },
   "gitHead": "eaaa7dba254ecd68e357b4aa9a01fffe576734c8"
 }

@@ -109,7 +109,7 @@ export class WebSocketMessageProcessor {
     let messageStr: string;
     try {
       messageStr = data.toString();
-    } catch (error) {
+    } catch (_error) {
       this.invalidMessages++;
       return { valid: false, error: "Failed to convert message to string" };
     }
@@ -143,7 +143,7 @@ export class WebSocketMessageProcessor {
               messageStr.includes(`"type":"${type}"`),
           );
         }
-      } catch (e) {
+      } catch (_e) {
         // If we can't parse even the beginning, check if it's livestream data by string matching
         const isLivestreamData =
           messageStr.includes(`"${DEVICE_EVENTS.LIVESTREAM_VIDEO_DATA}"`) ||
@@ -193,7 +193,7 @@ export class WebSocketMessageProcessor {
     let parsedMessage: any;
     try {
       parsedMessage = JSON.parse(messageStr);
-    } catch (error) {
+    } catch (_error) {
       this.invalidMessages++;
       this.logger?.warn("Invalid JSON message:", messageStr.substring(0, 100));
       return { valid: false, error: "Invalid JSON" };
@@ -237,7 +237,7 @@ export class WebSocketMessageProcessor {
     // Basic circular reference check
     try {
       JSON.stringify(message);
-    } catch (error) {
+    } catch (_error) {
       return { valid: false, error: "Message contains circular references" };
     }
 

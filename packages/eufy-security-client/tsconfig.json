@@ -6,13 +6,11 @@
     "rootDir": "./src",
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
 
+    "types": ["node", "jest"],
+
     // Decorators (needed for some dependencies)
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-
-    // Performance Optimizations
-    "downlevelIteration": true,
-    "importHelpers": true,
 
     // Build Performance
     "incremental": true,

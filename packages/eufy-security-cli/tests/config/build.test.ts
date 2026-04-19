@@ -34,8 +34,6 @@ describe("Build Configuration Integration", () => {
       );
       expect(tsconfig.compilerOptions.experimentalDecorators).toBe(true);
       expect(tsconfig.compilerOptions.emitDecoratorMetadata).toBe(true);
-      expect(tsconfig.compilerOptions.downlevelIteration).toBe(true);
-      expect(tsconfig.compilerOptions.importHelpers).toBe(true);
       expect(tsconfig.compilerOptions.incremental).toBe(true);
       expect(tsconfig.compilerOptions.composite).toBe(true);
 

@@ -7,10 +7,9 @@
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
 
     // CLI-specific optimizations
+    "types": ["node", "jest"],
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "downlevelIteration": true,
-    "importHelpers": true,
 
     // Build Performance
     "incremental": true,
