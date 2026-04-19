@@ -81,7 +81,7 @@ export class StreamServer extends EventEmitter {
    */
   private muxerStreams = new Map<
     net.Socket,
-    { muxer: any; duplex: Duplex }
+    { muxer: JMuxer; duplex: Duplex }
   >();
   private connectionManager: ConnectionManager;
   private h264Parser: H264Parser;
@@ -411,7 +411,7 @@ export class StreamServer extends EventEmitter {
         if (!this.audioMetadata && event.metadata) {
           this.audioMetadata = event.metadata;
           this.logger.info(
-            `🔊 Captured audio metadata: codec=${event.metadata.audioCodec}`
+            `Captured audio metadata: codec=${event.metadata.audioCodec}`
           );
         }
 
@@ -419,12 +419,12 @@ export class StreamServer extends EventEmitter {
           ? event.buffer.data
           : Buffer.from(event.buffer.data);
 
-        // Log the first few audio packets so we can tell whether the Eufy
-        // stream is ADTS (starts with 0xFFF sync word) or raw AAC.
         if (audioFrameCount < 3) {
-          const hex = audioBuffer.subarray(0, Math.min(16, audioBuffer.length)).toString("hex");
-          this.logger.info(
-            `🔊 Audio frame #${audioFrameCount}: ${audioBuffer.length} bytes, first bytes: ${hex}`
+          const hex = audioBuffer
+            .subarray(0, Math.min(16, audioBuffer.length))
+            .toString("hex");
+          this.logger.debug(
+            `Audio frame #${audioFrameCount}: ${audioBuffer.length} bytes, first bytes: ${hex}`
           );
           audioFrameCount++;
         }
@@ -433,13 +433,19 @@ export class StreamServer extends EventEmitter {
           return;
         }
 
-        // AAC is already in ADTS format from Eufy. JMuxer consumes ADTS.
-        const adtsFrame = this.wrapAacInAdtsIfNeeded(audioBuffer);
-        if (adtsFrame.length === 0) return;
+        // Eufy delivers AAC pre-wrapped in ADTS — JMuxer consumes ADTS
+        // directly. Anything else (e.g. AudioSpecificConfig, which is the
+        // 2-byte codec config packet that arrives ahead of the first frame)
+        // is dropped because synthesizing an ADTS header without knowing
+        // the actual sample rate/channel count would produce a stream the
+        // decoder would misinterpret.
+        if (!this.isAdtsFrame(audioBuffer)) {
+          return;
+        }
 
         for (const { muxer } of this.muxerStreams.values()) {
           try {
-            muxer.feed({ audio: adtsFrame });
+            muxer.feed({ audio: audioBuffer });
           } catch (e) {
             this.logger.warn(`Muxer audio feed error: ${e}`);
           }
@@ -453,36 +459,12 @@ export class StreamServer extends EventEmitter {
   }
 
   /**
-   * Prepend an ADTS header to a raw AAC frame if it doesn't already have one.
-   * Assumes AAC-LC, 16 kHz, mono (typical Eufy configuration).
+   * ADTS sync word check. Bytes 0..1 must be 0xFFFx (12-bit sync).
    */
-  private wrapAacInAdtsIfNeeded(data: Buffer): Buffer {
-    // Already ADTS? (sync word 0xFFF in bytes [0..1])
-    if (data.length >= 2 && data[0] === 0xff && (data[1] & 0xf0) === 0xf0) {
-      return data;
-    }
-
-    // Skip tiny packets (likely AAC Specific Config — 2 bytes — not a frame).
-    if (data.length < 7) {
-      return Buffer.alloc(0);
-    }
-
-    const profile = 2; // AAC-LC
-    const freqIndex = 8; // 16000 Hz
-    const channels = 1;
-    const frameLength = data.length + 7;
-
-    const header = Buffer.alloc(7);
-    header[0] = 0xff;
-    header[1] = 0xf1; // MPEG-4, Layer 0, protection absent
-    header[2] =
-      ((profile - 1) << 6) | (freqIndex << 2) | ((channels >> 2) & 0x01);
-    header[3] = ((channels & 0x03) << 6) | ((frameLength >> 11) & 0x03);
-    header[4] = (frameLength >> 3) & 0xff;
-    header[5] = ((frameLength & 0x07) << 5) | 0x1f;
-    header[6] = 0xfc;
-
-    return Buffer.concat([header, data]);
+  private isAdtsFrame(data: Buffer): boolean {
+    return (
+      data.length >= 7 && data[0] === 0xff && (data[1] & 0xf0) === 0xf0
+    );
   }
 
   /**
@@ -625,7 +607,7 @@ export class StreamServer extends EventEmitter {
         const address = this.muxedServer!.address();
         const port =
           address && typeof address === "object" ? address.port : "?";
-        this.logger.info(`🔀 Muxed (fMP4) server started on port ${port}`);
+        this.logger.info(`Muxed (fMP4) server started on port ${port}`);
         resolve();
       });
     });
@@ -662,7 +644,7 @@ export class StreamServer extends EventEmitter {
     duplex.on("data", (chunk: Buffer) => {
       if (!firstChunkLogged) {
         this.logger.info(
-          `🔀 JMuxer emitting fMP4 (first chunk: ${chunk.length} bytes, mode=${mode}, fps=${videoFps})`
+          `JMuxer emitting fMP4 (first chunk: ${chunk.length} bytes, mode=${mode}, fps=${videoFps})`
         );
         firstChunkLogged = true;
       }
@@ -674,7 +656,7 @@ export class StreamServer extends EventEmitter {
 
     this.muxerStreams.set(socket, { muxer, duplex });
     this.logger.info(
-      `🔀 Muxed client attached (total active muxers: ${this.muxerStreams.size})`
+      `Muxed client attached (total active muxers: ${this.muxerStreams.size})`
     );
 
     // This is the first consumer of the stream — bring up the livestream
@@ -685,12 +667,12 @@ export class StreamServer extends EventEmitter {
       if (!this.muxerStreams.has(socket)) return;
       this.muxerStreams.delete(socket);
       try {
-        muxer.destroy?.();
+        muxer.destroy();
       } catch (e) {
-        /* ignore */
+        this.logger.warn(`JMuxer destroy threw during cleanup: ${e}`);
       }
       this.logger.info(
-        `🔀 Muxed client detached (total active muxers: ${this.muxerStreams.size})`
+        `Muxed client detached (total active muxers: ${this.muxerStreams.size})`
       );
       this.updateLivestreamStateForMuxerClients();
     };
@@ -781,9 +763,9 @@ export class StreamServer extends EventEmitter {
     // Tear down all in-process muxers and disconnect their clients
     for (const [socket, { muxer }] of this.muxerStreams) {
       try {
-        muxer.destroy?.();
+        muxer.destroy();
       } catch (e) {
-        /* ignore */
+        this.logger.warn(`JMuxer destroy threw during shutdown: ${e}`);
       }
       if (!socket.destroyed) socket.destroy();
     }
@@ -1033,15 +1015,6 @@ export class StreamServer extends EventEmitter {
         return address.port;
       }
     }
-    return undefined;
-  }
-
-  /**
-   * @deprecated Audio is now muxed in-process via JMuxer. The dedicated
-   * audio TCP server was removed. Kept for API compatibility; always
-   * returns undefined.
-   */
-  getAudioPort(): number | undefined {
     return undefined;
   }
 

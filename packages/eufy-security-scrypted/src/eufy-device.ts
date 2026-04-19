@@ -647,8 +647,8 @@ export class EufyDevice
    * Wait for a device event for this device's serial number. The listener
    * self-removes on first match or on timeout.
    */
-  private waitForDeviceEvent(
-    eventType: DeviceEventType,
+  private waitForDeviceEvent<T extends DeviceEventType>(
+    eventType: T,
     timeoutMs: number
   ): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -657,15 +657,19 @@ export class EufyDevice
         remove?.();
         reject(new Error(`Timed out waiting for "${eventType}"`));
       }, timeoutMs);
-      remove = this.wsClient.addEventListener(
-        eventType as any,
-        (() => {
-          clearTimeout(timeout);
-          remove?.();
-          resolve();
-        }) as any,
-        { source: EVENT_SOURCES.DEVICE, serialNumber: this.serialNumber }
-      );
+      // The waiter is a fail-safe — don't keep the event loop alive on
+      // its own. If the wait promise is abandoned (e.g. caller threw
+      // before awaiting it), we don't want to delay process exit.
+      timeout.unref?.();
+      const callback: EventCallbackForType<T, DeviceEventSource> = () => {
+        clearTimeout(timeout);
+        remove?.();
+        resolve();
+      };
+      remove = this.wsClient.addEventListener(eventType, callback, {
+        source: EVENT_SOURCES.DEVICE,
+        serialNumber: this.serialNumber,
+      });
     });
   }
 
@@ -679,8 +683,16 @@ export class EufyDevice
     // Talkback on Eufy requires an active livestream owned by our ws
     // session. Start it ourselves if not already running — the camera
     // returns "device_livestream_not_running" otherwise.
-    const status = await this.api.isLivestreaming();
-    if (!status.livestreaming) {
+    let livestreaming = false;
+    try {
+      const status = await this.api.isLivestreaming();
+      livestreaming = status.livestreaming;
+    } catch (e) {
+      throw new Error(
+        `Failed to query livestream status before starting talkback: ${e}`
+      );
+    }
+    if (!livestreaming) {
       this.logger.info("Starting livestream to host talkback session");
       const livestreamStarted = this.waitForDeviceEvent(
         DEVICE_EVENTS.LIVESTREAM_STARTED,
@@ -699,6 +711,10 @@ export class EufyDevice
       DEVICE_EVENTS.TALKBACK_STARTED,
       10000
     );
+    // Always attach a handler — the promise has its own 10s timeout, and
+    // if startTalkback throws below we'd leak an unhandled rejection
+    // when that timeout eventually fires.
+    talkbackStarted.catch(() => {});
     try {
       await this.api.startTalkback();
     } catch (e) {

@@ -38,6 +38,7 @@
   },
   "dependencies": {
     "@caplaz/eufy-security-client": "^0.2.1",
+    "jmuxer": "^2.1.0",
     "tslog": "^4.9.2"
   },
   "devDependencies": {

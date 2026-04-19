@@ -44,7 +44,6 @@ describe("StreamService", () => {
       getPort: jest.fn().mockReturnValue(mockPort),
       isRunning: jest.fn().mockReturnValue(false),
       getVideoMetadata: jest.fn().mockReturnValue(null),
-      getAudioPort: jest.fn().mockReturnValue(undefined),
       getAudioMetadata: jest.fn().mockReturnValue(null),
       getMuxedPort: jest.fn().mockReturnValue(undefined),
       captureSnapshot: jest.fn(),

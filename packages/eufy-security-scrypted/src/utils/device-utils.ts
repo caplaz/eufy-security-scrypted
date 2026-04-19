@@ -280,8 +280,17 @@ export class DeviceUtils {
       ScryptedInterface.MotionSensor,
       ScryptedInterface.Settings,
       ScryptedInterface.Refresh,
-      ScryptedInterface.Intercom,
     ];
+
+    // Talkback requires both a microphone (to receive) and speaker (to play)
+    // on the device. Without these the camera will reject startTalkback and
+    // Scrypted would surface a non-functional talk button.
+    if (
+      properties.microphone !== undefined &&
+      properties.speaker !== undefined
+    ) {
+      interfaces.push(ScryptedInterface.Intercom);
+    }
 
     // Add Battery interface only for battery-powered devices
     if (capabilities.battery) {

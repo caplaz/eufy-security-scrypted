@@ -51,12 +51,6 @@ export interface IStreamServer {
   getVideoMetadata(): VideoMetadata | null;
 
   /**
-   * Get the TCP port the audio server is listening on.
-   * Returns undefined if not started.
-   */
-  getAudioPort(): number | undefined;
-
-  /**
    * Get the last received audio metadata (codec).
    * Returns null if no audio stream has been received yet.
    */
