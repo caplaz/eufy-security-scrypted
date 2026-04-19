@@ -459,7 +459,7 @@ NOTES:
     // Now try to parse as URL to validate structure (should work now)
     try {
       new URL(url);
-    } catch (error) {
+    } catch (_error) {
       throw new Error(
         `❌ Invalid WebSocket URL: ${url}\n\n` +
           `Please check the format and try again\n\n` +

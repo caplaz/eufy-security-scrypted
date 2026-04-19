@@ -9,8 +9,6 @@
     // CLI-specific optimizations
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "downlevelIteration": true,
-    "importHelpers": true,
 
     // Build Performance
     "incremental": true,

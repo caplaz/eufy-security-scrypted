@@ -132,7 +132,7 @@ describe("StreamServer", () => {
       const receivedData: Buffer[] = [];
 
       client.on("data", (data) => {
-        receivedData.push(data);
+        receivedData.push(data as Buffer);
       });
 
       await new Promise<void>((resolve) => {
@@ -424,7 +424,7 @@ describe("StreamServer", () => {
       const receivedData: Buffer[] = [];
 
       client.on("data", (data) => {
-        receivedData.push(data);
+        receivedData.push(data as Buffer);
       });
 
       await new Promise<void>((resolve) => {
@@ -488,7 +488,7 @@ describe("StreamServer", () => {
       const receivedData: Buffer[] = [];
 
       client.on("data", (data) => {
-        receivedData.push(data);
+        receivedData.push(data as Buffer);
       });
 
       await new Promise<void>((resolve) => {
@@ -615,7 +615,7 @@ describe("StreamServer", () => {
       const receivedData: Buffer[] = [];
 
       client.on("data", (data) => {
-        receivedData.push(data);
+        receivedData.push(data as Buffer);
       });
 
       await new Promise<void>((resolve) => {
@@ -749,7 +749,7 @@ describe("StreamServer", () => {
       // Connect a fresh TCP client — it should receive the three cached parameter sets
       const client = new net.Socket();
       const receivedData: Buffer[] = [];
-      client.on("data", (d) => receivedData.push(d));
+      client.on("data", (d) => receivedData.push(d as Buffer));
 
       await new Promise<void>((resolve) =>
         client.connect(testPort, "127.0.0.1", resolve)

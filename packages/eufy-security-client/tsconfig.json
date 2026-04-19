@@ -10,10 +10,6 @@
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
 
-    // Performance Optimizations
-    "downlevelIteration": true,
-    "importHelpers": true,
-
     // Build Performance
     "incremental": true,
     "composite": true

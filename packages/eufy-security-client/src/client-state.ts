@@ -350,7 +350,7 @@ export class ClientStateManager {
     this.stateChangeCallbacks.forEach((callback) => {
       try {
         callback(currentState);
-      } catch (error) {
+      } catch (_error) {
         // Silently ignore callback errors to prevent cascading failures
       }
     });
