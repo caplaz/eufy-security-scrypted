@@ -843,11 +843,21 @@ export class EufySecurityProvider
     // Resolve all manifests in parallel, then group by station (providerNativeId)
     // and call onDevicesChanged once per station. This guarantees Scrypted assigns
     // stable numeric IDs because it sees the full device list in a deterministic order.
-    const manifests = await Promise.all(
+    // Use allSettled so a single unsupported/unavailable device doesn't block all others.
+    const results = await Promise.allSettled(
       deviceSerials.map((serial) =>
         DeviceUtils.createDeviceManifest(this.wsClient, serial),
       ),
     );
+
+    const manifests = results.flatMap((result, i) => {
+      if (result.status === "fulfilled") return [result.value];
+      this.logger.warn(
+        `⚠️ Skipping device ${deviceSerials[i]}: failed to create manifest:`,
+        result.reason,
+      );
+      return [];
+    });
 
     const byStation = new Map<string | undefined, typeof manifests>();
     for (const manifest of manifests) {

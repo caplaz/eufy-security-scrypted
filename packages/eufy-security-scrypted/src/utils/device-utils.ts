@@ -331,7 +331,7 @@ export class DeviceUtils {
     // Return Scrypted device manifest for the camera/device
     return {
       nativeId: `device_${serialNumber}`,
-      name: properties.name || `Eufy ${properties.model}`,
+      name: properties.name || `Eufy ${properties.model || serialNumber}`,
       type: deviceType,
       interfaces,
       info: {
