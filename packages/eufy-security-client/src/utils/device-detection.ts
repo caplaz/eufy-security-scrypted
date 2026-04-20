@@ -72,6 +72,10 @@ export const CAMERA_DEVICE_TYPES = new Set<number>([
   DeviceType.CAMERA_GUN, // Gun camera
   DeviceType.CAMERA_SNAIL, // Snail camera
   DeviceType.FLOODLIGHT_CAMERA_8426, // Floodlight E30
+  DeviceType.CAMERA_S4, // T8172
+  DeviceType.SOLOCAM_E42, // T8173
+  DeviceType.CAMERA_4G_S330, // T86P2
+  DeviceType.CAMERA_C35, // T8110
 ]);
 
 /**
@@ -114,6 +118,9 @@ export const FLOODLIGHT_DEVICE_TYPES = new Set<number>([
 export const SENSOR_DEVICE_TYPES = new Set<number>([
   DeviceType.SENSOR, // Basic entry sensor
   DeviceType.MOTION_SENSOR, // Motion sensor
+  DeviceType.SIREN_SENSOR_E20,
+  DeviceType.ENTRY_SENSOR_E20,
+  DeviceType.PIR_SENSOR_E20,
 ]);
 
 /**
@@ -131,6 +138,10 @@ export const LOCK_DEVICE_TYPES = new Set<number>([
   DeviceType.LOCK_85A3, // Smart Lock R10 Keypad
   DeviceType.LOCK_8506, // Lock 8506
   DeviceType.LOCK_8502, // Lock 8502
+  DeviceType.LOCK_8531,
+  DeviceType.LOCK_85L0,
+  DeviceType.LOCK_85D0,
+  DeviceType.LOCK_85V0,
 ]);
 
 /**
@@ -190,6 +201,10 @@ export const BATTERY_DEVICE_TYPES = new Set<number>([
   DeviceType.LOCK_85A3,
   DeviceType.LOCK_8506,
   DeviceType.LOCK_8502,
+  DeviceType.LOCK_8531,
+  DeviceType.LOCK_85L0,
+  DeviceType.LOCK_85D0,
+  DeviceType.LOCK_85V0,
 
   // Smart safes (from original hasBattery())
   DeviceType.SMART_SAFE_7400,
@@ -213,6 +228,8 @@ export const PAN_TILT_DEVICE_TYPES = new Set<number>([
   DeviceType.INDOOR_PT_CAMERA_E30,
   DeviceType.INDOOR_PT_CAMERA_C220,
   DeviceType.INDOOR_PT_CAMERA_C210,
+  DeviceType.INDOOR_PT_CAMERA_C220_V2,
+  DeviceType.INDOOR_PT_CAMERA_C220_V3,
 ]);
 
 /**
@@ -239,6 +256,7 @@ export const SOLO_CAMERA_TYPES = new Set<number>([
   DeviceType.SOLO_CAMERA_E30,
   DeviceType.OUTDOOR_PT_CAMERA, // S340 is considered SoloCam
   DeviceType.CAMERA_E40, // EufyCam E40
+  DeviceType.SOLOCAM_E42, // T8173
 ]);
 
 export const INDOOR_CAMERA_TYPES = new Set<number>([
@@ -252,6 +270,8 @@ export const INDOOR_CAMERA_TYPES = new Set<number>([
   DeviceType.INDOOR_PT_CAMERA_E30,
   DeviceType.INDOOR_PT_CAMERA_C220,
   DeviceType.INDOOR_PT_CAMERA_C210,
+  DeviceType.INDOOR_PT_CAMERA_C220_V2,
+  DeviceType.INDOOR_PT_CAMERA_C220_V3,
 ]);
 
 export const WIRED_DOORBELL_TYPES = new Set<number>([
@@ -285,6 +305,10 @@ export const LOCK_WIFI_TYPES = new Set<number>([
   DeviceType.LOCK_8504,
   DeviceType.LOCK_8502,
   DeviceType.LOCK_8506,
+  DeviceType.LOCK_8531,
+  DeviceType.LOCK_85L0,
+  DeviceType.LOCK_85D0,
+  DeviceType.LOCK_85V0,
 ]);
 
 export const LOCK_KEYPAD_TYPES = new Set<number>([
@@ -751,6 +775,8 @@ export const MODEL_NAMES: Record<string, string> = {
   T8134: "SoloCam S220",
   T8170: "SoloCam S340",
   T8171: "SoloCam E30",
+  T8172: "SoloCam S4",
+  T8173: "SoloCam E42",
 
   // Floodlight Cameras
   T8420: "Floodlight Camera",
@@ -784,6 +810,14 @@ export const MODEL_NAMES: Record<string, string> = {
   // Sensors
   T8900: "Entry Sensor",
   T8910: "Motion Sensor",
+
+  // Indoor Cameras (C220 variants)
+  T8W11C: "Indoor Cam C220",
+  T8419N: "Indoor Cam C220 (T8419N)",
+  T8110: "Indoor Cam C35",
+
+  // 4G Cameras
+  T86P2: "SoloCam 4G S330",
 };
 
 /**
