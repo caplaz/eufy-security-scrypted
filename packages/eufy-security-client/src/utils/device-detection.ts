@@ -64,6 +64,7 @@ export const CAMERA_DEVICE_TYPES = new Set<number>([
   DeviceType.INDOOR_OUTDOOR_CAMERA_2K, // Indoor/outdoor 2K
   DeviceType.INDOOR_COST_DOWN_CAMERA, // Indoor cost down camera
   DeviceType.OUTDOOR_PT_CAMERA, // S340 outdoor pan/tilt
+  DeviceType.CAMERA_E40, // EufyCam E40
   DeviceType.CAMERA_FG, // T8150 4G Starlight cameras
   DeviceType.CAMERA_GARAGE_T8453_COMMON, // Garage camera common
   DeviceType.CAMERA_GARAGE_T8452, // Garage camera T8452
@@ -165,6 +166,7 @@ export const BATTERY_DEVICE_TYPES = new Set<number>([
   DeviceType.SOLO_CAMERA_C210,
   DeviceType.SOLO_CAMERA_E30,
   DeviceType.OUTDOOR_PT_CAMERA, // S340 outdoor pan/tilt
+  DeviceType.CAMERA_E40, // EufyCam E40
   DeviceType.CAMERA_FG, // T8150 4G Starlight
   DeviceType.WALL_LIGHT_CAM_81A0, // Wall light cam 81A0
   DeviceType.SMART_DROP, // T8790
@@ -236,6 +238,7 @@ export const SOLO_CAMERA_TYPES = new Set<number>([
   DeviceType.SOLO_CAMERA_C210,
   DeviceType.SOLO_CAMERA_E30,
   DeviceType.OUTDOOR_PT_CAMERA, // S340 is considered SoloCam
+  DeviceType.CAMERA_E40, // EufyCam E40
 ]);
 
 export const INDOOR_CAMERA_TYPES = new Set<number>([
@@ -734,6 +737,9 @@ export const MODEL_NAMES: Record<string, string> = {
   T8161: "eufyCam S300 (eufyCam 3C)",
   T8162: "eufyCam S3 Pro",
   T8600: "eufyCam E330 (Professional)",
+
+  // EufyCam E Series
+  T8144: "EufyCam E40",
 
   // SoloCam Series
   T8130: "SoloCam E20",
