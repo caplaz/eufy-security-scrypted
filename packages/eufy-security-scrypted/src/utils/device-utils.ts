@@ -341,10 +341,11 @@ export class DeviceUtils {
         firmware: properties.softwareVersion,
         metadata,
       },
-      // link to the base station for this device
-      providerNativeId: properties.stationSerialNumber
-        ? `station_${properties.stationSerialNumber}`
-        : undefined,
+      // Standalone doorbells and SoloCams act as their own station; their
+      // stationSerialNumber either equals their own serial or is absent from
+      // the API response. Fall back to station_<own serial> so Scrypted always
+      // routes getDevice() through EufyStation rather than the plugin root.
+      providerNativeId: `station_${properties.stationSerialNumber ?? serialNumber}`,
     };
   }
 

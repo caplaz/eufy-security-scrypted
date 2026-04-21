@@ -189,5 +189,23 @@ describe("DeviceUtils", () => {
 
       expect(result.interfaces).toContain("BinarySensor");
     });
+
+    it("uses stationSerialNumber as providerNativeId when present", async () => {
+      const wsClient = makeWsClient({
+        ...baseProps,
+        stationSerialNumber: "HUB001",
+      }) as any;
+      const result = await DeviceUtils.createDeviceManifest(wsClient, "CAM001");
+
+      expect(result.providerNativeId).toBe("station_HUB001");
+    });
+
+    it("falls back to own serial as providerNativeId when stationSerialNumber is absent", async () => {
+      // Standalone doorbells (e.g. T8223/C30) report no stationSerialNumber
+      const wsClient = makeWsClient(baseProps) as any;
+      const result = await DeviceUtils.createDeviceManifest(wsClient, "CAM001");
+
+      expect(result.providerNativeId).toBe("station_CAM001");
+    });
   });
 });
