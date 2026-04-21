@@ -5,6 +5,18 @@ All notable changes to the Eufy Security Scrypted monorepo will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-04-20
+
+### Added
+
+- **Device Support**: sync device types with upstream bropat/eufy-security-client
+
+### Fixed
+
+- **Device Support**: ensure standalone devices route through EufyStation by defaulting providerNativeId to station_<serial>
+- **Error Handling**: use Promise.allSettled so one bad device doesn't block all others (#22)
+- **State Updates**: guard against state updates before device initialization (#17)
+
 ## [0.3.0] - 2026-04-19
 
 ### Added
