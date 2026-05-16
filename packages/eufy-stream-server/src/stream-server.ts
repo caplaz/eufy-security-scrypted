@@ -103,6 +103,17 @@ export class StreamServer extends EventEmitter {
   private livestreamIntendedState = false;
   private livestreamActualState = false;
   private startStopTimeout?: ReturnType<typeof setTimeout>;
+  /**
+   * Counts back-to-back `startLivestream` attempts that produced no video
+   * data. Resets to 0 once `livestreamActualState` flips true or the
+   * intended state is cleared. Used to cap the retry loop so a wedged
+   * upstream (e.g. HomeBase that's accepting CMD_START_REALTIME_MEDIA but
+   * not returning any P2P data) doesn't get hammered indefinitely — each
+   * extra `startLivestream` we send to a stuck HomeBase compounds the
+   * backpressure and slows recovery.
+   */
+  private consecutiveNoDataStarts = 0;
+  private readonly MAX_NO_DATA_STARTS = 3;
 
   // Video metadata from first frame
   private videoMetadata: VideoMetadata | null = null;
@@ -370,6 +381,7 @@ export class StreamServer extends EventEmitter {
         // Mark livestream as actually running when we receive data
         if (!this.livestreamActualState) {
           this.livestreamActualState = true;
+          this.consecutiveNoDataStarts = 0;
           this.logger.info(
             "📹 Livestream confirmed active - receiving video data",
           );
@@ -522,9 +534,30 @@ export class StreamServer extends EventEmitter {
         }
 
         if (this.livestreamIntendedState && !actualStreamingStatus) {
+          // Stop hammering a wedged upstream. After MAX_NO_DATA_STARTS
+          // consecutive startLivestream commands without ever receiving
+          // video data, give up and emit streamError. The counter is
+          // reset whenever data actually arrives (livestreamActualState
+          // flips true) or intent is cleared.
+          if (this.consecutiveNoDataStarts >= this.MAX_NO_DATA_STARTS) {
+            this.logger.error(
+              `❌ Giving up after ${this.consecutiveNoDataStarts} consecutive startLivestream attempts with no data — upstream P2P (HomeBase/station) appears wedged. Will not auto-retry until a fresh consumer attaches.`,
+            );
+            this.livestreamIntendedState = false;
+            this.consecutiveNoDataStarts = 0;
+            this.emit(
+              "streamError",
+              new Error(
+                "Upstream livestream not delivering data after multiple attempts",
+              ),
+            );
+            break;
+          }
+
           // Need to start livestream
+          this.consecutiveNoDataStarts++;
           this.logger.info(
-            `🎥 Starting livestream (attempt ${attempt}/${maxRetries})`,
+            `🎥 Starting livestream (attempt ${attempt}/${maxRetries}, consecutive-no-data=${this.consecutiveNoDataStarts}/${this.MAX_NO_DATA_STARTS})`,
           );
           await this.options.wsClient.commands
             .device(this.options.serialNumber)
