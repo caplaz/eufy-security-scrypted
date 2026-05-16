@@ -704,7 +704,12 @@ export class StreamServer extends EventEmitter {
     // rather than dropping the client.
     let videoCodec: "H264" | "H265" = "H264";
     try {
-      const metadata = await this.waitForVideoMetadata(15000);
+      // 60s — battery cameras (T8170 S340 sleep mode, T86P2 4G LTE cold-start)
+      // can take 30–45s to deliver their first IDR after startLivestream.
+      // Below this we'd time out and build the muxer with the wrong default
+      // codec (H.264) just before real H.265 data arrives, producing
+      // un-decodable fMP4 on the muxed port.
+      const metadata = await this.waitForVideoMetadata(60000);
       const c = metadata.videoCodec.toUpperCase();
       videoCodec = c === "H265" || c === "HEVC" ? "H265" : "H264";
     } catch (e) {

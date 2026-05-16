@@ -32,8 +32,10 @@ export class SnapshotService {
    * @returns Picture options with default timeout
    */
   getPictureOptions(): RequestPictureOptions {
+    // 60s default. Battery cameras (T8170 S340 deep sleep, T86P2 4G LTE
+    // cold-start) need 30–45s of P2P warm-up before the first IDR arrives.
     return {
-      timeout: 15000, // 15 seconds default
+      timeout: 60000,
     };
   }
 
@@ -49,8 +51,8 @@ export class SnapshotService {
     this.logger.info("📸 Taking snapshot from camera stream");
 
     try {
-      // Use timeout from options or default to 15 seconds
-      const timeout = options?.timeout || 15000;
+      // 60s default — see getPictureOptions for rationale.
+      const timeout = options?.timeout || 60000;
 
       this.logger.info(`Using timeout: ${timeout}ms for snapshot capture`);
 

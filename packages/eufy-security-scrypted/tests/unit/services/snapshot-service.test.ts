@@ -68,7 +68,7 @@ describe("SnapshotService", () => {
       const options = service.getPictureOptions();
 
       expect(options).toEqual({
-        timeout: 15000,
+        timeout: 60000,
       });
     });
   });
@@ -77,7 +77,7 @@ describe("SnapshotService", () => {
     it("should capture snapshot and convert to JPEG", async () => {
       const result = await service.takePicture();
 
-      expect(mockStreamServer.captureSnapshot).toHaveBeenCalledWith(15000);
+      expect(mockStreamServer.captureSnapshot).toHaveBeenCalledWith(60000);
       expect(FFmpegUtils.convertH264ToJPEG).toHaveBeenCalledWith(
         mockH264Data,
         2,
