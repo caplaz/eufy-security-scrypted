@@ -78,11 +78,20 @@ export class StreamServer extends EventEmitter {
    * Map of muxed-client socket → its dedicated JMuxer instance. Each
    * connection gets its own muxer so every consumer receives a complete
    * fMP4 init segment at the start of its stream.
+   *
+   * JMuxer must be constructed with the correct `videoCodec` (H.264 vs
+   * H.265) because the codec choice affects which remuxer / fMP4 sample
+   * description box it writes (`avcC` vs `hvcC`). The codec isn't known
+   * until the first video event arrives, so a muxed client connecting
+   * before the first frame is held in `pendingMuxerSockets` instead —
+   * counts as an active consumer (so the upstream livestream starts) but
+   * has no JMuxer yet.
    */
   private muxerStreams = new Map<
     net.Socket,
     { muxer: JMuxer; duplex: Duplex }
   >();
+  private pendingMuxerSockets = new Set<net.Socket>();
   private connectionManager: ConnectionManager;
   private h264Parser: H264Parser;
   private isActive = false;
@@ -241,13 +250,15 @@ export class StreamServer extends EventEmitter {
       this.cleanupStaleConnections();
 
       // Total consumer count = TCP video clients (snapshot, raw video) +
-      // in-process muxer clients (fMP4 over the muxed port). Without
+      // in-process muxer clients (fMP4 over the muxed port) + pending
+      // muxer clients still awaiting first-frame metadata. Without
       // counting the muxers here the activity timer was killing the
       // livestream whenever the muxer was the only consumer, which broke
       // long-lived downstream rebroadcast sessions.
       const totalConsumers =
         this.connectionManager.getActiveConnectionCount() +
-        this.muxerStreams.size;
+        this.muxerStreams.size +
+        this.pendingMuxerSockets.size;
 
       if (timeSinceActivity > this.ACTIVITY_TIMEOUT && totalConsumers === 0) {
         this.logger.info(
@@ -638,7 +649,44 @@ export class StreamServer extends EventEmitter {
    * meaningfully faster than the previous ffmpeg-subprocess approach and
    * matches what the Eufy cameras actually deliver byte-for-byte.
    */
-  private handleMuxedClient(socket: net.Socket): void {
+  private async handleMuxedClient(socket: net.Socket): Promise<void> {
+    // Mark this socket as a pending consumer immediately so the upstream
+    // livestream starts even though we don't yet have a JMuxer to feed.
+    // `updateLivestreamStateForMuxerClients` counts both pending and active
+    // muxers as consumers.
+    this.pendingMuxerSockets.add(socket);
+
+    const pendingCleanup = () => {
+      this.pendingMuxerSockets.delete(socket);
+    };
+    socket.on("close", pendingCleanup);
+    socket.on("error", pendingCleanup);
+
+    // Kick off the upstream livestream (no-op if already running).
+    this.updateLivestreamStateForMuxerClients();
+
+    // Wait for the codec to be known via the first video event's metadata.
+    // Defaults to H.264 if the camera/stream never delivers metadata in
+    // time — matches the previous (silently-wrong-for-H.265) behaviour
+    // rather than dropping the client.
+    let videoCodec: "H264" | "H265" = "H264";
+    try {
+      const metadata = await this.waitForVideoMetadata(15000);
+      const c = metadata.videoCodec.toUpperCase();
+      videoCodec = c === "H265" || c === "HEVC" ? "H265" : "H264";
+    } catch (e) {
+      this.logger.warn(
+        `Muxer client: timed out waiting for video metadata, defaulting to H264. ${e}`,
+      );
+    }
+
+    // Socket may have given up while we waited.
+    if (socket.destroyed || !this.pendingMuxerSockets.has(socket)) {
+      this.pendingMuxerSockets.delete(socket);
+      return;
+    }
+    this.pendingMuxerSockets.delete(socket);
+
     const videoFps = this.videoMetadata?.videoFPS ?? 15;
     // Always declare both tracks. The muxed client connects BEFORE the
     // first audio frame arrives from Eufy, so `audioMetadata` is null at
@@ -650,6 +698,7 @@ export class StreamServer extends EventEmitter {
 
     const muxer = new JMuxer({
       mode,
+      videoCodec,
       fps: videoFps,
       flushingTime: 0,
       clearBuffer: false,
@@ -661,7 +710,7 @@ export class StreamServer extends EventEmitter {
     duplex.on("data", (chunk: Buffer) => {
       if (!firstChunkLogged) {
         this.logger.info(
-          `JMuxer emitting fMP4 (first chunk: ${chunk.length} bytes, mode=${mode}, fps=${videoFps})`,
+          `JMuxer emitting fMP4 (first chunk: ${chunk.length} bytes, mode=${mode}, codec=${videoCodec}, fps=${videoFps})`,
         );
         firstChunkLogged = true;
       }
@@ -673,11 +722,11 @@ export class StreamServer extends EventEmitter {
 
     this.muxerStreams.set(socket, { muxer, duplex });
     this.logger.info(
-      `Muxed client attached (total active muxers: ${this.muxerStreams.size})`,
+      `Muxed client attached (codec=${videoCodec}, total active muxers: ${this.muxerStreams.size})`,
     );
 
-    // This is the first consumer of the stream — bring up the livestream
-    // if the stream server's TCP video clients haven't already started it.
+    // Re-evaluate consumer state now that the socket moved from pending →
+    // active. No-op if the livestream is already running.
     this.updateLivestreamStateForMuxerClients();
 
     const cleanup = () => {
@@ -706,7 +755,8 @@ export class StreamServer extends EventEmitter {
   private async updateLivestreamStateForMuxerClients(): Promise<void> {
     const totalConsumers =
       this.connectionManager.getActiveConnectionCount() +
-      this.muxerStreams.size;
+      this.muxerStreams.size +
+      this.pendingMuxerSockets.size;
 
     if (totalConsumers > 0 && !this.livestreamIntendedState) {
       this.livestreamIntendedState = true;
@@ -787,6 +837,12 @@ export class StreamServer extends EventEmitter {
       if (!socket.destroyed) socket.destroy();
     }
     this.muxerStreams.clear();
+
+    // Also close any muxer clients still waiting for first-frame metadata
+    for (const socket of this.pendingMuxerSockets) {
+      if (!socket.destroyed) socket.destroy();
+    }
+    this.pendingMuxerSockets.clear();
 
     // Close muxed server
     if (this.muxedServer) {
@@ -888,10 +944,20 @@ export class StreamServer extends EventEmitter {
         }
       });
 
-      // Resolve any pending snapshot requests with keyframe data
-      // This happens BEFORE checking if server is active, so snapshots work without TCP server
+      // Resolve any pending snapshot requests with keyframe data.
+      // Snapshot requests need a decodable picture, so parameter-set-only
+      // events (H.264 SPS/PPS or H.265 VPS/SPS/PPS without an IRAP slice)
+      // don't qualify — FFmpeg can't produce a JPEG from those alone.
+      // H.264: require IDR (type 5).  H.265: require an IRAP slice
+      // (types 16–23: BLA/IDR/CRA and reserved IRAP).
+      //
+      // This happens BEFORE checking if server is active, so snapshots
+      // work without TCP server.
+      const hasSnapshotKeyframe = isHevc
+        ? nalUnits.some((nal) => nal.type >= 16 && nal.type <= 23)
+        : nalUnits.some((nal) => nal.type === 5);
       let snapshotsHandled = false;
-      if (isKeyFrame && this.snapshotResolvers.length > 0) {
+      if (hasSnapshotKeyframe && this.snapshotResolvers.length > 0) {
         this.logger.debug(
           `Resolving ${this.snapshotResolvers.length} snapshot request(s) with keyframe data`,
         );
