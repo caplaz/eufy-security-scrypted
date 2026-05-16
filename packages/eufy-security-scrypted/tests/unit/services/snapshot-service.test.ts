@@ -102,8 +102,10 @@ describe("SnapshotService", () => {
     it("should log snapshot size", async () => {
       await service.takePicture();
 
+      // Codec label reflects whatever getVideoMetadata returns; the mock
+      // returns null, so the service defaults to "H264".
       expect(mockLogger.info).toHaveBeenCalledWith(
-        `Captured H.264 keyframe: ${mockH264Data.length} bytes - converting to JPEG`,
+        `Captured H264 keyframe: ${mockH264Data.length} bytes - converting to JPEG`,
       );
       expect(mockLogger.info).toHaveBeenCalledWith(
         `✅ Snapshot converted to JPEG: ${mockJpegData.length} bytes`,

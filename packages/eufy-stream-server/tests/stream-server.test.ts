@@ -746,6 +746,30 @@ describe("StreamServer", () => {
       await expect(snapshotPromise).rejects.toThrow(/timed out/i);
     });
 
+    it("does NOT resolve snapshot on H.265 parameter sets without IRAP", async () => {
+      // Seed metadata via a parameter-set-only event (codec still gets
+      // detected from event.metadata).
+      const psOnly = Buffer.concat([
+        createTestHevcVpsData(),
+        createTestHevcSpsData(),
+        createTestHevcPpsData(),
+      ]);
+
+      // Begin snapshot capture
+      const snapshotPromise = serverWithWs.captureSnapshot(200);
+      await wait(50);
+
+      // Deliver only VPS+SPS+PPS — no IRAP/IDR slice. FFmpeg can't decode
+      // a JPEG from parameter sets alone, so the resolver must wait.
+      eventHandler({
+        serialNumber: "H265_DEVICE",
+        buffer: { data: psOnly },
+        metadata: h265Metadata,
+      });
+
+      await expect(snapshotPromise).rejects.toThrow(/timed out/i);
+    });
+
     it("caches H.265 VPS, SPS and PPS and sends them to new clients", async () => {
       const vpsData = createTestHevcVpsData();
       const spsData = createTestHevcSpsData();
@@ -823,10 +847,34 @@ describe("StreamServer", () => {
 
   describe("audio event handler", () => {
     let audioCallback: (event: any) => void;
+    let videoCallback: (event: any) => void;
+
+    // Seed video metadata so handleMuxedClient's waitForVideoMetadata
+    // resolves quickly. Without this it would block for 15s waiting for
+    // the first video frame, and tests that rely on a muxer being attached
+    // would time out.
+    const seedVideoMetadata = () => {
+      const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
+      // Minimal H.264 SPS NAL — content irrelevant for metadata capture.
+      const nal = Buffer.from([0x67, 0x42, 0x00, 0x1e]);
+      videoCallback({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: { data: Buffer.concat([startCode, nal]) },
+        metadata: {
+          videoCodec: "H264",
+          videoFPS: 30,
+          videoWidth: 1280,
+          videoHeight: 720,
+        },
+      });
+    };
 
     beforeEach(async () => {
       await server.start();
-      // Audio listener is registered as the second addEventListener call
+      const videoCall = mockWsClient.addEventListener.mock.calls.find(
+        (call: any[]) => call[0] === "livestream video data",
+      );
+      videoCallback = videoCall[1];
       const audioCall = mockWsClient.addEventListener.mock.calls.find(
         (call: any[]) => call[0] === "livestream audio data",
       );
@@ -875,6 +923,9 @@ describe("StreamServer", () => {
         host: "127.0.0.1",
       });
       await new Promise((resolve) => socket.on("connect", resolve));
+      // Seed video metadata so handleMuxedClient's metadata-wait resolves
+      // and the JMuxer gets constructed.
+      seedVideoMetadata();
       await wait(50);
 
       expect((server as any).muxerStreams.size).toBe(1);
@@ -910,6 +961,7 @@ describe("StreamServer", () => {
         host: "127.0.0.1",
       });
       await new Promise((resolve) => socket.on("connect", resolve));
+      seedVideoMetadata();
       await wait(50);
 
       expect((server as any).muxerStreams.size).toBe(1);
@@ -936,6 +988,30 @@ describe("StreamServer", () => {
   });
 
   describe("handleMuxedClient", () => {
+    // JMuxer is only constructed after the first video event arrives (so
+    // the muxer can be created with the correct codec). Helper to seed
+    // that metadata and unblock the in-flight `waitForVideoMetadata`.
+    const seedVideoMetadata = (s: StreamServer, codec: string = "H264") => {
+      const videoCall = (
+        (s as any).options.wsClient as any
+      ).addEventListener.mock.calls.find(
+        (call: any[]) => call[0] === "livestream video data",
+      );
+      const videoCallback = videoCall[1];
+      const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
+      const nal = Buffer.from([0x67, 0x42, 0x00, 0x1e]);
+      videoCallback({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: { data: Buffer.concat([startCode, nal]) },
+        metadata: {
+          videoCodec: codec,
+          videoFPS: 30,
+          videoWidth: 1280,
+          videoHeight: 720,
+        },
+      });
+    };
+
     it("adds muxer to map on connection", async () => {
       await server.start();
 
@@ -947,9 +1023,14 @@ describe("StreamServer", () => {
         host: "127.0.0.1",
       });
       await new Promise((resolve) => socket.on("connect", resolve));
+      // Connection alone only registers the socket as pending; the muxer
+      // is built after the first video event delivers metadata. Seed the
+      // metadata, then wait for handleMuxedClient to construct the muxer.
+      seedVideoMetadata(server);
       await wait(50);
 
       expect((server as any).muxerStreams.size).toBe(1);
+      expect((server as any).pendingMuxerSockets.size).toBe(0);
 
       socket.destroy();
     });
@@ -963,6 +1044,7 @@ describe("StreamServer", () => {
         host: "127.0.0.1",
       });
       await new Promise((resolve) => socket.on("connect", resolve));
+      seedVideoMetadata(server);
       await wait(50);
 
       expect((server as any).muxerStreams.size).toBe(1);
@@ -978,6 +1060,67 @@ describe("StreamServer", () => {
       expect(muxerInstance.destroy).toHaveBeenCalled();
     });
 
+    it("constructs JMuxer with videoCodec=H264 for H.264 streams", async () => {
+      await server.start();
+
+      const muxedPort = server.getMuxedPort()!;
+      const socket = net.createConnection({
+        port: muxedPort,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      seedVideoMetadata(server, "H264");
+      await wait(50);
+
+      const JMuxerMock = require("jmuxer").default;
+      const lastCall =
+        JMuxerMock.mock.calls[JMuxerMock.mock.calls.length - 1][0];
+      expect(lastCall.videoCodec).toBe("H264");
+
+      socket.destroy();
+    });
+
+    it("constructs JMuxer with videoCodec=H265 for H.265 streams", async () => {
+      await server.start();
+
+      const muxedPort = server.getMuxedPort()!;
+      const socket = net.createConnection({
+        port: muxedPort,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      seedVideoMetadata(server, "H265");
+      await wait(50);
+
+      const JMuxerMock = require("jmuxer").default;
+      const lastCall =
+        JMuxerMock.mock.calls[JMuxerMock.mock.calls.length - 1][0];
+      expect(lastCall.videoCodec).toBe("H265");
+
+      socket.destroy();
+    });
+
+    it("pending muxer client counts as a consumer (triggers livestream start)", async () => {
+      await server.start();
+
+      const muxedPort = server.getMuxedPort()!;
+      const socket = net.createConnection({
+        port: muxedPort,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      // Don't seed metadata — leave the socket pending. The livestream
+      // state machine should still consider it a consumer and ask the WS
+      // client to start the livestream.
+      await wait(20);
+
+      expect(
+        mockWsClient.commands.device().startLivestream,
+      ).toHaveBeenCalled();
+
+      socket.destroy();
+    });
+
     it("JMuxer duplex data is written to socket", async () => {
       await server.start();
 
@@ -991,6 +1134,7 @@ describe("StreamServer", () => {
       socket.on("data", (chunk) => receivedChunks.push(chunk as Buffer));
 
       await new Promise((resolve) => socket.on("connect", resolve));
+      seedVideoMetadata(server);
       await wait(50);
 
       const JMuxerMock = require("jmuxer").default;

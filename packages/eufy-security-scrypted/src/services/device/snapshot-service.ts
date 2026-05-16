@@ -58,13 +58,13 @@ export class SnapshotService {
       // It starts the camera stream, waits for a keyframe, captures it, then stops the stream
       const h264Keyframe = await this.streamServer.captureSnapshot(timeout);
 
-      this.logger.info(
-        `Captured H.264 keyframe: ${h264Keyframe.length} bytes - converting to JPEG`,
-      );
-
       // Detect codec from last received stream metadata (H264 or H265)
       const videoCodec =
         this.streamServer.getVideoMetadata()?.videoCodec ?? "H264";
+
+      this.logger.info(
+        `Captured ${videoCodec} keyframe: ${h264Keyframe.length} bytes - converting to JPEG`,
+      );
 
       // Convert keyframe to JPEG using FFmpeg
       const jpegBuffer = await FFmpegUtils.convertH264ToJPEG(
