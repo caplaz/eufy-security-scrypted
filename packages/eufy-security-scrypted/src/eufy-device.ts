@@ -70,6 +70,7 @@ import {
   EVENT_SOURCES,
   EufyWebSocketClient,
   EventCallbackForType,
+  STATION_EVENTS,
 } from "@caplaz/eufy-security-client";
 
 import { Logger, ILogObj } from "tslog";
@@ -139,6 +140,16 @@ export class EufyDevice
   private talkbackProcess?: ChildProcess;
   private talkbackActive = false;
   private intercomStartedLivestream = false;
+
+  // Station P2P recycle bookkeeping. When the stream server reports the
+  // upstream as wedged (startLivestream acked but no LIVESTREAM_VIDEO_DATA
+  // events), we attempt to recycle the bropat-side station P2P session
+  // via station.disconnect()/connect(). Rate-limited to avoid storms — a
+  // wedge that survives recycling means the problem is deeper than the
+  // bropat client (eufy-security-ws process, network, or Eufy's relay).
+  private lastStationRecycleAt = 0;
+  private stationRecycleInFlight = false;
+  private readonly MIN_STATION_RECYCLE_INTERVAL_MS = 5 * 60 * 1000;
 
   // Device info and state
   private latestProperties?: DeviceProperties;
@@ -830,9 +841,229 @@ export class EufyDevice
       serialNumber: this.serialNumber,
     });
 
+    this.streamServer.on(
+      "upstreamWedged",
+      (info: {
+        serialNumber: string;
+        reason: "cold-start-counter-maxed" | "data-flow-stale";
+        attempts?: number;
+        staleMs?: number;
+        consumers?: number;
+      }) => {
+        this.recycleStationP2P(info).catch((e) =>
+          this.logger.warn(`Station P2P recycle threw: ${e}`),
+        );
+      },
+    );
+
     this.logger.debug(
       "Stream server created with WebSocket client integration",
     );
+  }
+
+  /**
+   * Recycle the upstream bropat-side P2P session for this device's station.
+   *
+   * Triggered when the stream server's circuit breaker concludes that the
+   * upstream is wedged (startLivestream is acked but no LIVESTREAM_VIDEO_DATA
+   * arrives). For 4G LTE cameras the device IS its own station, so this
+   * disconnects/reconnects just the one camera's P2P session. For
+   * HomeBase-attached cameras it affects every camera on that station.
+   *
+   * The recycle is rate-limited and serialized: if a recycle is already
+   * in flight or one ran within MIN_STATION_RECYCLE_INTERVAL_MS, we skip.
+   * The next consumer that attaches will trigger a fresh startLivestream
+   * organically — we deliberately don't auto-retry from here, so the
+   * outcome of the recycle is observable in the next consumer's lifecycle.
+   */
+  private async recycleStationP2P(info: {
+    reason: "cold-start-counter-maxed" | "data-flow-stale";
+    attempts?: number;
+    staleMs?: number;
+    consumers?: number;
+  }): Promise<void> {
+    if (this.stationRecycleInFlight) {
+      this.logger.info(
+        "⏭️  Skipping station P2P recycle — another recycle is already in flight",
+      );
+      return;
+    }
+    const now = Date.now();
+    const sinceLast = now - this.lastStationRecycleAt;
+    if (
+      this.lastStationRecycleAt !== 0 &&
+      sinceLast < this.MIN_STATION_RECYCLE_INTERVAL_MS
+    ) {
+      this.logger.warn(
+        `⏭️  Skipping station P2P recycle — last attempt was ${Math.round(
+          sinceLast / 1000,
+        )}s ago (min interval: ${Math.round(
+          this.MIN_STATION_RECYCLE_INTERVAL_MS / 1000,
+        )}s). Upstream wedge appears persistent across recycles — likely needs eufy-security-ws restart.`,
+      );
+      return;
+    }
+
+    const stationSN =
+      this.latestProperties?.stationSerialNumber || this.serialNumber;
+    const isSelfStation = stationSN === this.serialNumber;
+    const triggerContext =
+      info.reason === "cold-start-counter-maxed"
+        ? `${info.attempts} no-data starts`
+        : `${info.staleMs}ms data stall (${info.consumers} consumer(s))`;
+
+    this.stationRecycleInFlight = true;
+    this.lastStationRecycleAt = now;
+    // Tell the stream server to defer any startLivestream commands while
+    // the bropat session is recovering. The stream server will re-arm
+    // automatically when this clears in the `finally` block below, so
+    // consumers that arrive during the recycle still get a stream once
+    // P2P is actually re-established.
+    this.streamServer.setRecycleInFlight(true);
+    try {
+      this.logger.warn(
+        `🔄 Upstream wedged (reason: ${info.reason}, ${triggerContext}) — recycling station P2P session for ${stationSN}${
+          isSelfStation ? " (4G camera, self-station)" : ""
+        }`,
+      );
+
+      const stationCmd = this.wsClient.commands.station(stationSN);
+
+      // Diagnostic: what does bropat think the station's connectivity is
+      // before we touch it?
+      try {
+        const status = await stationCmd.isConnected();
+        this.logger.info(
+          `🔎 Pre-recycle station.isConnected → ${JSON.stringify(status)}`,
+        );
+      } catch (e) {
+        this.logger.warn(`Pre-recycle isConnected check failed: ${e}`);
+      }
+
+      try {
+        this.logger.info(`📴 station.disconnect(${stationSN})`);
+        await stationCmd.disconnect();
+        this.logger.info(`✅ station.disconnect ack`);
+      } catch (e) {
+        this.logger.warn(`station.disconnect threw: ${e}`);
+      }
+
+      // Brief pause so the bropat client's teardown can settle before
+      // we ask it to reopen the P2P channel. 2s matches the empirical
+      // settling time before bropat will accept a fresh connect cleanly.
+      await new Promise((r) => setTimeout(r, 2000));
+
+      // Subscribe to CONNECTED / CONNECTION_ERROR for this station BEFORE
+      // issuing connect — `station.connect()` returns when bropat accepts
+      // the command, but the underlying P2P establishment is async (10–25s
+      // for cellular cameras / cold HomeBase sessions). We need to wait
+      // for the real "session ready" signal before declaring success.
+      const connectionOutcome = this.waitForStationConnectionOutcome(
+        stationSN,
+        30000,
+      );
+
+      try {
+        this.logger.info(`📡 station.connect(${stationSN})`);
+        await stationCmd.connect();
+        this.logger.info(`✅ station.connect ack (P2P establishing…)`);
+      } catch (e) {
+        this.logger.warn(`station.connect threw: ${e}`);
+      }
+
+      const outcome = await connectionOutcome;
+      switch (outcome) {
+        case "connected":
+          this.logger.info(
+            `🟢 station.connected event received for ${stationSN} — P2P session is up`,
+          );
+          break;
+        case "connection-error":
+          this.logger.error(
+            `🔴 station.connection_error received for ${stationSN} — recycle did not establish P2P`,
+          );
+          break;
+        case "timeout":
+          this.logger.warn(
+            `⏱️  Timed out (30s) waiting for station.connected event — P2P may still be coming up`,
+          );
+          break;
+      }
+
+      try {
+        const status = await stationCmd.isConnected();
+        this.logger.info(
+          `🔎 Post-recycle station.isConnected → ${JSON.stringify(status)}`,
+        );
+      } catch (e) {
+        this.logger.warn(`Post-recycle isConnected check failed: ${e}`);
+      }
+
+      this.logger.info(
+        `🔄 Station P2P recycle complete (outcome: ${outcome}) — re-arming any waiting consumers`,
+      );
+    } finally {
+      this.stationRecycleInFlight = false;
+      // Clears the stream server's defer-flag. If consumers are still
+      // attached, this kicks off a fresh ensureLivestreamState so the
+      // user gets video without having to manually retry.
+      this.streamServer.setRecycleInFlight(false);
+    }
+  }
+
+  /**
+   * Wait for the next `STATION_EVENTS.CONNECTED` or
+   * `STATION_EVENTS.CONNECTION_ERROR` event for a specific station serial,
+   * or time out. Returns the outcome as a string for logging.
+   *
+   * Listeners are registered eagerly (before `station.connect()` is sent)
+   * by the caller so we don't miss a fast-arriving CONNECTED event.
+   * Both listeners are removed on any resolution path.
+   */
+  private waitForStationConnectionOutcome(
+    stationSerialNumber: string,
+    timeoutMs: number,
+  ): Promise<"connected" | "connection-error" | "timeout"> {
+    return new Promise((resolve) => {
+      let removeConnected: (() => boolean) | undefined;
+      let removeError: (() => boolean) | undefined;
+      const cleanup = () => {
+        removeConnected?.();
+        removeError?.();
+      };
+
+      const timer = setTimeout(() => {
+        cleanup();
+        resolve("timeout");
+      }, timeoutMs);
+      timer.unref?.();
+
+      removeConnected = this.wsClient.addEventListener(
+        STATION_EVENTS.CONNECTED,
+        () => {
+          clearTimeout(timer);
+          cleanup();
+          resolve("connected");
+        },
+        {
+          source: EVENT_SOURCES.STATION,
+          serialNumber: stationSerialNumber,
+        },
+      );
+
+      removeError = this.wsClient.addEventListener(
+        STATION_EVENTS.CONNECTION_ERROR,
+        () => {
+          clearTimeout(timer);
+          cleanup();
+          resolve("connection-error");
+        },
+        {
+          source: EVENT_SOURCES.STATION,
+          serialNumber: stationSerialNumber,
+        },
+      );
+    });
   }
 
   /**

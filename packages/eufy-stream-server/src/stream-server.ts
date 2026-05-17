@@ -115,6 +115,31 @@ export class StreamServer extends EventEmitter {
   private consecutiveNoDataStarts = 0;
   private readonly MAX_NO_DATA_STARTS = 3;
 
+  /**
+   * Timestamp of the most recent `LIVESTREAM_VIDEO_DATA` event for this
+   * device. Used by the mid-session wedge watchdog: if intent is "stream
+   * should be flowing" but no bytes have arrived for STALE_DATA_THRESHOLD_MS
+   * while consumers are still attached, we treat the upstream as wedged
+   * and emit `upstreamWedged` (same path as the cold-start counter).
+   *
+   * Reset to 0 whenever the stream is intentionally stopped so a stale
+   * timestamp can't trigger the watchdog on the next session.
+   */
+  private lastVideoDataAt = 0;
+  private readonly STALE_DATA_THRESHOLD_MS = 15000;
+
+  /**
+   * Set by the device layer while a station P2P recycle is in flight
+   * (station.disconnect → station.connect → wait for CONNECTED event).
+   * While true, `ensureLivestreamState` defers any `startLivestream`
+   * command — sending one to a recovering station typically wastes the
+   * attempt because bropat will accept the command but the underlying
+   * P2P transport isn't ready to deliver frames. When the flag clears,
+   * `setRecycleInFlight(false)` re-arms the livestream if consumers are
+   * still waiting so the user gets data without having to retry.
+   */
+  private recycleInFlight = false;
+
   // Video metadata from first frame
   private videoMetadata: VideoMetadata | null = null;
   private metadataReceived = false;
@@ -271,11 +296,40 @@ export class StreamServer extends EventEmitter {
         this.muxerStreams.size +
         this.pendingMuxerSockets.size;
 
-      if (timeSinceActivity > this.ACTIVITY_TIMEOUT && totalConsumers === 0) {
+      // Mid-session wedge detection. Runs BEFORE the idle-stop check so
+      // that the wedge path (which clears intent + emits recycle signal)
+      // takes precedence over a graceful inactivity stop.
+      //
+      // Battery-safe gating, in order:
+      //   1. `livestreamIntendedState === true`  — we want a stream.
+      //   2. `lastVideoDataAt > 0`               — we *had* data in this
+      //      session (so a cold-start wedge — which the counter handles
+      //      — won't false-trigger this watchdog).
+      //   3. `now - lastVideoDataAt > STALE_DATA_THRESHOLD_MS` — data has
+      //      genuinely stopped flowing.
+      //   4. `totalConsumers > 0`                — somebody is actually
+      //      waiting on bytes. With zero consumers the existing
+      //      inactivity stop below handles cleanup more gracefully.
+      const staleMs = now - this.lastVideoDataAt;
+      if (
+        this.livestreamIntendedState &&
+        this.lastVideoDataAt > 0 &&
+        staleMs > this.STALE_DATA_THRESHOLD_MS &&
+        totalConsumers > 0
+      ) {
+        this.markUpstreamWedged("data-flow-stale", {
+          staleMs,
+          consumers: totalConsumers,
+        });
+      } else if (
+        timeSinceActivity > this.ACTIVITY_TIMEOUT &&
+        totalConsumers === 0
+      ) {
         this.logger.info(
           `🕒 No client activity for ${Math.round(timeSinceActivity / 1000)}s and no active clients, stopping camera stream`,
         );
         this.livestreamIntendedState = false;
+        this.lastVideoDataAt = 0;
         this.stopActivityMonitoring();
         this.ensureLivestreamState();
       } else if (totalConsumers === 0 && this.livestreamIntendedState) {
@@ -386,6 +440,13 @@ export class StreamServer extends EventEmitter {
             "📹 Livestream confirmed active - receiving video data",
           );
         }
+
+        // Kick the stale-data watchdog. Unconditional — we want to track
+        // upstream liveness regardless of whether anyone is consuming the
+        // bytes downstream. (Bropat pushes events whenever the camera
+        // delivers; if those events stop while we still want a stream,
+        // the bropat session is wedged.)
+        this.lastVideoDataAt = Date.now();
 
         // Log video data events based on client activity
         const activeClients = this.connectionManager.getActiveConnectionCount();
@@ -502,6 +563,103 @@ export class StreamServer extends EventEmitter {
   }
 
   /**
+   * Called by the device layer around a station P2P recycle.
+   *
+   * When set to `true`, defers further `startLivestream` commands (see
+   * the comment on `recycleInFlight`). When cleared to `false`, if
+   * consumers are still attached, re-trigger `ensureLivestreamState` so
+   * the user automatically gets a stream as soon as the bropat P2P
+   * session is back up — they don't have to retry HomeKit.
+   *
+   * Safe to call multiple times with the same value; only state
+   * transitions perform work.
+   */
+  setRecycleInFlight(value: boolean): void {
+    if (this.recycleInFlight === value) return;
+    this.recycleInFlight = value;
+
+    if (value) {
+      this.logger.info(
+        "🧊 Stream server entering recycle-in-flight state — startLivestream deferred",
+      );
+      return;
+    }
+
+    const totalConsumers =
+      this.connectionManager.getActiveConnectionCount() +
+      this.muxerStreams.size +
+      this.pendingMuxerSockets.size;
+
+    this.logger.info(
+      `🔥 Stream server exiting recycle-in-flight state (consumers: ${totalConsumers})`,
+    );
+
+    if (totalConsumers > 0) {
+      // Consumers are waiting on a stream that we deferred. Re-arm
+      // intent and kick off a fresh start. The counter was already
+      // cleared by markUpstreamWedged so this attempt starts clean.
+      this.livestreamIntendedState = true;
+      this.lastClientActivity = Date.now();
+      this.startActivityMonitoring();
+      this.ensureLivestreamState().catch((e) =>
+        this.logger.warn(`Post-recycle ensureLivestreamState failed: ${e}`),
+      );
+    }
+  }
+
+  /**
+   * Signal that the upstream P2P session is wedged. Two callers:
+   *  - cold-start: `consecutiveNoDataStarts` reached `MAX_NO_DATA_STARTS`
+   *    (3 fresh `startLivestream` attempts produced zero video bytes).
+   *  - mid-session: data was flowing, then stopped for more than
+   *    `STALE_DATA_THRESHOLD_MS` while consumers still want a stream.
+   *
+   * Resets every piece of state that could cause us to keep poking the
+   * upstream: livestream intent, the cold-start counter, the data-flow
+   * watchdog, and the in-flight start/stop timeout. We deliberately do
+   * NOT auto-restart — the listener (eufy-device.ts) recycles the bropat
+   * station P2P session, and the next consumer that attaches will trigger
+   * a fresh livestream organically. This keeps the camera from being
+   * woken unnecessarily when no one is actually watching.
+   */
+  private markUpstreamWedged(
+    reason: "cold-start-counter-maxed" | "data-flow-stale",
+    detail: { attempts?: number; staleMs?: number; consumers?: number },
+  ): void {
+    if (reason === "cold-start-counter-maxed") {
+      this.logger.error(
+        `❌ Giving up after ${detail.attempts} consecutive startLivestream attempts with no data — upstream P2P (HomeBase/station) appears wedged. Will not auto-retry until a fresh consumer attaches.`,
+      );
+    } else {
+      this.logger.error(
+        `❌ Mid-session wedge: ${detail.staleMs}ms since last video data while ${detail.consumers} consumer(s) attached — upstream P2P appears wedged. Will not auto-retry until a fresh consumer attaches.`,
+      );
+    }
+
+    this.livestreamIntendedState = false;
+    this.consecutiveNoDataStarts = 0;
+    this.lastVideoDataAt = 0;
+    if (this.startStopTimeout) {
+      clearTimeout(this.startStopTimeout);
+      this.startStopTimeout = undefined;
+    }
+
+    this.emit("upstreamWedged", {
+      serialNumber: this.options.serialNumber,
+      reason,
+      ...detail,
+    });
+    this.emit(
+      "streamError",
+      new Error(
+        reason === "cold-start-counter-maxed"
+          ? "Upstream livestream not delivering data after multiple attempts"
+          : "Upstream livestream stopped delivering data mid-session",
+      ),
+    );
+  }
+
+  /**
    * Ensure the livestream is in the correct state with retry logic
    */
   private async ensureLivestreamState(): Promise<void> {
@@ -534,23 +692,26 @@ export class StreamServer extends EventEmitter {
         }
 
         if (this.livestreamIntendedState && !actualStreamingStatus) {
+          // Defer if a station P2P recycle is in flight — startLivestream
+          // sent during the recovery window typically lands on a station
+          // that bropat hasn't finished re-connecting, wasting the attempt
+          // and (worse) burning a slot in the cold-start counter. The
+          // recycle handler will re-arm the livestream when it completes
+          // if consumers are still waiting.
+          if (this.recycleInFlight) {
+            this.logger.info(
+              "⏸️  Deferring startLivestream — station P2P recycle is in flight",
+            );
+            break;
+          }
+
           // Stop hammering a wedged upstream. After MAX_NO_DATA_STARTS
           // consecutive startLivestream commands without ever receiving
-          // video data, give up and emit streamError. The counter is
-          // reset whenever data actually arrives (livestreamActualState
-          // flips true) or intent is cleared.
+          // video data, give up and signal an upstream wedge.
           if (this.consecutiveNoDataStarts >= this.MAX_NO_DATA_STARTS) {
-            this.logger.error(
-              `❌ Giving up after ${this.consecutiveNoDataStarts} consecutive startLivestream attempts with no data — upstream P2P (HomeBase/station) appears wedged. Will not auto-retry until a fresh consumer attaches.`,
-            );
-            this.livestreamIntendedState = false;
-            this.consecutiveNoDataStarts = 0;
-            this.emit(
-              "streamError",
-              new Error(
-                "Upstream livestream not delivering data after multiple attempts",
-              ),
-            );
+            this.markUpstreamWedged("cold-start-counter-maxed", {
+              attempts: this.consecutiveNoDataStarts,
+            });
             break;
           }
 
@@ -586,6 +747,10 @@ export class StreamServer extends EventEmitter {
             .stopLivestream();
           this.logger.info("✅ Livestream stop command sent successfully");
           this.livestreamActualState = false;
+          // Clear the stale-data watchdog timestamp on graceful stop so
+          // the next session's watchdog starts fresh (won't false-fire
+          // from a previous session's last-data timestamp).
+          this.lastVideoDataAt = 0;
         } else {
           // Stream is not running and we don't want it running - all good
           this.logger.debug("Livestream already stopped as desired");
