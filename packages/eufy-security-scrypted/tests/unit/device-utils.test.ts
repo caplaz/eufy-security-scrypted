@@ -66,16 +66,17 @@ jest.mock("../../src/utils/scrypted-device-detection", () => ({
   getScryptedDeviceType: jest.fn().mockReturnValue("Camera"),
 }));
 
-const makeApi = (properties: any) => ({
+const makeApi = (properties: any, hasTalkback = false) => ({
   getProperties: jest.fn().mockResolvedValue({ properties }),
   getPropertiesMetadata: jest.fn().mockResolvedValue({ properties: {} }),
+  hasCommand: jest.fn().mockResolvedValue({ exists: hasTalkback }),
 });
 
 const baseProps = { type: 1, name: "Test Cam", serialNumber: "CAM001" };
 
-const makeWsClient = (properties: any) => ({
+const makeWsClient = (properties: any, hasTalkback = false) => ({
   commands: {
-    device: jest.fn().mockReturnValue(makeApi(properties)),
+    device: jest.fn().mockReturnValue(makeApi(properties, hasTalkback)),
   },
 });
 
@@ -102,33 +103,28 @@ describe("DeviceUtils", () => {
       expect(result.interfaces).toContain("Refresh");
     });
 
-    it("adds Intercom when microphone AND speaker are present", async () => {
-      const wsClient = makeWsClient({
-        ...baseProps,
-        microphone: true,
-        speaker: true,
-      }) as any;
+    it("adds Intercom when the device supports deviceStartTalkback", async () => {
+      const wsClient = makeWsClient(baseProps, true) as any;
       const result = await DeviceUtils.createDeviceManifest(wsClient, "CAM001");
 
       expect(result.interfaces).toContain("Intercom");
     });
 
-    it("does NOT add Intercom when microphone is missing", async () => {
-      const wsClient = makeWsClient({ ...baseProps, speaker: true }) as any;
+    it("adds Intercom even when microphone/speaker properties are absent (e.g. S220)", async () => {
+      // BATTERY_DOORBELL_2 (S220) supports talkback but does not expose
+      // microphone/speaker boolean properties; the server's hasCommand check
+      // is authoritative.
+      const wsClient = makeWsClient(baseProps, true) as any;
       const result = await DeviceUtils.createDeviceManifest(wsClient, "CAM001");
 
-      expect(result.interfaces).not.toContain("Intercom");
+      expect(result.interfaces).toContain("Intercom");
     });
 
-    it("does NOT add Intercom when speaker is missing", async () => {
-      const wsClient = makeWsClient({ ...baseProps, microphone: true }) as any;
-      const result = await DeviceUtils.createDeviceManifest(wsClient, "CAM001");
-
-      expect(result.interfaces).not.toContain("Intercom");
-    });
-
-    it("does NOT add Intercom when neither microphone nor speaker is present", async () => {
-      const wsClient = makeWsClient(baseProps) as any;
+    it("does NOT add Intercom when the device does not support startTalkback", async () => {
+      const wsClient = makeWsClient(
+        { ...baseProps, microphone: true, speaker: true },
+        false,
+      ) as any;
       const result = await DeviceUtils.createDeviceManifest(wsClient, "CAM001");
 
       expect(result.interfaces).not.toContain("Intercom");

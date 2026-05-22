@@ -282,13 +282,15 @@ export class DeviceUtils {
       ScryptedInterface.Refresh,
     ];
 
-    // Talkback requires both a microphone (to receive) and speaker (to play)
-    // on the device. Without these the camera will reject startTalkback and
-    // Scrypted would surface a non-functional talk button.
-    if (
-      properties.microphone !== undefined &&
-      properties.speaker !== undefined
-    ) {
+    // Talkback support varies by device. Ask the server (which consults the
+    // upstream eufy-security-client DeviceCommands table) rather than inferring
+    // it from the presence of `microphone`/`speaker` properties — many models
+    // that support talkback (e.g. BATTERY_DOORBELL_2 / S220) don't expose those
+    // properties at all, which previously hid the talk button in HomeKit.
+    // The argument is the upstream CommandName enum value (camelCase), not the
+    // snake_case WS protocol command name.
+    const { exists: hasTalkback } = await api.hasCommand("deviceStartTalkback");
+    if (hasTalkback) {
       interfaces.push(ScryptedInterface.Intercom);
     }
 
