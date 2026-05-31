@@ -1789,6 +1789,18 @@ export class StreamServer extends EventEmitter {
   }
 
   /**
+   * Seed the keyframe cache from a previously-persisted frame (e.g. restored
+   * from Scrypted storage after a plugin reload) so snapshots/thumbnails serve
+   * the last-seen image immediately, without waking the camera. Only seeds if
+   * the cache is currently empty (a live frame always wins). Timestamp is set
+   * to now so the restored frame isn't treated as stale right after a restart.
+   */
+  setCachedKeyframe(data: Buffer, codec: "H264" | "H265"): void {
+    if (this.lastKeyframe) return;
+    this.lastKeyframe = { data, codec, timestamp: Date.now() };
+  }
+
+  /**
    * Capture a single snapshot frame from the stream.
    * Starts the livestream if not already running, waits for a keyframe,
    * captures the frame, and stops the stream.
