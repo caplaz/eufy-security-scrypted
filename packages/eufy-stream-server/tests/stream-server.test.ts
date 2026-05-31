@@ -832,6 +832,182 @@ describe("StreamServer", () => {
     });
   });
 
+  describe("keyframe cache (getCachedKeyframe)", () => {
+    const makeServer = () => {
+      const mockWsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: {
+          device: jest.fn().mockReturnValue({
+            startLivestream: jest.fn().mockResolvedValue({}),
+            stopLivestream: jest.fn().mockResolvedValue({}),
+          }),
+        },
+      };
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+      });
+      return { s, mockWsClient };
+    };
+
+    it("returns null before any keyframe is seen", async () => {
+      const { s } = makeServer();
+      await s.start();
+      expect(s.getCachedKeyframe(60000)).toBeNull();
+      await s.stop();
+    });
+
+    it("caches a keyframe that flows through with no snapshot pending", async () => {
+      const { s, mockWsClient } = makeServer();
+      await s.start();
+      const eventHandler = mockWsClient.addEventListener.mock.calls[0][1];
+
+      // No captureSnapshot() in flight — keyframe arrives because some other
+      // consumer (live view, HKSV, motion recording) woke the camera.
+      eventHandler({
+        serialNumber: "TEST123",
+        buffer: { data: createTestH264Data() },
+        metadata: {
+          videoCodec: "h264",
+          videoFPS: 30,
+          videoWidth: 1920,
+          videoHeight: 1080,
+        },
+      });
+
+      const cached = s.getCachedKeyframe(60000);
+      expect(cached).not.toBeNull();
+      expect(cached!.codec).toBe("H264");
+      expect(cached!.data.length).toBeGreaterThan(0);
+      expect(cached!.ageMs).toBeGreaterThanOrEqual(0);
+      await s.stop();
+    });
+
+    it("records the codec for an H.265 keyframe", async () => {
+      const { s, mockWsClient } = makeServer();
+      await s.start();
+      const eventHandler = mockWsClient.addEventListener.mock.calls[0][1];
+
+      eventHandler({
+        serialNumber: "TEST123",
+        buffer: { data: createTestHevcData() },
+        metadata: {
+          videoCodec: "h265",
+          videoFPS: 15,
+          videoWidth: 1280,
+          videoHeight: 720,
+        },
+      });
+
+      const cached = s.getCachedKeyframe(60000);
+      expect(cached).not.toBeNull();
+      expect(cached!.codec).toBe("H265");
+      await s.stop();
+    });
+
+    it("returns null when the cached keyframe is older than maxAgeMs", async () => {
+      const { s, mockWsClient } = makeServer();
+      await s.start();
+      const eventHandler = mockWsClient.addEventListener.mock.calls[0][1];
+
+      eventHandler({
+        serialNumber: "TEST123",
+        buffer: { data: createTestH264Data() },
+        metadata: {
+          videoCodec: "h264",
+          videoFPS: 30,
+          videoWidth: 1920,
+          videoHeight: 1080,
+        },
+      });
+
+      await wait(50);
+      // Freshness window shorter than the elapsed time → treated as stale.
+      expect(s.getCachedKeyframe(10)).toBeNull();
+      // But still available within a generous window.
+      expect(s.getCachedKeyframe(60000)).not.toBeNull();
+      await s.stop();
+    });
+  });
+
+  describe("livestream active/inactive events (station registry signals)", () => {
+    const makeServer = () => {
+      const mockWsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: {
+          device: jest.fn().mockReturnValue({
+            startLivestream: jest.fn().mockResolvedValue({}),
+            stopLivestream: jest.fn().mockResolvedValue({}),
+          }),
+        },
+      };
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+      });
+      return { s, mockWsClient };
+    };
+
+    it("emits livestreamActive with the serial when video first flows", async () => {
+      const { s, mockWsClient } = makeServer();
+      await s.start();
+      const eventHandler = mockWsClient.addEventListener.mock.calls[0][1];
+
+      const active = jest.fn();
+      s.on("livestreamActive", active);
+
+      eventHandler({
+        serialNumber: "TEST123",
+        buffer: { data: createTestH264Data() },
+        metadata: {
+          videoCodec: "h264",
+          videoFPS: 30,
+          videoWidth: 1920,
+          videoHeight: 1080,
+        },
+      });
+
+      expect(active).toHaveBeenCalledTimes(1);
+      expect(active).toHaveBeenCalledWith({ serialNumber: "TEST123" });
+      await s.stop();
+    });
+
+    it("emits livestreamInactive on stop, and only once per transition", async () => {
+      const { s, mockWsClient } = makeServer();
+      await s.start();
+      const eventHandler = mockWsClient.addEventListener.mock.calls[0][1];
+
+      const active = jest.fn();
+      const inactive = jest.fn();
+      s.on("livestreamActive", active);
+      s.on("livestreamInactive", inactive);
+
+      // Two video events — active should fire only once (transition).
+      for (let i = 0; i < 2; i++) {
+        eventHandler({
+          serialNumber: "TEST123",
+          buffer: { data: createTestH264Data() },
+          metadata: {
+            videoCodec: "h264",
+            videoFPS: 30,
+            videoWidth: 1920,
+            videoHeight: 1080,
+          },
+        });
+      }
+      expect(active).toHaveBeenCalledTimes(1);
+
+      await s.stop();
+      expect(inactive).toHaveBeenCalledWith({ serialNumber: "TEST123" });
+    });
+  });
+
   describe("getMuxedPort", () => {
     it("returns undefined before server starts", () => {
       expect(server.getMuxedPort()).toBeUndefined();

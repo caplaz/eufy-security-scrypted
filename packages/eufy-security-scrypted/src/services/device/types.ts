@@ -45,6 +45,17 @@ export interface IStreamServer {
   captureSnapshot(timeout?: number): Promise<Buffer>;
 
   /**
+   * Return the most recently seen keyframe if no older than `maxAgeMs`,
+   * otherwise null. Lets the snapshot service serve a thumbnail without
+   * waking the camera. The buffer is self-contained (parameter sets
+   * prepended) and decodes to a JPEG on its own.
+   * @param maxAgeMs - Maximum acceptable age of the cached keyframe, in ms
+   */
+  getCachedKeyframe(
+    maxAgeMs: number,
+  ): { data: Buffer; codec: "H264" | "H265"; ageMs: number } | null;
+
+  /**
    * Get the last received video metadata (codec, resolution, FPS).
    * Returns null if no stream has been received yet.
    */

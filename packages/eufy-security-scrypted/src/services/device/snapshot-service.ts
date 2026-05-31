@@ -20,6 +20,14 @@ import { IStreamServer } from "./types";
  * and converts them to JPEG images using FFmpeg.
  */
 export class SnapshotService {
+  // Serve a cached keyframe for thumbnails when one no older than this exists.
+  // Battery cameras can't be woken fast enough for a 5-up Home app grid (each
+  // wake is a cold P2P session of up to 60s, and they contend on the single
+  // HomeBase), so the grid is served from cache and only a genuinely stale
+  // camera pays for a live wake. Refreshed for free whenever the camera is
+  // already awake (live view, HKSV recording, motion-triggered stream).
+  private static readonly CACHE_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+
   constructor(
     private serialNumber: string,
     private streamServer: IStreamServer,
@@ -51,6 +59,22 @@ export class SnapshotService {
     this.logger.info("📸 Taking snapshot from camera stream");
 
     try {
+      // Cache-first: serve a recent keyframe without waking the camera. This
+      // is what makes the Home app thumbnail grid populate instantly and
+      // reliably — otherwise every tile triggers a cold P2P wake and the
+      // contending requests mostly time out.
+      const cached = this.streamServer.getCachedKeyframe(
+        SnapshotService.CACHE_MAX_AGE_MS,
+      );
+      if (cached) {
+        this.logger.info(
+          `📸 Serving snapshot from cached keyframe: ${cached.data.length} bytes, ` +
+            `${Math.round(cached.ageMs / 1000)}s old, ${cached.codec} — no camera wake`,
+        );
+        return await this.toJpegMediaObject(cached.data, cached.codec);
+      }
+
+      // No fresh cached frame — wake the camera and capture a live keyframe.
       // 60s default — see getPictureOptions for rationale.
       const timeout = options?.timeout || 60000;
 
@@ -68,25 +92,36 @@ export class SnapshotService {
         `Captured ${videoCodec} keyframe: ${h264Keyframe.length} bytes - converting to JPEG`,
       );
 
-      // Convert keyframe to JPEG using FFmpeg
-      const jpegBuffer = await FFmpegUtils.convertH264ToJPEG(
-        h264Keyframe,
-        2,
-        videoCodec,
-      );
-
-      this.logger.info(
-        `✅ Snapshot converted to JPEG: ${jpegBuffer.length} bytes`,
-      );
-
-      // Create MediaObject with JPEG image
-      return sdk.mediaManager.createMediaObject(jpegBuffer, "image/jpeg", {
-        sourceId: this.serialNumber,
-      });
+      return await this.toJpegMediaObject(h264Keyframe, videoCodec);
     } catch (error) {
       this.logger.error(`Failed to capture snapshot: ${error}`);
       throw error;
     }
+  }
+
+  /**
+   * Convert a raw H.264/H.265 keyframe to a JPEG MediaObject.
+   *
+   * @param keyframe - Self-contained keyframe bitstream (parameter sets included)
+   * @param videoCodec - Codec of the keyframe ("H264" or "H265")
+   */
+  private async toJpegMediaObject(
+    keyframe: Buffer,
+    videoCodec: string,
+  ): Promise<MediaObject> {
+    const jpegBuffer = await FFmpegUtils.convertH264ToJPEG(
+      keyframe,
+      2,
+      videoCodec,
+    );
+
+    this.logger.info(
+      `✅ Snapshot converted to JPEG: ${jpegBuffer.length} bytes`,
+    );
+
+    return sdk.mediaManager.createMediaObject(jpegBuffer, "image/jpeg", {
+      sourceId: this.serialNumber,
+    });
   }
 
   /**

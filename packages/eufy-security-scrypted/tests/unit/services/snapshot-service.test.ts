@@ -45,6 +45,9 @@ describe("SnapshotService", () => {
     mockStreamServer = {
       captureSnapshot: jest.fn().mockResolvedValue(mockH264Data),
       getVideoMetadata: jest.fn().mockReturnValue(null),
+      // Default: no fresh cached frame, so takePicture falls back to a live
+      // capture. Cache-hit behavior is exercised in its own describe block.
+      getCachedKeyframe: jest.fn().mockReturnValue(null),
     } as any;
 
     // Mock FFmpegUtils static method
@@ -138,6 +141,52 @@ describe("SnapshotService", () => {
 
       await service.takePicture({ timeout: 30000 });
       expect(mockStreamServer.captureSnapshot).toHaveBeenCalledWith(30000);
+    });
+  });
+
+  describe("takePicture — cached keyframe", () => {
+    const cachedKeyframe = Buffer.from([
+      0x00, 0x00, 0x00, 0x01, 0x40, 0x01, 0x99,
+    ]); // pretend H.265 keyframe
+
+    it("serves a fresh cached frame without waking the camera", async () => {
+      mockStreamServer.getCachedKeyframe = jest.fn().mockReturnValue({
+        data: cachedKeyframe,
+        codec: "H265",
+        ageMs: 4200,
+      });
+
+      const result = await service.takePicture();
+
+      // The whole point: no live capture, no camera wake.
+      expect(mockStreamServer.captureSnapshot).not.toHaveBeenCalled();
+      // Cached frame converted with its own stored codec, not the metadata.
+      expect(FFmpegUtils.convertH264ToJPEG).toHaveBeenCalledWith(
+        cachedKeyframe,
+        2,
+        "H265",
+      );
+      expect(sdk.mediaManager.createMediaObject).toHaveBeenCalledWith(
+        mockJpegData,
+        "image/jpeg",
+        { sourceId: serialNumber },
+      );
+      expect(result).toBeDefined();
+    });
+
+    it("requests the cache with a 1 hour freshness window", async () => {
+      await service.takePicture();
+      expect(mockStreamServer.getCachedKeyframe).toHaveBeenCalledWith(
+        60 * 60 * 1000,
+      );
+    });
+
+    it("falls back to a live capture when the cache is stale/empty", async () => {
+      mockStreamServer.getCachedKeyframe = jest.fn().mockReturnValue(null);
+
+      await service.takePicture();
+
+      expect(mockStreamServer.captureSnapshot).toHaveBeenCalledWith(60000);
     });
   });
 

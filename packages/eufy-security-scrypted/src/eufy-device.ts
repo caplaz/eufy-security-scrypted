@@ -87,6 +87,11 @@ import {
   StateChangeEvent,
 } from "./services/device";
 import { PropertyMapper } from "./utils/property-mapper";
+import {
+  markStationStreamActive,
+  markStationStreamInactive,
+  otherDeviceStreamingOnStation,
+} from "./utils/station-stream-registry";
 import { VideoClipsService } from "./services/video";
 import { PtzControlService, LightControlService } from "./services/control";
 
@@ -833,12 +838,48 @@ export class EufyDevice
    * Stream server lifecycle is now managed by StreamService.
    */
   private createStreamServer(): void {
+    // Load the last-detected codec from Scrypted device storage so the
+    // very first `getVideoStream()` call after a plugin reload advertises
+    // the correct codec. Without this hint, downstream consumers (the
+    // Rebroadcast plugin, in particular) set up sync-frame detection for
+    // H.264 NAL types and never find a keyframe in an H.265 stream —
+    // HomeKit's transcoder then sees "Unable to find sync frame in rtsp
+    // prebuffer" and the session dies at the 30s timeout.
+    const storedCodec = this.storage.getItem(
+      "lastDetectedVideoCodec",
+    ) as "H264" | "H265" | null;
+    const initialVideoCodec =
+      storedCodec === "H264" || storedCodec === "H265"
+        ? storedCodec
+        : undefined;
+    if (initialVideoCodec) {
+      this.logger.info(
+        `🎬 Using stored codec hint for stream server: ${initialVideoCodec}`,
+      );
+    }
+
     this.streamServer = new StreamServer({
       port: 0, // Let the system assign a free port
       host: "127.0.0.1", // Only allow connections from localhost
       logger: this.logger, // Pass tslog Logger directly
       wsClient: this.wsClient,
       serialNumber: this.serialNumber,
+      initialVideoCodec,
+    });
+
+    // Persist live-detected codec so the next plugin restart starts with
+    // the right hint. The event fires exactly once per stream-server
+    // instance (on the first video data event).
+    this.streamServer.on("metadataReceived", (metadata: { videoCodec?: string }) => {
+      const codec = metadata?.videoCodec?.toUpperCase();
+      const normalized = codec === "H265" || codec === "HEVC" ? "H265" : "H264";
+      const previous = this.storage.getItem("lastDetectedVideoCodec");
+      if (previous !== normalized) {
+        this.storage.setItem("lastDetectedVideoCodec", normalized);
+        this.logger.info(
+          `💾 Persisted detected video codec: ${normalized} (was: ${previous ?? "unset"})`,
+        );
+      }
     });
 
     this.streamServer.on(
@@ -855,6 +896,15 @@ export class EufyDevice
         );
       },
     );
+
+    // Maintain the cross-camera station-stream registry so a wedged sibling
+    // can avoid recycling the HomeBase P2P session while we're streaming.
+    this.streamServer.on("livestreamActive", () => {
+      markStationStreamActive(this.getStationSN(), this.serialNumber);
+    });
+    this.streamServer.on("livestreamInactive", () => {
+      markStationStreamInactive(this.getStationSN(), this.serialNumber);
+    });
 
     this.logger.debug(
       "Stream server created with WebSocket client integration",
@@ -876,6 +926,14 @@ export class EufyDevice
    * organically — we deliberately don't auto-retry from here, so the
    * outcome of the recycle is observable in the next consumer's lifecycle.
    */
+  /**
+   * Serial of the station (HomeBase) this device belongs to. 4G LTE cameras
+   * are their own station, so this falls back to the device serial.
+   */
+  private getStationSN(): string {
+    return this.latestProperties?.stationSerialNumber || this.serialNumber;
+  }
+
   private async recycleStationP2P(info: {
     reason: "cold-start-counter-maxed" | "data-flow-stale";
     attempts?: number;
@@ -904,9 +962,29 @@ export class EufyDevice
       return;
     }
 
-    const stationSN =
-      this.latestProperties?.stationSerialNumber || this.serialNumber;
+    const stationSN = this.getStationSN();
     const isSelfStation = stationSN === this.serialNumber;
+
+    // Guard: a recycle disconnects/reconnects the whole HomeBase, which
+    // interrupts every camera on it. If a sibling on this station is
+    // actively delivering video, don't tear its session down — defer the
+    // recycle. We've already cleared our own livestream intent (in
+    // markUpstreamWedged), so the next consumer that attaches to this
+    // device will retry organically; by then the sibling may be idle.
+    // Self-station 4G cameras have no siblings, so they never defer.
+    if (!isSelfStation) {
+      const busySibling = otherDeviceStreamingOnStation(
+        stationSN,
+        this.serialNumber,
+      );
+      if (busySibling) {
+        this.logger.warn(
+          `⏭️  Deferring station P2P recycle for ${stationSN} — sibling ${busySibling} is actively streaming on this HomeBase. Will retry on next consumer attach.`,
+        );
+        return;
+      }
+    }
+
     const triggerContext =
       info.reason === "cold-start-counter-maxed"
         ? `${info.attempts} no-data starts`
@@ -1076,6 +1154,10 @@ export class EufyDevice
     }
     this.talkbackActive = false;
     this.intercomStartedLivestream = false;
+
+    // Drop ourselves from the station-stream registry so a disposed device
+    // can't keep a sibling's recycle deferred forever.
+    markStationStreamInactive(this.getStationSN(), this.serialNumber);
 
     // Dispose stream service (will stop stream server if running)
     this.streamService
