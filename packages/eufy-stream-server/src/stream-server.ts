@@ -313,6 +313,16 @@ export class StreamServer extends EventEmitter {
   private deliversAudio: boolean | undefined = undefined;
 
   /**
+   * How long a `both`-mode muxer may produce zero fMP4 output before we give up
+   * on audio and rebuild it video-only. A camera with a real, continuous audio
+   * track emits in well under a second; this only fires for cameras that report
+   * audio but don't actually deliver a usable track (which would otherwise hang
+   * the live view forever). Kept short so it still lands inside the consumer's
+   * patience window after the handoff/cold-start latency.
+   */
+  private readonly BOTH_TO_VIDEO_FALLBACK_MS = 4000;
+
+  /**
    * Lease on the shared HomeBase stream slot (see
    * `StreamServerOptions.acquireStreamSlot`). Held while this camera is the
    * one streaming on its station; released when the stream stops.
@@ -720,10 +730,6 @@ export class StreamServer extends EventEmitter {
           return;
         }
 
-        // This camera delivers audio — remember it so muxers use `both` mode.
-        // (Mic-off cameras never reach here, so `deliversAudio` stays false.)
-        this.deliversAudio = true;
-
         if (!this.audioMetadata && event.metadata) {
           this.audioMetadata = event.metadata;
           this.logger.info(
@@ -745,17 +751,28 @@ export class StreamServer extends EventEmitter {
           audioFrameCount++;
         }
 
+        // Eufy delivers AAC pre-wrapped in ADTS — JMuxer consumes ADTS
+        // directly. Anything else (e.g. AudioSpecificConfig, the 2-byte codec
+        // config packet that arrives ahead of the first frame) is dropped
+        // because synthesizing an ADTS header without the real sample
+        // rate/channel count would produce a stream the decoder misinterprets.
+        const isAdts = this.isAdtsFrame(audioBuffer);
+
+        // Only a real ADTS frame counts as "this camera delivers audio". JMuxer
+        // `both` mode never emits a byte until it has an actual audio SAMPLE, so
+        // a camera that sends audio events but no usable ADTS (seen on some
+        // models — only the config packet arrives) would hang the muxer forever
+        // and the live view would stay black. Gating on ADTS means such a camera
+        // is detected as video-only and muxed in `video` mode instead. Set this
+        // before the no-muxer early-return so detection works even when the
+        // first ADTS frame arrives before any muxer client has attached.
+        if (isAdts) this.deliversAudio = true;
+
         if (this.muxerStreams.size === 0) {
           return;
         }
 
-        // Eufy delivers AAC pre-wrapped in ADTS — JMuxer consumes ADTS
-        // directly. Anything else (e.g. AudioSpecificConfig, which is the
-        // 2-byte codec config packet that arrives ahead of the first frame)
-        // is dropped because synthesizing an ADTS header without knowing
-        // the actual sample rate/channel count would produce a stream the
-        // decoder would misinterpret.
-        if (!this.isAdtsFrame(audioBuffer)) {
+        if (!isAdts) {
           return;
         }
 
@@ -900,10 +917,23 @@ export class StreamServer extends EventEmitter {
     );
     this.slotRevoked = true;
     this.livestreamIntendedState = false;
-    this.releaseStreamSlot();
-    this.ensureLivestreamState().catch((e) =>
-      this.logger.warn(`Post-revoke ensureLivestreamState failed: ${e}`),
-    );
+    // Stop our P2P livestream FIRST, then release the slot — do NOT release
+    // synchronously here. The preemptor's `whenReady` is gated on our release,
+    // so releasing before our stream has actually stopped lets the preemptor
+    // call `startLivestream` while our P2P is still up. On the one-stream-at-a-
+    // time HomeBase that overlap starves the handoff: the preemptor gets a
+    // frame or two (enough for metadata) and then stalls, while our redundant
+    // stop races its start (`device_livestream_not_running`). Deferring the
+    // release until after our stop completes (in `ensureLivestreamState`'s stop
+    // branch, with the `finally` as a backstop for the already-stopped case)
+    // makes it a clean staggered handoff: we stop → free the HomeBase → the
+    // preemptor starts on an idle station. `whenReady`'s timeout still bounds
+    // the preemptor's wait if our stop hangs.
+    void this.ensureLivestreamState()
+      .catch((e) =>
+        this.logger.warn(`Post-revoke ensureLivestreamState failed: ${e}`),
+      )
+      .finally(() => this.releaseStreamSlot());
   }
 
   /**
@@ -1275,44 +1305,85 @@ export class StreamServer extends EventEmitter {
       `Muxer mode=${mode} (deliversAudio=${this.deliversAudio}) for ${this.options.serialNumber}`,
     );
 
-    const muxer = new JMuxer({
-      mode,
-      videoCodec,
-      fps: videoFps,
-      flushingTime: 0,
-      clearBuffer: false,
-      debug: false,
-    });
+    let emittedFirstChunk = false;
+    let bothFallbackTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const duplex: Duplex = muxer.createStream();
-    let firstChunkLogged = false;
-    duplex.on("data", (chunk: Buffer) => {
-      if (!firstChunkLogged) {
-        this.logger.info(
-          `JMuxer emitting fMP4 (first chunk: ${chunk.length} bytes, mode=${mode}, codec=${videoCodec}, fps=${videoFps})`,
-        );
-        firstChunkLogged = true;
-      }
-      if (!socket.destroyed) socket.write(chunk);
-    });
-    duplex.on("error", (err) => {
-      this.logger.warn(`JMuxer duplex error: ${err.message}`);
-    });
+    // Build (or rebuild) the JMuxer for this socket in the given mode and wire
+    // its output to the socket. Replacing the entry in `muxerStreams` is how the
+    // `both`→`video` fallback swaps modes without dropping the client.
+    const buildMuxer = (useMode: "both" | "video"): void => {
+      const muxer = new JMuxer({
+        mode: useMode,
+        videoCodec,
+        fps: videoFps,
+        flushingTime: 0,
+        clearBuffer: false,
+        debug: false,
+      });
+      const duplex: Duplex = muxer.createStream();
+      duplex.on("data", (chunk: Buffer) => {
+        if (!emittedFirstChunk) {
+          emittedFirstChunk = true;
+          if (bothFallbackTimer) {
+            clearTimeout(bothFallbackTimer);
+            bothFallbackTimer = undefined;
+          }
+          this.logger.info(
+            `JMuxer emitting fMP4 (first chunk: ${chunk.length} bytes, mode=${useMode}, codec=${videoCodec}, fps=${videoFps})`,
+          );
+        }
+        if (!socket.destroyed) socket.write(chunk);
+      });
+      duplex.on("error", (err) => {
+        this.logger.warn(`JMuxer duplex error: ${err.message}`);
+      });
+      this.muxerStreams.set(socket, { muxer, duplex });
+    };
 
-    this.muxerStreams.set(socket, { muxer, duplex });
+    buildMuxer(mode);
     this.logger.info(
       `Muxed client attached (codec=${videoCodec}, total active muxers: ${this.muxerStreams.size})`,
     );
+
+    // `both` mode never emits a single fMP4 byte until JMuxer has BOTH a video
+    // keyframe and an audio sample (remux `isReady()`). Some cameras report
+    // audio (a stray ADTS frame flips `deliversAudio`) but don't actually
+    // deliver a continuous audio track once muxing starts — so `both` waits
+    // forever and the live view stays black. Guarantee video by rebuilding the
+    // muxer video-only if no output appears shortly. Video-capable cameras with
+    // real audio emit in well under this window, so they keep their audio.
+    if (mode === "both") {
+      bothFallbackTimer = setTimeout(() => {
+        bothFallbackTimer = undefined;
+        if (emittedFirstChunk || socket.destroyed) return;
+        if (!this.muxerStreams.has(socket)) return;
+        this.logger.warn(
+          `Muxer 'both' produced no fMP4 in ${this.BOTH_TO_VIDEO_FALLBACK_MS}ms — rebuilding video-only for ${this.options.serialNumber} (camera reports audio but isn't delivering a usable track)`,
+        );
+        const existing = this.muxerStreams.get(socket);
+        try {
+          existing?.muxer.destroy();
+        } catch {
+          // ignore — being replaced anyway
+        }
+        buildMuxer("video");
+      }, this.BOTH_TO_VIDEO_FALLBACK_MS);
+    }
 
     // Re-evaluate consumer state now that the socket moved from pending →
     // active. No-op if the livestream is already running.
     this.updateLivestreamStateForMuxerClients();
 
     const cleanup = () => {
-      if (!this.muxerStreams.has(socket)) return;
+      if (bothFallbackTimer) {
+        clearTimeout(bothFallbackTimer);
+        bothFallbackTimer = undefined;
+      }
+      const existing = this.muxerStreams.get(socket);
+      if (!existing) return;
       this.muxerStreams.delete(socket);
       try {
-        muxer.destroy();
+        existing.muxer.destroy();
       } catch (e) {
         this.logger.warn(`JMuxer destroy threw during cleanup: ${e}`);
       }

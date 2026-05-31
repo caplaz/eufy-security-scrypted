@@ -912,6 +912,69 @@ describe("StreamServer", () => {
       await s.stop();
     });
 
+    it("on revoke, stops the livestream BEFORE releasing the slot (clean staggered handoff)", async () => {
+      const order: string[] = [];
+      let started = false;
+      const startLivestream = jest.fn().mockImplementation(async () => {
+        started = true;
+        return {};
+      });
+      const stopLivestream = jest.fn().mockImplementation(async () => {
+        started = false;
+        order.push("stop");
+        return {};
+      });
+      const mockWsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: {
+          device: jest.fn().mockReturnValue({
+            startLivestream,
+            stopLivestream,
+            // Reflect reality: not streaming until start, streaming after.
+            isLivestreaming: jest
+              .fn()
+              .mockImplementation(async () => ({ livestreaming: started })),
+          }),
+        },
+      };
+      let capturedRevoke: (() => void) | undefined;
+      const lease = {
+        release: jest.fn(() => order.push("release")),
+        active: true,
+      };
+      const acquireStreamSlot = jest.fn((_p: string, onRevoke: () => void) => {
+        capturedRevoke = onRevoke;
+        return lease;
+      });
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot: acquireStreamSlot as any,
+      });
+      await s.start();
+
+      const snap = s.captureSnapshot(400).catch(() => {});
+      await wait(80);
+      expect(startLivestream).toHaveBeenCalled();
+      expect(capturedRevoke).toBeDefined();
+
+      // Preempted: must stop our P2P, THEN release — so the preemptor's
+      // whenReady (gated on release) can't start it mid-teardown and starve
+      // the one-stream HomeBase.
+      capturedRevoke!();
+      await wait(120);
+
+      expect(order).toContain("stop");
+      expect(order).toContain("release");
+      expect(order.indexOf("stop")).toBeLessThan(order.indexOf("release"));
+      expect(stopLivestream).toHaveBeenCalled();
+      await snap;
+      await s.stop();
+    });
+
     it("starts the livestream when the slot is granted", async () => {
       const { mockWsClient, startLivestream } = makeWs();
       const lease = { release: jest.fn(), active: true };
@@ -1269,6 +1332,29 @@ describe("StreamServer", () => {
       socket.destroy();
     });
 
+    it("only an ADTS frame marks the camera as audio-capable (non-ADTS stays video-only)", () => {
+      // A camera that emits audio events but no usable ADTS frame must NOT be
+      // flagged as delivering audio — otherwise the muxer picks `both` mode and
+      // hangs forever waiting for an audio sample that never arrives, and the
+      // live view stays black. Such a camera must be muxed video-only.
+      expect((server as any).deliversAudio).toBeUndefined();
+
+      audioCallback({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: { data: Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06]) },
+        metadata: { audioCodec: "AAC" },
+      });
+      expect((server as any).deliversAudio).toBeUndefined();
+
+      // A real ADTS frame flips it on so audio-capable cameras use `both`.
+      audioCallback({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: { data: Buffer.from([0xff, 0xf1, 0x50, 0x80, 0x00, 0x1f, 0xfc]) },
+        metadata: { audioCodec: "AAC" },
+      });
+      expect((server as any).deliversAudio).toBe(true);
+    });
+
     it("feeds valid ADTS frames to all muxers", async () => {
       // Connect a muxed client
       const muxedPort = server.getMuxedPort()!;
@@ -1416,6 +1502,37 @@ describe("StreamServer", () => {
       const lastCall =
         JMuxerMock.mock.calls[JMuxerMock.mock.calls.length - 1][0];
       expect(lastCall.videoCodec).toBe("H265");
+
+      socket.destroy();
+    });
+
+    it("rebuilds a stalled 'both' muxer as video-only so video still flows", async () => {
+      await server.start();
+      // Make the fallback fire fast; the mocked muxer never emits any fMP4.
+      (server as any).BOTH_TO_VIDEO_FALLBACK_MS = 80;
+
+      const muxedPort = server.getMuxedPort()!;
+      const socket = net.createConnection({
+        port: muxedPort,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      // seedVideoMetadata sets deliversAudio=true → muxer built in "both" mode.
+      seedVideoMetadata(server, "H265");
+      await wait(50);
+
+      const JMuxerMock = require("jmuxer").default;
+      const callsBefore = JMuxerMock.mock.calls.length;
+      expect(JMuxerMock.mock.calls[callsBefore - 1][0].mode).toBe("both");
+
+      // No fMP4 within the window → muxer is rebuilt video-only, same client.
+      await wait(140);
+
+      expect(JMuxerMock.mock.calls.length).toBeGreaterThan(callsBefore);
+      expect(
+        JMuxerMock.mock.calls[JMuxerMock.mock.calls.length - 1][0].mode,
+      ).toBe("video");
+      expect((server as any).muxerStreams.size).toBe(1);
 
       socket.destroy();
     });
