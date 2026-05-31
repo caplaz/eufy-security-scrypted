@@ -746,6 +746,30 @@ describe("StreamServer", () => {
       await expect(snapshotPromise).rejects.toThrow(/timed out/i);
     });
 
+    it("does NOT resolve snapshot on H.265 parameter sets without IRAP", async () => {
+      // Seed metadata via a parameter-set-only event (codec still gets
+      // detected from event.metadata).
+      const psOnly = Buffer.concat([
+        createTestHevcVpsData(),
+        createTestHevcSpsData(),
+        createTestHevcPpsData(),
+      ]);
+
+      // Begin snapshot capture
+      const snapshotPromise = serverWithWs.captureSnapshot(200);
+      await wait(50);
+
+      // Deliver only VPS+SPS+PPS — no IRAP/IDR slice. FFmpeg can't decode
+      // a JPEG from parameter sets alone, so the resolver must wait.
+      eventHandler({
+        serialNumber: "H265_DEVICE",
+        buffer: { data: psOnly },
+        metadata: h265Metadata,
+      });
+
+      await expect(snapshotPromise).rejects.toThrow(/timed out/i);
+    });
+
     it("caches H.265 VPS, SPS and PPS and sends them to new clients", async () => {
       const vpsData = createTestHevcVpsData();
       const spsData = createTestHevcSpsData();
@@ -808,6 +832,381 @@ describe("StreamServer", () => {
     });
   });
 
+  describe("station stream slot gating (acquireStreamSlot)", () => {
+    const makeWs = () => {
+      const startLivestream = jest.fn().mockResolvedValue({});
+      const mockWsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: {
+          device: jest.fn().mockReturnValue({
+            startLivestream,
+            stopLivestream: jest.fn().mockResolvedValue({}),
+            isLivestreaming: jest.fn().mockResolvedValue({
+              livestreaming: false,
+            }),
+          }),
+        },
+      };
+      return { mockWsClient, startLivestream };
+    };
+
+    it("does NOT start the livestream when a background request is denied", async () => {
+      const { mockWsClient, startLivestream } = makeWs();
+      const acquireStreamSlot = jest.fn().mockReturnValue(null); // slot busy
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot,
+      });
+      await s.start();
+
+      // captureSnapshot starts the stream at background priority (no consumers).
+      await expect(s.captureSnapshot(150)).rejects.toThrow(/timed out/);
+
+      expect(acquireStreamSlot).toHaveBeenCalledWith(
+        "background",
+        expect.any(Function),
+      );
+      expect(startLivestream).not.toHaveBeenCalled();
+      await s.stop();
+    });
+
+    it("yields (slotRevoked, no wedge/recycle) when the slot is revoked", async () => {
+      const { mockWsClient, startLivestream } = makeWs();
+      let capturedRevoke: (() => void) | undefined;
+      const lease = { release: jest.fn(), active: true };
+      const acquireStreamSlot = jest.fn((_p: string, onRevoke: () => void) => {
+        capturedRevoke = onRevoke;
+        return lease;
+      });
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot: acquireStreamSlot as any,
+      });
+      await s.start();
+      const wedged = jest.fn();
+      s.on("upstreamWedged", wedged);
+
+      // Begin a capture so the server acquires the slot and starts.
+      const snap = s.captureSnapshot(400).catch(() => {});
+      await wait(80);
+      expect(startLivestream).toHaveBeenCalled();
+      expect(capturedRevoke).toBeDefined();
+
+      // A higher-priority camera preempts us — assert the immediate contract.
+      capturedRevoke!();
+      await wait(30);
+
+      expect((s as any).slotRevoked).toBe(true);
+      // Yielding the slot is contention, NOT an upstream wedge — must not recycle.
+      expect(wedged).not.toHaveBeenCalled();
+      expect(lease.release).toHaveBeenCalled();
+      await snap;
+      await s.stop();
+    });
+
+    it("on revoke, stops the livestream BEFORE releasing the slot (clean staggered handoff)", async () => {
+      const order: string[] = [];
+      let started = false;
+      const startLivestream = jest.fn().mockImplementation(async () => {
+        started = true;
+        return {};
+      });
+      const stopLivestream = jest.fn().mockImplementation(async () => {
+        started = false;
+        order.push("stop");
+        return {};
+      });
+      const mockWsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: {
+          device: jest.fn().mockReturnValue({
+            startLivestream,
+            stopLivestream,
+            // Reflect reality: not streaming until start, streaming after.
+            isLivestreaming: jest
+              .fn()
+              .mockImplementation(async () => ({ livestreaming: started })),
+          }),
+        },
+      };
+      let capturedRevoke: (() => void) | undefined;
+      const lease = {
+        release: jest.fn(() => order.push("release")),
+        active: true,
+      };
+      const acquireStreamSlot = jest.fn((_p: string, onRevoke: () => void) => {
+        capturedRevoke = onRevoke;
+        return lease;
+      });
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot: acquireStreamSlot as any,
+      });
+      await s.start();
+
+      const snap = s.captureSnapshot(400).catch(() => {});
+      await wait(80);
+      expect(startLivestream).toHaveBeenCalled();
+      expect(capturedRevoke).toBeDefined();
+
+      // Preempted: must stop our P2P, THEN release — so the preemptor's
+      // whenReady (gated on release) can't start it mid-teardown and starve
+      // the one-stream HomeBase.
+      capturedRevoke!();
+      await wait(120);
+
+      expect(order).toContain("stop");
+      expect(order).toContain("release");
+      expect(order.indexOf("stop")).toBeLessThan(order.indexOf("release"));
+      expect(stopLivestream).toHaveBeenCalled();
+      await snap;
+      await s.stop();
+    });
+
+    it("starts the livestream when the slot is granted", async () => {
+      const { mockWsClient, startLivestream } = makeWs();
+      const lease = { release: jest.fn(), active: true };
+      const acquireStreamSlot = jest.fn().mockReturnValue(lease);
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot,
+      });
+      await s.start();
+
+      await expect(s.captureSnapshot(150)).rejects.toThrow(/timed out/);
+
+      expect(acquireStreamSlot).toHaveBeenCalled();
+      expect(startLivestream).toHaveBeenCalled();
+      await s.stop();
+    });
+  });
+
+  describe("keyframe cache (getCachedKeyframe)", () => {
+    const makeServer = () => {
+      const mockWsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: {
+          device: jest.fn().mockReturnValue({
+            startLivestream: jest.fn().mockResolvedValue({}),
+            stopLivestream: jest.fn().mockResolvedValue({}),
+          }),
+        },
+      };
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+      });
+      return { s, mockWsClient };
+    };
+
+    it("returns null before any keyframe is seen", async () => {
+      const { s } = makeServer();
+      await s.start();
+      expect(s.getCachedKeyframe(60000)).toBeNull();
+      await s.stop();
+    });
+
+    it("caches a keyframe that flows through with no snapshot pending", async () => {
+      const { s, mockWsClient } = makeServer();
+      await s.start();
+      const eventHandler = mockWsClient.addEventListener.mock.calls[0][1];
+
+      // No captureSnapshot() in flight — keyframe arrives because some other
+      // consumer (live view, HKSV, motion recording) woke the camera.
+      eventHandler({
+        serialNumber: "TEST123",
+        buffer: { data: createTestH264Data() },
+        metadata: {
+          videoCodec: "h264",
+          videoFPS: 30,
+          videoWidth: 1920,
+          videoHeight: 1080,
+        },
+      });
+
+      const cached = s.getCachedKeyframe(60000);
+      expect(cached).not.toBeNull();
+      expect(cached!.codec).toBe("H264");
+      expect(cached!.data.length).toBeGreaterThan(0);
+      expect(cached!.ageMs).toBeGreaterThanOrEqual(0);
+      await s.stop();
+    });
+
+    it("records the codec for an H.265 keyframe", async () => {
+      const { s, mockWsClient } = makeServer();
+      await s.start();
+      const eventHandler = mockWsClient.addEventListener.mock.calls[0][1];
+
+      eventHandler({
+        serialNumber: "TEST123",
+        buffer: { data: createTestHevcData() },
+        metadata: {
+          videoCodec: "h265",
+          videoFPS: 15,
+          videoWidth: 1280,
+          videoHeight: 720,
+        },
+      });
+
+      const cached = s.getCachedKeyframe(60000);
+      expect(cached).not.toBeNull();
+      expect(cached!.codec).toBe("H265");
+      await s.stop();
+    });
+
+    it("setCachedKeyframe seeds the cache (restore-after-reload)", async () => {
+      const { s } = makeServer();
+      await s.start();
+      expect(s.getCachedKeyframe(60000)).toBeNull();
+
+      const restored = Buffer.from([0x00, 0x00, 0x00, 0x01, 0x40, 0x01]);
+      s.setCachedKeyframe(restored, "H265");
+
+      const cached = s.getCachedKeyframe(60000);
+      expect(cached).not.toBeNull();
+      expect(cached!.codec).toBe("H265");
+      expect(cached!.data).toEqual(restored);
+      await s.stop();
+    });
+
+    it("setCachedKeyframe does NOT overwrite a live keyframe", async () => {
+      const { s, mockWsClient } = makeServer();
+      await s.start();
+      const eventHandler = mockWsClient.addEventListener.mock.calls[0][1];
+      eventHandler({
+        serialNumber: "TEST123",
+        buffer: { data: createTestH264Data() },
+        metadata: {
+          videoCodec: "h264",
+          videoFPS: 30,
+          videoWidth: 1920,
+          videoHeight: 1080,
+        },
+      });
+      s.setCachedKeyframe(Buffer.from([0xde, 0xad]), "H265");
+      expect(s.getCachedKeyframe(60000)!.codec).toBe("H264");
+      await s.stop();
+    });
+
+    it("returns null when the cached keyframe is older than maxAgeMs", async () => {
+      const { s, mockWsClient } = makeServer();
+      await s.start();
+      const eventHandler = mockWsClient.addEventListener.mock.calls[0][1];
+
+      eventHandler({
+        serialNumber: "TEST123",
+        buffer: { data: createTestH264Data() },
+        metadata: {
+          videoCodec: "h264",
+          videoFPS: 30,
+          videoWidth: 1920,
+          videoHeight: 1080,
+        },
+      });
+
+      await wait(50);
+      // Freshness window shorter than the elapsed time → treated as stale.
+      expect(s.getCachedKeyframe(10)).toBeNull();
+      // But still available within a generous window.
+      expect(s.getCachedKeyframe(60000)).not.toBeNull();
+      await s.stop();
+    });
+  });
+
+  describe("livestream active/inactive events (station registry signals)", () => {
+    const makeServer = () => {
+      const mockWsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: {
+          device: jest.fn().mockReturnValue({
+            startLivestream: jest.fn().mockResolvedValue({}),
+            stopLivestream: jest.fn().mockResolvedValue({}),
+          }),
+        },
+      };
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+      });
+      return { s, mockWsClient };
+    };
+
+    it("emits livestreamActive with the serial when video first flows", async () => {
+      const { s, mockWsClient } = makeServer();
+      await s.start();
+      const eventHandler = mockWsClient.addEventListener.mock.calls[0][1];
+
+      const active = jest.fn();
+      s.on("livestreamActive", active);
+
+      eventHandler({
+        serialNumber: "TEST123",
+        buffer: { data: createTestH264Data() },
+        metadata: {
+          videoCodec: "h264",
+          videoFPS: 30,
+          videoWidth: 1920,
+          videoHeight: 1080,
+        },
+      });
+
+      expect(active).toHaveBeenCalledTimes(1);
+      expect(active).toHaveBeenCalledWith({ serialNumber: "TEST123" });
+      await s.stop();
+    });
+
+    it("emits livestreamInactive on stop, and only once per transition", async () => {
+      const { s, mockWsClient } = makeServer();
+      await s.start();
+      const eventHandler = mockWsClient.addEventListener.mock.calls[0][1];
+
+      const active = jest.fn();
+      const inactive = jest.fn();
+      s.on("livestreamActive", active);
+      s.on("livestreamInactive", inactive);
+
+      // Two video events — active should fire only once (transition).
+      for (let i = 0; i < 2; i++) {
+        eventHandler({
+          serialNumber: "TEST123",
+          buffer: { data: createTestH264Data() },
+          metadata: {
+            videoCodec: "h264",
+            videoFPS: 30,
+            videoWidth: 1920,
+            videoHeight: 1080,
+          },
+        });
+      }
+      expect(active).toHaveBeenCalledTimes(1);
+
+      await s.stop();
+      expect(inactive).toHaveBeenCalledWith({ serialNumber: "TEST123" });
+    });
+  });
+
   describe("getMuxedPort", () => {
     it("returns undefined before server starts", () => {
       expect(server.getMuxedPort()).toBeUndefined();
@@ -823,10 +1222,38 @@ describe("StreamServer", () => {
 
   describe("audio event handler", () => {
     let audioCallback: (event: any) => void;
+    let videoCallback: (event: any) => void;
+
+    // Seed video metadata so handleMuxedClient's waitForVideoMetadata
+    // resolves quickly. Without this it would block for 15s waiting for
+    // the first video frame, and tests that rely on a muxer being attached
+    // would time out.
+    const seedVideoMetadata = () => {
+      // These tests exercise audio, so mark the device as audio-capable to
+      // skip the muxer's audio-detection wait and create it immediately
+      // (in "both" mode), matching the assumption these tests were written under.
+      (server as any).deliversAudio = true;
+      const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
+      // Minimal H.264 SPS NAL — content irrelevant for metadata capture.
+      const nal = Buffer.from([0x67, 0x42, 0x00, 0x1e]);
+      videoCallback({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: { data: Buffer.concat([startCode, nal]) },
+        metadata: {
+          videoCodec: "H264",
+          videoFPS: 30,
+          videoWidth: 1280,
+          videoHeight: 720,
+        },
+      });
+    };
 
     beforeEach(async () => {
       await server.start();
-      // Audio listener is registered as the second addEventListener call
+      const videoCall = mockWsClient.addEventListener.mock.calls.find(
+        (call: any[]) => call[0] === "livestream video data",
+      );
+      videoCallback = videoCall[1];
       const audioCall = mockWsClient.addEventListener.mock.calls.find(
         (call: any[]) => call[0] === "livestream audio data",
       );
@@ -875,6 +1302,9 @@ describe("StreamServer", () => {
         host: "127.0.0.1",
       });
       await new Promise((resolve) => socket.on("connect", resolve));
+      // Seed video metadata so handleMuxedClient's metadata-wait resolves
+      // and the JMuxer gets constructed.
+      seedVideoMetadata();
       await wait(50);
 
       expect((server as any).muxerStreams.size).toBe(1);
@@ -902,6 +1332,29 @@ describe("StreamServer", () => {
       socket.destroy();
     });
 
+    it("only an ADTS frame marks the camera as audio-capable (non-ADTS stays video-only)", () => {
+      // A camera that emits audio events but no usable ADTS frame must NOT be
+      // flagged as delivering audio — otherwise the muxer picks `both` mode and
+      // hangs forever waiting for an audio sample that never arrives, and the
+      // live view stays black. Such a camera must be muxed video-only.
+      expect((server as any).deliversAudio).toBeUndefined();
+
+      audioCallback({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: { data: Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06]) },
+        metadata: { audioCodec: "AAC" },
+      });
+      expect((server as any).deliversAudio).toBeUndefined();
+
+      // A real ADTS frame flips it on so audio-capable cameras use `both`.
+      audioCallback({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: { data: Buffer.from([0xff, 0xf1, 0x50, 0x80, 0x00, 0x1f, 0xfc]) },
+        metadata: { audioCodec: "AAC" },
+      });
+      expect((server as any).deliversAudio).toBe(true);
+    });
+
     it("feeds valid ADTS frames to all muxers", async () => {
       // Connect a muxed client
       const muxedPort = server.getMuxedPort()!;
@@ -910,6 +1363,7 @@ describe("StreamServer", () => {
         host: "127.0.0.1",
       });
       await new Promise((resolve) => socket.on("connect", resolve));
+      seedVideoMetadata();
       await wait(50);
 
       expect((server as any).muxerStreams.size).toBe(1);
@@ -936,6 +1390,34 @@ describe("StreamServer", () => {
   });
 
   describe("handleMuxedClient", () => {
+    // JMuxer is only constructed after the first video event arrives (so
+    // the muxer can be created with the correct codec). Helper to seed
+    // that metadata and unblock the in-flight `waitForVideoMetadata`.
+    const seedVideoMetadata = (s: StreamServer, codec: string = "H264") => {
+      // Default these tests to audio-capable so the muxer is built
+      // immediately (mode "both"), as they were written before audio-aware
+      // mode existed. The video-only path has its own dedicated tests.
+      (s as any).deliversAudio = true;
+      const videoCall = (
+        (s as any).options.wsClient as any
+      ).addEventListener.mock.calls.find(
+        (call: any[]) => call[0] === "livestream video data",
+      );
+      const videoCallback = videoCall[1];
+      const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
+      const nal = Buffer.from([0x67, 0x42, 0x00, 0x1e]);
+      videoCallback({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: { data: Buffer.concat([startCode, nal]) },
+        metadata: {
+          videoCodec: codec,
+          videoFPS: 30,
+          videoWidth: 1280,
+          videoHeight: 720,
+        },
+      });
+    };
+
     it("adds muxer to map on connection", async () => {
       await server.start();
 
@@ -947,9 +1429,14 @@ describe("StreamServer", () => {
         host: "127.0.0.1",
       });
       await new Promise((resolve) => socket.on("connect", resolve));
+      // Connection alone only registers the socket as pending; the muxer
+      // is built after the first video event delivers metadata. Seed the
+      // metadata, then wait for handleMuxedClient to construct the muxer.
+      seedVideoMetadata(server);
       await wait(50);
 
       expect((server as any).muxerStreams.size).toBe(1);
+      expect((server as any).pendingMuxerSockets.size).toBe(0);
 
       socket.destroy();
     });
@@ -963,6 +1450,7 @@ describe("StreamServer", () => {
         host: "127.0.0.1",
       });
       await new Promise((resolve) => socket.on("connect", resolve));
+      seedVideoMetadata(server);
       await wait(50);
 
       expect((server as any).muxerStreams.size).toBe(1);
@@ -978,6 +1466,154 @@ describe("StreamServer", () => {
       expect(muxerInstance.destroy).toHaveBeenCalled();
     });
 
+    it("constructs JMuxer with videoCodec=H264 for H.264 streams", async () => {
+      await server.start();
+
+      const muxedPort = server.getMuxedPort()!;
+      const socket = net.createConnection({
+        port: muxedPort,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      seedVideoMetadata(server, "H264");
+      await wait(50);
+
+      const JMuxerMock = require("jmuxer").default;
+      const lastCall =
+        JMuxerMock.mock.calls[JMuxerMock.mock.calls.length - 1][0];
+      expect(lastCall.videoCodec).toBe("H264");
+
+      socket.destroy();
+    });
+
+    it("constructs JMuxer with videoCodec=H265 for H.265 streams", async () => {
+      await server.start();
+
+      const muxedPort = server.getMuxedPort()!;
+      const socket = net.createConnection({
+        port: muxedPort,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      seedVideoMetadata(server, "H265");
+      await wait(50);
+
+      const JMuxerMock = require("jmuxer").default;
+      const lastCall =
+        JMuxerMock.mock.calls[JMuxerMock.mock.calls.length - 1][0];
+      expect(lastCall.videoCodec).toBe("H265");
+
+      socket.destroy();
+    });
+
+    it("rebuilds a stalled 'both' muxer as video-only so video still flows", async () => {
+      await server.start();
+      // Make the fallback fire fast; the mocked muxer never emits any fMP4.
+      (server as any).BOTH_TO_VIDEO_FALLBACK_MS = 80;
+
+      const muxedPort = server.getMuxedPort()!;
+      const socket = net.createConnection({
+        port: muxedPort,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      // seedVideoMetadata sets deliversAudio=true → muxer built in "both" mode.
+      seedVideoMetadata(server, "H265");
+      await wait(50);
+
+      const JMuxerMock = require("jmuxer").default;
+      const callsBefore = JMuxerMock.mock.calls.length;
+      expect(JMuxerMock.mock.calls[callsBefore - 1][0].mode).toBe("both");
+
+      // No fMP4 within the window → muxer is rebuilt video-only, same client.
+      await wait(140);
+
+      expect(JMuxerMock.mock.calls.length).toBeGreaterThan(callsBefore);
+      expect(
+        JMuxerMock.mock.calls[JMuxerMock.mock.calls.length - 1][0].mode,
+      ).toBe("video");
+      expect((server as any).muxerStreams.size).toBe(1);
+
+      socket.destroy();
+    });
+
+    it("muxes in 'both' mode when the device delivers audio", async () => {
+      await server.start();
+      const socket = net.createConnection({
+        port: server.getMuxedPort()!,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      seedVideoMetadata(server, "H265"); // helper marks deliversAudio = true
+      await wait(50);
+
+      const JMuxerMock = require("jmuxer").default;
+      const lastCall =
+        JMuxerMock.mock.calls[JMuxerMock.mock.calls.length - 1][0];
+      expect(lastCall.mode).toBe("both");
+      socket.destroy();
+    });
+
+    it("muxes in 'video' mode for a video-only (mic-off) camera", async () => {
+      await server.start();
+      const socket = net.createConnection({
+        port: server.getMuxedPort()!,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+
+      // Known video-only: skip the audio-detection wait. (Without this the
+      // muxer would block ~2.5s waiting for an audio frame that never comes.)
+      (server as any).deliversAudio = false;
+
+      // Seed video metadata directly — the helper would force audio=true.
+      const videoCallback = (
+        (server as any).options.wsClient as any
+      ).addEventListener.mock.calls.find(
+        (call: any[]) => call[0] === "livestream video data",
+      )[1];
+      videoCallback({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: {
+          data: Buffer.from([0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1e]),
+        },
+        metadata: {
+          videoCodec: "H265",
+          videoFPS: 15,
+          videoWidth: 1920,
+          videoHeight: 1080,
+        },
+      });
+      await wait(50);
+
+      const JMuxerMock = require("jmuxer").default;
+      const lastCall =
+        JMuxerMock.mock.calls[JMuxerMock.mock.calls.length - 1][0];
+      expect(lastCall.mode).toBe("video");
+      socket.destroy();
+    });
+
+    it("pending muxer client counts as a consumer (triggers livestream start)", async () => {
+      await server.start();
+
+      const muxedPort = server.getMuxedPort()!;
+      const socket = net.createConnection({
+        port: muxedPort,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      // Don't seed metadata — leave the socket pending. The livestream
+      // state machine should still consider it a consumer and ask the WS
+      // client to start the livestream.
+      await wait(20);
+
+      expect(
+        mockWsClient.commands.device().startLivestream,
+      ).toHaveBeenCalled();
+
+      socket.destroy();
+    });
+
     it("JMuxer duplex data is written to socket", async () => {
       await server.start();
 
@@ -991,6 +1627,7 @@ describe("StreamServer", () => {
       socket.on("data", (chunk) => receivedChunks.push(chunk as Buffer));
 
       await new Promise((resolve) => socket.on("connect", resolve));
+      seedVideoMetadata(server);
       await wait(50);
 
       const JMuxerMock = require("jmuxer").default;

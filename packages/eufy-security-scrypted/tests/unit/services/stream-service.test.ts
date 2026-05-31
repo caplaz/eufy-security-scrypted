@@ -195,6 +195,30 @@ describe("StreamService", () => {
       );
     });
 
+    it("reports our actual source codec, not a consumer's requested codec", async () => {
+      // Source is H.265. A consumer (HomeKit) requests h264; we must NOT relabel
+      // our stream as h264 — that gets it `-vcodec copy`'d as-is and fails.
+      mockStreamServer.getVideoMetadata = jest.fn().mockReturnValue({
+        videoCodec: "H265",
+        videoWidth: 1920,
+        videoHeight: 1080,
+        videoFPS: 15,
+      });
+
+      await service.getVideoStream(VideoQuality.HIGH, {
+        id: "main",
+        video: { codec: "h264" },
+      } as any);
+
+      expect(sdk.mediaManager.createFFmpegMediaObject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mediaStreamOptions: expect.objectContaining({
+            video: expect.objectContaining({ codec: "h265" }),
+          }),
+        }),
+      );
+    });
+
     it("should use default stream options if not provided", async () => {
       await service.getVideoStream(VideoQuality.MEDIUM);
 
