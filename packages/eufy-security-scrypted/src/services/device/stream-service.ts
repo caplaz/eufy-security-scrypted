@@ -56,24 +56,37 @@ export class StreamService {
    *   Scrypted (the per-camera "Transcode to H.264" toggle). Transcoding only
    *   actually engages when this returns true AND the live source is H.265 —
    *   native H.264 is always passed through untouched. Defaults to disabled.
+   * @param isThrottling - returns whether transcoding is currently being
+   *   suppressed to protect the host (CPU too hot). When true, a stream that
+   *   would normally transcode falls back to H.265 passthrough. Defaults off.
    */
   constructor(
     private serialNumber: string,
     private streamServer: IStreamServer,
     private logger: Logger<ILogObj>,
     private shouldTranscode: () => boolean = () => false,
+    private isThrottling: () => boolean = () => false,
   ) {}
 
   /**
-   * True when we should hand Scrypted a transcoded H.264 stream: the toggle is
-   * on, the source is H.265, and the muxed fMP4 port (our transcode source) is
-   * available. Native H.264 sources never transcode.
+   * Whether this stream WOULD transcode (toggle on, source is H.265, muxed
+   * port available) — ignoring the thermal throttle. Used to log when the
+   * throttle is the only reason we're not transcoding.
    */
-  private transcodeEnabled(): boolean {
+  private transcodeRequested(): boolean {
     if (!this.shouldTranscode()) return false;
     const eufyCodec = this.streamServer.getVideoMetadata()?.videoCodec ?? "H264";
     if (FFmpegUtils.toScryptedCodec(eufyCodec) !== "h265") return false;
     return !!this.streamServer.getMuxedPort();
+  }
+
+  /**
+   * True when we should actually hand Scrypted a transcoded H.264 stream:
+   * transcoding is requested AND the host isn't thermally throttling. Native
+   * H.264 sources never transcode; a hot host falls back to H.265 passthrough.
+   */
+  private transcodeEnabled(): boolean {
+    return this.transcodeRequested() && !this.isThrottling();
   }
 
   /**
@@ -181,6 +194,12 @@ export class StreamService {
       }
       this.logger.warn(
         "Transcode requested but relay unavailable — falling back to passthrough",
+      );
+    } else if (this.transcodeRequested() && this.isThrottling()) {
+      // Would transcode, but the host is too hot — serve H.265 as-is so we
+      // don't add encode load. Live view may degrade until the host cools.
+      this.logger.warn(
+        "🌡️ CPU hot — serving H.265 passthrough instead of transcoding to protect the host",
       );
     }
 
