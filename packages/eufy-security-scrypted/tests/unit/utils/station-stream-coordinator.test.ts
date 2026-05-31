@@ -70,12 +70,25 @@ describe("station-stream-coordinator", () => {
     expect(stationSlotHolder(ST)).toBe(A);
   });
 
-  it("live does NOT preempt a DELIVERING live holder (protects a working stream)", () => {
+  it("live preempts a DELIVERING live holder once past the warm-up window (deliberate switch wins)", () => {
     const revokeA = jest.fn();
     const leaseA = acquireStationSlot(ST, A, "live", revokeA, 0);
     leaseA!.markDelivering();
-    // Even long after warm-up, a delivering holder is not kicked off.
+    // A request that arrives after the warm-up window is a deliberate switch to
+    // another camera — it takes over even though A is delivering.
     const leaseB = acquireStationSlot(ST, B, "live", () => {}, 100000);
+    expect(revokeA).toHaveBeenCalledTimes(1);
+    expect(leaseB).not.toBeNull();
+    expect(stationSlotHolder(ST)).toBe(B);
+  });
+
+  it("a DELIVERING live holder is still protected DURING its warm-up window", () => {
+    const revokeA = jest.fn();
+    const leaseA = acquireStationSlot(ST, A, "live", revokeA, 0);
+    leaseA!.markDelivering();
+    // Within warm-up (the grid-burst window) even a delivering holder is not
+    // kicked off, so the stampede of near-simultaneous requests can't thrash.
+    const leaseB = acquireStationSlot(ST, B, "live", () => {}, 1000);
     expect(revokeA).not.toHaveBeenCalled();
     expect(leaseB).toBeNull();
     expect(stationSlotHolder(ST)).toBe(A);

@@ -87,11 +87,14 @@ const holders = new Map<string, Holder>();
  *
  * Returns a lease, or null if DENIED:
  *  - "background" is denied whenever the slot is held.
- *  - "live" is denied if the current holder is actively delivering video OR is
- *    still within its warm-up grace — a working/warming stream is never kicked
- *    off. The caller fails fast and the consumer retries; the slot frees when
- *    the holder stops. "live" preempts only a stuck holder (acquired, past
- *    warm-up, not yet delivering — e.g. a dead camera).
+ *  - "live" is denied only while the current live holder is within its brief
+ *    warm-up window (`PREEMPT_MIN_HOLD_MS`). Past that window a live request
+ *    takes over the slot — newest tap wins — via a clean handoff, even from a
+ *    holder that is actively delivering. The warm-up window absorbs the
+ *    Home-app grid's burst of near-simultaneous live requests (they all land
+ *    within a second or two, so they hit the guard and are denied, letting one
+ *    camera win without thrash); a request that arrives AFTER the window is
+ *    necessarily a deliberate switch to another camera and is honored.
  *
  * @param nowMs - current time (injectable for tests)
  */
@@ -111,14 +114,17 @@ export function acquireStationSlot(
       // Background never interrupts a holder.
       return null;
     }
-    // "live" always beats a background holder (a thumbnail refresh). But it
-    // will NOT kick off another LIVE stream that is working or still warming
-    // up — only a STUCK live holder (past warm-up, not yet delivering, e.g. a
-    // dead camera) can be taken over. This stops the Home-app grid's burst of
-    // live preview requests from thrashing the single HomeBase slot.
+    // "live" always beats a background holder (a thumbnail refresh). Against
+    // another LIVE holder, protect it ONLY during its warm-up window: that
+    // absorbs the Home-app grid's stampede of near-simultaneous live requests
+    // (all within a second or two → denied → one camera wins, no thrash).
+    // After the window, a live request is necessarily a deliberate switch to
+    // another camera, so it preempts and takes over — newest tap wins — even
+    // from a delivering holder. Switches are therefore spaced at least one
+    // warm-up apart, which keeps the takeover from churning the HomeBase.
     if (current.priority === "live") {
       const withinWarmup = nowMs - current.acquiredAt < PREEMPT_MIN_HOLD_MS;
-      if (current.isDelivering || withinWarmup) {
+      if (withinWarmup) {
         return null;
       }
     }
