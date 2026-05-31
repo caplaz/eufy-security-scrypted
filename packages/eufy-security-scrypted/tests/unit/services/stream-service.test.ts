@@ -15,6 +15,7 @@ jest.mock("@scrypted/sdk", () => ({
   default: {
     mediaManager: {
       createFFmpegMediaObject: jest.fn(),
+      getFFmpegPath: jest.fn().mockResolvedValue("ffmpeg"),
     },
   },
 }));
@@ -373,6 +374,86 @@ describe("StreamService", () => {
       expect(args).toContain("tcp://127.0.0.1:55555");
       expect(args).not.toContain("-an");
       expect(call.mediaStreamOptions.audio).toEqual({ codec: "aac" });
+    });
+  });
+
+  describe("H.264 transcode toggle", () => {
+    const h265Server = () => {
+      mockStreamServer.getVideoMetadata = jest.fn().mockReturnValue({
+        videoCodec: "H265",
+        videoWidth: 1920,
+        videoHeight: 1080,
+        videoFPS: 15,
+      });
+      mockStreamServer.getMuxedPort = jest.fn().mockReturnValue(55555);
+    };
+
+    it("emits H.264 from the relay (not the muxed port) when toggled on for an H.265 source", async () => {
+      h265Server();
+      const svc = new StreamService(
+        serialNumber,
+        mockStreamServer,
+        mockLogger,
+        () => true,
+      );
+
+      await svc.getVideoStream(VideoQuality.HIGH);
+      const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
+        .calls[0][0];
+
+      // Advertised as real H.264, named as the transcoded stream.
+      expect(call.mediaStreamOptions.video.codec).toBe("h264");
+      expect(call.mediaStreamOptions.name).toContain("H.264");
+      // Reads from the relay's dynamic port, NOT the muxed source port (55555).
+      const inputUrl = call.inputArguments[call.inputArguments.length - 1];
+      expect(inputUrl).toMatch(/^tcp:\/\/127\.0\.0\.1:\d+$/);
+      expect(inputUrl).not.toContain("55555");
+
+      await svc.dispose();
+    });
+
+    it("does NOT transcode a native H.264 source even when the toggle is on", async () => {
+      mockStreamServer.getVideoMetadata = jest
+        .fn()
+        .mockReturnValue({ videoCodec: "H264" });
+      mockStreamServer.getMuxedPort = jest.fn().mockReturnValue(55555);
+      const svc = new StreamService(
+        serialNumber,
+        mockStreamServer,
+        mockLogger,
+        () => true,
+      );
+
+      await svc.getVideoStream(VideoQuality.HIGH);
+      const call = (sdk.mediaManager.createFFmpegMediaObject as jest.Mock).mock
+        .calls[0][0];
+
+      // Passthrough muxed path: reads the muxed port directly, default name.
+      expect(call.inputArguments).toContain("tcp://127.0.0.1:55555");
+      expect(call.mediaStreamOptions.name).toBe("Eufy Camera Stream");
+
+      await svc.dispose();
+    });
+
+    it("getVideoStreamOptions advertises h264 when transcoding an H.265 source", () => {
+      h265Server();
+      const svc = new StreamService(
+        serialNumber,
+        mockStreamServer,
+        mockLogger,
+        () => true,
+      );
+      expect(svc.getVideoStreamOptions(VideoQuality.HIGH)[0].video?.codec).toBe(
+        "h264",
+      );
+    });
+
+    it("getVideoStreamOptions reports the true h265 codec when the toggle is off", () => {
+      h265Server();
+      // default service has transcode disabled
+      expect(
+        service.getVideoStreamOptions(VideoQuality.HIGH)[0].video?.codec,
+      ).toBe("h265");
     });
   });
 });
