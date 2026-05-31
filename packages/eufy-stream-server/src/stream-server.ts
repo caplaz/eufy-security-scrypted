@@ -256,6 +256,17 @@ export class StreamServer extends EventEmitter {
   // Audio metadata from first audio frame
   private audioMetadata: AudioMetadata | null = null;
 
+  /**
+   * Whether this camera actually delivers an audio track. Many Eufy cameras
+   * run with the mic disabled (`microphone: false`) and send video only.
+   * JMuxer in `both` mode never emits fMP4 until EVERY declared track has a
+   * sample (see remux `isReady()`), so muxing a video-only camera as `both`
+   * hangs forever and the downstream ffmpeg times out. We detect audio
+   * empirically (set true the first time any audio frame arrives) and pick
+   * the muxer mode accordingly. `undefined` = not yet determined.
+   */
+  private deliversAudio: boolean | undefined = undefined;
+
   // Client activity monitoring for battery optimization
   private lastClientActivity = 0;
   private activityCheckInterval?: ReturnType<typeof setInterval>;
@@ -640,6 +651,10 @@ export class StreamServer extends EventEmitter {
         if (event.serialNumber !== this.options.serialNumber) {
           return;
         }
+
+        // This camera delivers audio — remember it so muxers use `both` mode.
+        // (Mic-off cameras never reach here, so `deliversAudio` stays false.)
+        this.deliversAudio = true;
 
         if (!this.audioMetadata && event.metadata) {
           this.audioMetadata = event.metadata;
@@ -1066,16 +1081,40 @@ export class StreamServer extends EventEmitter {
       this.pendingMuxerSockets.delete(socket);
       return;
     }
-    this.pendingMuxerSockets.delete(socket);
 
     const videoFps = this.videoMetadata?.videoFPS ?? 15;
-    // Always declare both tracks. The muxed client connects BEFORE the
-    // first audio frame arrives from Eufy, so `audioMetadata` is null at
-    // this point on a cold start; if we picked mode based on it we'd lock
-    // in video-only and silently drop every audio frame thereafter.
-    // JMuxer's `both` mode correctly holds audio until the video track is
-    // ready, then emits both tracks into the fMP4 moov.
-    const mode = "both";
+
+    // Pick the muxer mode by whether this camera actually delivers audio.
+    // JMuxer `both` will not emit a single fMP4 byte until BOTH the video
+    // AND audio tracks have a sample (remux `isReady()`), so a mic-off,
+    // video-only camera muxed as `both` hangs forever and the downstream
+    // ffmpeg dies with "timeout waiting for data" — live view never starts.
+    //
+    // If we've already seen audio from this device, use `both`. If we know
+    // it's video-only, use `video`. If we don't know yet (first stream,
+    // muxer connects before the first audio frame), briefly wait for an
+    // audio frame now that video is confirmed flowing — a mic-on camera
+    // delivers audio within ~1-2s of video; if none arrives, it's video-only.
+    // The socket stays in `pendingMuxerSockets` during this wait so it still
+    // counts as a consumer (keeping the livestream alive).
+    if (this.deliversAudio === undefined) {
+      const audioDeadline = Date.now() + 2500;
+      while (Date.now() < audioDeadline && this.deliversAudio === undefined) {
+        if (socket.destroyed) {
+          this.pendingMuxerSockets.delete(socket);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      if (this.deliversAudio === undefined) this.deliversAudio = false;
+    }
+
+    // Now graduate the socket from pending → active muxer.
+    this.pendingMuxerSockets.delete(socket);
+    const mode: "both" | "video" = this.deliversAudio ? "both" : "video";
+    this.logger.info(
+      `Muxer mode=${mode} (deliversAudio=${this.deliversAudio}) for ${this.options.serialNumber}`,
+    );
 
     const muxer = new JMuxer({
       mode,

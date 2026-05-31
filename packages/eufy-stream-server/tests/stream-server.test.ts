@@ -1030,6 +1030,10 @@ describe("StreamServer", () => {
     // the first video frame, and tests that rely on a muxer being attached
     // would time out.
     const seedVideoMetadata = () => {
+      // These tests exercise audio, so mark the device as audio-capable to
+      // skip the muxer's audio-detection wait and create it immediately
+      // (in "both" mode), matching the assumption these tests were written under.
+      (server as any).deliversAudio = true;
       const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
       // Minimal H.264 SPS NAL — content irrelevant for metadata capture.
       const nal = Buffer.from([0x67, 0x42, 0x00, 0x1e]);
@@ -1168,6 +1172,10 @@ describe("StreamServer", () => {
     // the muxer can be created with the correct codec). Helper to seed
     // that metadata and unblock the in-flight `waitForVideoMetadata`.
     const seedVideoMetadata = (s: StreamServer, codec: string = "H264") => {
+      // Default these tests to audio-capable so the muxer is built
+      // immediately (mode "both"), as they were written before audio-aware
+      // mode existed. The video-only path has its own dedicated tests.
+      (s as any).deliversAudio = true;
       const videoCall = (
         (s as any).options.wsClient as any
       ).addEventListener.mock.calls.find(
@@ -1273,6 +1281,62 @@ describe("StreamServer", () => {
         JMuxerMock.mock.calls[JMuxerMock.mock.calls.length - 1][0];
       expect(lastCall.videoCodec).toBe("H265");
 
+      socket.destroy();
+    });
+
+    it("muxes in 'both' mode when the device delivers audio", async () => {
+      await server.start();
+      const socket = net.createConnection({
+        port: server.getMuxedPort()!,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      seedVideoMetadata(server, "H265"); // helper marks deliversAudio = true
+      await wait(50);
+
+      const JMuxerMock = require("jmuxer").default;
+      const lastCall =
+        JMuxerMock.mock.calls[JMuxerMock.mock.calls.length - 1][0];
+      expect(lastCall.mode).toBe("both");
+      socket.destroy();
+    });
+
+    it("muxes in 'video' mode for a video-only (mic-off) camera", async () => {
+      await server.start();
+      const socket = net.createConnection({
+        port: server.getMuxedPort()!,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+
+      // Known video-only: skip the audio-detection wait. (Without this the
+      // muxer would block ~2.5s waiting for an audio frame that never comes.)
+      (server as any).deliversAudio = false;
+
+      // Seed video metadata directly — the helper would force audio=true.
+      const videoCallback = (
+        (server as any).options.wsClient as any
+      ).addEventListener.mock.calls.find(
+        (call: any[]) => call[0] === "livestream video data",
+      )[1];
+      videoCallback({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: {
+          data: Buffer.from([0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1e]),
+        },
+        metadata: {
+          videoCodec: "H265",
+          videoFPS: 15,
+          videoWidth: 1920,
+          videoHeight: 1080,
+        },
+      });
+      await wait(50);
+
+      const JMuxerMock = require("jmuxer").default;
+      const lastCall =
+        JMuxerMock.mock.calls[JMuxerMock.mock.calls.length - 1][0];
+      expect(lastCall.mode).toBe("video");
       socket.destroy();
     });
 
