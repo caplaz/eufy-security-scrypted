@@ -92,6 +92,7 @@ import {
   markStationStreamInactive,
   otherDeviceStreamingOnStation,
 } from "./utils/station-stream-registry";
+import { acquireStationSlot } from "./utils/station-stream-coordinator";
 import { VideoClipsService } from "./services/video";
 import { PtzControlService, LightControlService } from "./services/control";
 
@@ -865,6 +866,16 @@ export class EufyDevice
       wsClient: this.wsClient,
       serialNumber: this.serialNumber,
       initialVideoCodec,
+      // Serialize streaming across cameras on the same HomeBase (one P2P
+      // stream at a time). Live always wins (preempting); background
+      // (thumbnail refresh) is denied while the slot is busy.
+      acquireStreamSlot: (priority, onRevoke) =>
+        acquireStationSlot(
+          this.getStationSN(),
+          this.serialNumber,
+          priority,
+          onRevoke,
+        ),
     });
 
     // Persist live-detected codec so the next plugin restart starts with

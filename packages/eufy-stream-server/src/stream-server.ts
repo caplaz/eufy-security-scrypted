@@ -59,6 +59,34 @@ export interface StreamServerOptions {
    * metadata replaces this hint as soon as the first frame arrives.
    */
   initialVideoCodec?: "H264" | "H265";
+  /**
+   * Optional gate for the shared HomeBase stream slot. A Eufy HomeBase serves
+   * only one camera P2P stream at a time, so the device layer injects this to
+   * serialize starts across cameras on the same station. Called synchronously
+   * right before `startLivestream`:
+   *   - priority "live" (a viewer/recorder is attached) always succeeds,
+   *     preempting any current holder (whose `onRevoke` fires).
+   *   - priority "background" (thumbnail refresh) returns null if the slot is
+   *     busy — the server then does NOT start.
+   * Returns a lease whose `release()` must be called when the stream stops.
+   * When omitted (e.g. the CLI), the server starts unconditionally as before.
+   */
+  acquireStreamSlot?: (
+    priority: "live" | "background",
+    onRevoke: () => void,
+  ) => StationSlotLease | null;
+}
+
+/** A held lease on a station's single stream slot. */
+export interface StationSlotLease {
+  release(): void;
+  readonly active: boolean;
+  /**
+   * Resolves when it is safe to start streaming — i.e. any camera this grant
+   * preempted has released the HomeBase slot (or a safety timeout elapsed).
+   * Already resolved when nothing was preempted.
+   */
+  readonly whenReady: Promise<void>;
 }
 
 /**
@@ -84,8 +112,11 @@ export interface StreamServerOptions {
  */
 export class StreamServer extends EventEmitter {
   private logger: Logger<ILogObj>;
-  private options: Required<Omit<StreamServerOptions, "logger">> & {
+  private options: Required<
+    Omit<StreamServerOptions, "logger" | "acquireStreamSlot">
+  > & {
     logger?: Logger<ILogObj>;
+    acquireStreamSlot?: StreamServerOptions["acquireStreamSlot"];
   };
   private server?: net.Server;
   private muxedServer?: net.Server;
@@ -267,6 +298,20 @@ export class StreamServer extends EventEmitter {
    */
   private deliversAudio: boolean | undefined = undefined;
 
+  /**
+   * Lease on the shared HomeBase stream slot (see
+   * `StreamServerOptions.acquireStreamSlot`). Held while this camera is the
+   * one streaming on its station; released when the stream stops.
+   */
+  private streamLease: StationSlotLease | null = null;
+  /**
+   * Set when a higher-priority camera on the same HomeBase preempted us. While
+   * true we stay down (don't re-start) despite lingering consumers and don't
+   * treat the resulting "no video" as an upstream wedge. Cleared once our
+   * consumers drain (the viewer gave up) so a future tap starts fresh.
+   */
+  private slotRevoked = false;
+
   // Client activity monitoring for battery optimization
   private lastClientActivity = 0;
   private activityCheckInterval?: ReturnType<typeof setInterval>;
@@ -318,6 +363,7 @@ export class StreamServer extends EventEmitter {
       wsClient: options.wsClient,
       serialNumber: options.serialNumber,
       initialVideoCodec: options.initialVideoCodec ?? "H264",
+      acquireStreamSlot: options.acquireStreamSlot,
     };
 
     this.hintedVideoCodec = options.initialVideoCodec;
@@ -459,6 +505,7 @@ export class StreamServer extends EventEmitter {
         : this.STALE_DATA_THRESHOLD_MS;
       if (
         this.livestreamIntendedState &&
+        !this.slotRevoked &&
         freshnessAnchor > 0 &&
         staleMs > threshold &&
         totalConsumers > 0
@@ -786,6 +833,7 @@ export class StreamServer extends EventEmitter {
 
     this.livestreamIntendedState = false;
     this.setLivestreamActual(false);
+    this.releaseStreamSlot();
     this.consecutiveNoDataStarts = 0;
     this.lastVideoDataAt = 0;
     this.livestreamSessionStartedAt = 0;
@@ -807,6 +855,33 @@ export class StreamServer extends EventEmitter {
           ? "Upstream livestream not delivering data after multiple attempts"
           : "Upstream livestream stopped delivering data mid-session",
       ),
+    );
+  }
+
+  /** Release our HomeBase stream-slot lease, if held. Idempotent. */
+  private releaseStreamSlot(): void {
+    if (this.streamLease) {
+      this.streamLease.release();
+      this.streamLease = null;
+    }
+  }
+
+  /**
+   * Invoked (synchronously, by the coordinator) when a higher-priority camera
+   * on the same HomeBase preempts our slot. Stop our livestream and stay down
+   * — WITHOUT recycling, since this is contention, not a wedge — until our own
+   * consumers drain. The slot already belongs to the preemptor at this point.
+   */
+  private handleSlotRevoked(): void {
+    if (this.slotRevoked) return;
+    this.logger.info(
+      "↩️  HomeBase stream slot revoked by another camera — yielding",
+    );
+    this.slotRevoked = true;
+    this.livestreamIntendedState = false;
+    this.releaseStreamSlot();
+    this.ensureLivestreamState().catch((e) =>
+      this.logger.warn(`Post-revoke ensureLivestreamState failed: ${e}`),
     );
   }
 
@@ -881,6 +956,46 @@ export class StreamServer extends EventEmitter {
             break;
           }
 
+          // If a higher-priority camera on this HomeBase preempted us, stay
+          // down until our own consumers drain — don't fight for the slot.
+          if (this.slotRevoked) {
+            this.logger.info(
+              "⏸️  Slot revoked by another camera on this HomeBase — not starting until consumers drain",
+            );
+            break;
+          }
+
+          // Acquire the shared HomeBase stream slot before starting. Only the
+          // slot holder ever issues startLivestream, so cameras never stampede
+          // the one-stream-at-a-time HomeBase.
+          if (this.options.acquireStreamSlot && !this.streamLease?.active) {
+            const priority =
+              this.getTotalConsumers() > 0 ? "live" : "background";
+            const lease = this.options.acquireStreamSlot(priority, () =>
+              this.handleSlotRevoked(),
+            );
+            if (!lease) {
+              // Background (thumbnail refresh) denied — the slot is busy with a
+              // viewer/recorder. Don't wake; abandon this attempt quietly.
+              this.logger.info(
+                `⛔ HomeBase stream slot busy — deferring ${priority} start`,
+              );
+              this.livestreamIntendedState = false;
+              break;
+            }
+            this.logger.info(`🎟️  Acquired HomeBase stream slot (${priority})`);
+            this.streamLease = lease;
+            // If we preempted another camera, wait for it to step off the
+            // shared HomeBase slot before starting, so the two don't overlap
+            // (which causes mutual P2P starvation and audio bleeding into the
+            // wrong muxer). Resolves immediately when nothing was preempted.
+            await lease.whenReady;
+            // Bail if we were ourselves preempted/torn down while waiting.
+            if (!this.livestreamIntendedState || this.slotRevoked) {
+              break;
+            }
+          }
+
           // Need to start livestream
           this.consecutiveNoDataStarts++;
           this.livestreamSessionStartedAt = Date.now();
@@ -931,6 +1046,7 @@ export class StreamServer extends EventEmitter {
             .stopLivestream();
           this.logger.info("✅ Livestream stop command sent successfully");
           this.setLivestreamActual(false);
+          this.releaseStreamSlot();
           // Clear the stale-data watchdog timestamp on graceful stop so
           // the next session's watchdog starts fresh (won't false-fire
           // from a previous session's last-data timestamp).
@@ -1188,9 +1304,16 @@ export class StreamServer extends EventEmitter {
     // lifecycle now governs the livestream.
     if (totalConsumers > 0) {
       this.cancelPostSnapshotLinger("consumer attached");
+    } else if (this.slotRevoked) {
+      // Our consumers have all drained after a preemption — reset so a future
+      // viewer can start fresh (and re-take the slot, newest-wins).
+      this.slotRevoked = false;
+      this.logger.debug("Consumers drained after slot revoke — cleared");
     }
 
-    if (totalConsumers > 0 && !this.livestreamIntendedState) {
+    // While preempted, stay down despite a reconnecting consumer — don't fight
+    // the camera that took the HomeBase slot.
+    if (totalConsumers > 0 && !this.livestreamIntendedState && !this.slotRevoked) {
       this.livestreamIntendedState = true;
       this.lastClientActivity = Date.now();
       this.startActivityMonitoring();
@@ -1242,6 +1365,7 @@ export class StreamServer extends EventEmitter {
     // Guarantee the registry sees this device as no longer streaming, even
     // if the teardown below doesn't traverse the graceful-stop branch.
     this.setLivestreamActual(false);
+    this.releaseStreamSlot();
 
     // Stop livestream if there are active clients
     const activeClients = this.connectionManager.getActiveConnectionCount();

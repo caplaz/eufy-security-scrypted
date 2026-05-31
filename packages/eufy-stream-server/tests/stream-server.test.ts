@@ -832,6 +832,108 @@ describe("StreamServer", () => {
     });
   });
 
+  describe("station stream slot gating (acquireStreamSlot)", () => {
+    const makeWs = () => {
+      const startLivestream = jest.fn().mockResolvedValue({});
+      const mockWsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: {
+          device: jest.fn().mockReturnValue({
+            startLivestream,
+            stopLivestream: jest.fn().mockResolvedValue({}),
+            isLivestreaming: jest.fn().mockResolvedValue({
+              livestreaming: false,
+            }),
+          }),
+        },
+      };
+      return { mockWsClient, startLivestream };
+    };
+
+    it("does NOT start the livestream when a background request is denied", async () => {
+      const { mockWsClient, startLivestream } = makeWs();
+      const acquireStreamSlot = jest.fn().mockReturnValue(null); // slot busy
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot,
+      });
+      await s.start();
+
+      // captureSnapshot starts the stream at background priority (no consumers).
+      await expect(s.captureSnapshot(150)).rejects.toThrow(/timed out/);
+
+      expect(acquireStreamSlot).toHaveBeenCalledWith(
+        "background",
+        expect.any(Function),
+      );
+      expect(startLivestream).not.toHaveBeenCalled();
+      await s.stop();
+    });
+
+    it("yields (slotRevoked, no wedge/recycle) when the slot is revoked", async () => {
+      const { mockWsClient, startLivestream } = makeWs();
+      let capturedRevoke: (() => void) | undefined;
+      const lease = { release: jest.fn(), active: true };
+      const acquireStreamSlot = jest.fn((_p: string, onRevoke: () => void) => {
+        capturedRevoke = onRevoke;
+        return lease;
+      });
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot: acquireStreamSlot as any,
+      });
+      await s.start();
+      const wedged = jest.fn();
+      s.on("upstreamWedged", wedged);
+
+      // Begin a capture so the server acquires the slot and starts.
+      const snap = s.captureSnapshot(400).catch(() => {});
+      await wait(80);
+      expect(startLivestream).toHaveBeenCalled();
+      expect(capturedRevoke).toBeDefined();
+
+      // A higher-priority camera preempts us — assert the immediate contract.
+      capturedRevoke!();
+      await wait(30);
+
+      expect((s as any).slotRevoked).toBe(true);
+      // Yielding the slot is contention, NOT an upstream wedge — must not recycle.
+      expect(wedged).not.toHaveBeenCalled();
+      expect(lease.release).toHaveBeenCalled();
+      await snap;
+      await s.stop();
+    });
+
+    it("starts the livestream when the slot is granted", async () => {
+      const { mockWsClient, startLivestream } = makeWs();
+      const lease = { release: jest.fn(), active: true };
+      const acquireStreamSlot = jest.fn().mockReturnValue(lease);
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        debug: true,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot,
+      });
+      await s.start();
+
+      await expect(s.captureSnapshot(150)).rejects.toThrow(/timed out/);
+
+      expect(acquireStreamSlot).toHaveBeenCalled();
+      expect(startLivestream).toHaveBeenCalled();
+      await s.stop();
+    });
+  });
+
   describe("keyframe cache (getCachedKeyframe)", () => {
     const makeServer = () => {
       const mockWsClient = {
