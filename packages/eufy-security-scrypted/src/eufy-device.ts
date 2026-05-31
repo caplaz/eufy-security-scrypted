@@ -939,11 +939,6 @@ export class EufyDevice
         ),
     });
 
-    // Restore the last thumbnail keyframe from storage so the camera's tile
-    // shows its last-seen image immediately after a plugin reload — no wake,
-    // no post-restart refresh stampede.
-    this.restoreThumbnailKeyframe();
-
     // Persist live-detected codec so the next plugin restart starts with
     // the right hint. The event fires exactly once per stream-server
     // instance (on the first video data event).
@@ -985,9 +980,6 @@ export class EufyDevice
     });
     this.streamServer.on("livestreamInactive", () => {
       markStationStreamInactive(this.getStationSN(), this.serialNumber);
-      // The camera just stopped — save its last frame so the tile survives a
-      // reload. (Populated by any stream: live view, motion recording, etc.)
-      this.persistThumbnailKeyframe();
     });
 
     this.startThumbnailRefresh();
@@ -1018,56 +1010,6 @@ export class EufyDevice
    */
   private getStationSN(): string {
     return this.latestProperties?.stationSerialNumber || this.serialNumber;
-  }
-
-  private static readonly THUMBNAIL_KEYFRAME_STORAGE_KEY = "lastThumbnailKeyframe";
-  // Keyframes are small (compressed H.264/H.265, typically 10–110 KB). Cap to
-  // avoid bloating Scrypted's storage if a frame is unexpectedly large.
-  private static readonly MAX_PERSISTED_KEYFRAME_BYTES = 220 * 1024;
-
-  /** Save the current cached keyframe to storage so the tile survives reload. */
-  private persistThumbnailKeyframe(): void {
-    try {
-      const cached = this.streamServer?.getCachedKeyframe(
-        Number.POSITIVE_INFINITY,
-      );
-      if (!cached) return;
-      if (cached.data.length > EufyDevice.MAX_PERSISTED_KEYFRAME_BYTES) return;
-      this.storage.setItem(
-        EufyDevice.THUMBNAIL_KEYFRAME_STORAGE_KEY,
-        JSON.stringify({
-          data: cached.data.toString("base64"),
-          codec: cached.codec,
-        }),
-      );
-    } catch (e) {
-      this.logger.debug(`Persisting thumbnail keyframe failed: ${e}`);
-    }
-  }
-
-  /** Restore a persisted keyframe into the stream server's cache (no wake). */
-  private restoreThumbnailKeyframe(): void {
-    try {
-      const raw = this.storage.getItem(
-        EufyDevice.THUMBNAIL_KEYFRAME_STORAGE_KEY,
-      );
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as { data?: string; codec?: string };
-      if (
-        parsed?.data &&
-        (parsed.codec === "H264" || parsed.codec === "H265")
-      ) {
-        this.streamServer.setCachedKeyframe(
-          Buffer.from(parsed.data, "base64"),
-          parsed.codec,
-        );
-        this.logger.info(
-          "🖼️  Restored last thumbnail from storage (no camera wake)",
-        );
-      }
-    } catch (e) {
-      this.logger.debug(`Restoring thumbnail keyframe failed: ${e}`);
-    }
   }
 
   /**
