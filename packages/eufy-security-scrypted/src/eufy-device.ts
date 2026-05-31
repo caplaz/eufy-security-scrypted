@@ -96,6 +96,7 @@ import {
   recycleSuppression,
   RECYCLE_SUPPRESS_MS,
 } from "./utils/recycle-guard";
+import { isTranscodeThermallyThrottled } from "./utils/thermal-governor";
 import {
   shouldRefreshThumbnail,
   nextRefreshBackoffMs,
@@ -314,6 +315,7 @@ export class EufyDevice
       this.streamServer,
       this.logger,
       () => this.shouldTranscodeToH264(),
+      () => isTranscodeThermallyThrottled(),
     );
     this.ptzControlService = new PtzControlService(
       deviceApi,

@@ -53,6 +53,7 @@ import { Logger, ILogObj, ILogObjMeta } from "tslog";
 import { EufyStation } from "./eufy-station";
 import { DeviceUtils } from "./utils/device-utils";
 import { MemoryManager } from "./utils/memory-manager";
+import { startThermalGovernor } from "./utils/thermal-governor";
 
 const { deviceManager } = sdk;
 
@@ -161,6 +162,14 @@ export class EufySecurityProvider
         this.isConnecting = false;
       },
     );
+
+    // Watch host CPU temperature and auto-throttle H.264 transcoding when the
+    // host gets too hot (the encode is the main CPU load this plugin adds).
+    // Inert if the temperature source is unreadable (non-Pi / sandbox).
+    startThermalGovernor({
+      logger: this.logger.getSubLogger({ name: "Thermal" }),
+      onAlert: (_level, _tempC, message) => this.log.a(message),
+    });
 
     this.logger.info("🚀 EufySecurityProvider initialized");
 
