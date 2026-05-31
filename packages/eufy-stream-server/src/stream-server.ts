@@ -1072,6 +1072,23 @@ export class StreamServer extends EventEmitter {
         // Success - break out of retry loop
         break;
       } catch (error: any) {
+        // Stopping a stream that isn't actually running is a no-op success,
+        // not a failure. This happens when we yield/stop a camera that was
+        // told to start but never delivered (e.g. a preempted dead camera):
+        // bropat reports it "livestreaming" but stop_livestream then fails
+        // with device_livestream_not_running. Treat it as already stopped.
+        const msg = String(error?.message || error);
+        if (msg.includes("device_livestream_not_running")) {
+          this.logger.info(
+            "Livestream already stopped upstream (not running) — treating as success",
+          );
+          this.setLivestreamActual(false);
+          this.releaseStreamSlot();
+          this.lastVideoDataAt = 0;
+          this.livestreamSessionStartedAt = 0;
+          break;
+        }
+
         this.logger.warn(
           `❌ Livestream command failed (attempt ${attempt}/${maxRetries}):`,
           error.message || error,

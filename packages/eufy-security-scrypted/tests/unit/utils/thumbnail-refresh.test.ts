@@ -12,8 +12,10 @@ import {
 describe("shouldRefreshThumbnail", () => {
   const base = { cacheAgeMs: null, slotBusy: false, backoffRemainingMs: 0 };
 
-  it("refreshes when nothing is cached and the slot is free", () => {
-    expect(shouldRefreshThumbnail(base)).toBe(true);
+  it("does NOT proactively wake a camera that has never streamed (empty cache)", () => {
+    // Empty cache is the post-reload state for the whole fleet; waking on it
+    // would stampede every camera (incl. disabled/dead) on every restart.
+    expect(shouldRefreshThumbnail(base)).toBe(false);
   });
 
   it("refreshes when the cache is older than the threshold", () => {

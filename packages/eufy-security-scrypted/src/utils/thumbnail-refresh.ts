@@ -56,9 +56,16 @@ export interface RefreshDecisionInput {
  * Should we wake this camera now to refresh its thumbnail?
  *
  * Refresh only when ALL hold:
- *  - the cache is empty or older than the threshold,
+ *  - the cache is already populated AND older than the threshold,
  *  - the HomeBase slot is free (never interrupt a viewer/recorder), and
  *  - we're not in failure backoff for this camera.
+ *
+ * An EMPTY cache does NOT trigger a refresh. The in-memory cache is empty for
+ * every camera right after a plugin reload, so waking on empty would stampede
+ * the whole fleet (including disabled/unused and dead cameras) on every
+ * restart. The first thumbnail is populated on demand instead (a live view or
+ * a motion recording); the background refresh only keeps an already-seen tile
+ * from going stale.
  */
 export function shouldRefreshThumbnail({
   cacheAgeMs,
@@ -68,7 +75,7 @@ export function shouldRefreshThumbnail({
 }: RefreshDecisionInput): boolean {
   if (slotBusy) return false;
   if (backoffRemainingMs > 0) return false;
-  if (cacheAgeMs === null) return true; // never cached → refresh
+  if (cacheAgeMs === null) return false; // never streamed → don't proactively wake
   return cacheAgeMs >= thresholdMs;
 }
 
