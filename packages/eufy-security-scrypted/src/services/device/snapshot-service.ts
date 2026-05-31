@@ -26,8 +26,6 @@ export class SnapshotService {
   // HomeBase), so the grid is served from cache and only a genuinely stale
   // camera pays for a live wake. Refreshed for free whenever the camera is
   // already awake (live view, HKSV recording, motion-triggered stream).
-  private static readonly CACHE_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
-
   constructor(
     private serialNumber: string,
     private streamServer: IStreamServer,
@@ -59,12 +57,20 @@ export class SnapshotService {
     this.logger.info("📸 Taking snapshot from camera stream");
 
     try {
-      // Cache-first: serve a recent keyframe without waking the camera. This
-      // is what makes the Home app thumbnail grid populate instantly and
-      // reliably — otherwise every tile triggers a cold P2P wake and the
-      // contending requests mostly time out.
+      // Thumbnails are served from cache ONLY — never wake the camera.
+      //
+      // A HomeBase serves just one camera P2P stream at a time. The Home-app
+      // "Cameras" grid fires a snapshot request for every camera at once; if
+      // each cache-miss woke its camera, they'd all stampede the single
+      // HomeBase slot and fail together (the wedge cascade). The cache is
+      // refreshed for free whenever the camera is genuinely awake — live
+      // view, motion/HKSV recording, or the serial background refresh — so
+      // thumbnails are "last seen", which is the correct, battery-friendly
+      // behavior for these cameras. `options` (incl. any timeout) is ignored
+      // on purpose: there is no on-demand wake here.
+      void options;
       const cached = this.streamServer.getCachedKeyframe(
-        SnapshotService.CACHE_MAX_AGE_MS,
+        Number.POSITIVE_INFINITY,
       );
       if (cached) {
         this.logger.info(
@@ -74,25 +80,13 @@ export class SnapshotService {
         return await this.toJpegMediaObject(cached.data, cached.codec);
       }
 
-      // No fresh cached frame — wake the camera and capture a live keyframe.
-      // 60s default — see getPictureOptions for rationale.
-      const timeout = options?.timeout || 60000;
-
-      this.logger.info(`Using timeout: ${timeout}ms for snapshot capture`);
-
-      // The stream server handles starting/stopping the camera stream automatically
-      // It starts the camera stream, waits for a keyframe, captures it, then stops the stream
-      const h264Keyframe = await this.streamServer.captureSnapshot(timeout);
-
-      // Detect codec from last received stream metadata (H264 or H265)
-      const videoCodec =
-        this.streamServer.getVideoMetadata()?.videoCodec ?? "H264";
-
-      this.logger.info(
-        `Captured ${videoCodec} keyframe: ${h264Keyframe.length} bytes - converting to JPEG`,
+      // No frame has ever been cached this session (the camera hasn't
+      // streamed yet). Don't wake it for a thumbnail — that would contend
+      // for the shared HomeBase slot. The tile keeps its last image (or
+      // shows unavailable) until the camera next streams.
+      throw new Error(
+        "No cached frame yet — camera has not streamed this session; not waking for a thumbnail",
       );
-
-      return await this.toJpegMediaObject(h264Keyframe, videoCodec);
     } catch (error) {
       this.logger.error(`Failed to capture snapshot: ${error}`);
       throw error;
