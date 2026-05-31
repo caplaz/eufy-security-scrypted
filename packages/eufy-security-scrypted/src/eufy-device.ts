@@ -97,6 +97,10 @@ import {
   isStationSlotHeldByOther,
 } from "./utils/station-stream-coordinator";
 import {
+  recycleSuppression,
+  RECYCLE_SUPPRESS_MS,
+} from "./utils/recycle-guard";
+import {
   shouldRefreshThumbnail,
   nextRefreshBackoffMs,
   resolveRefreshChoice,
@@ -168,6 +172,13 @@ export class EufyDevice
   private lastStationRecycleAt = 0;
   private stationRecycleInFlight = false;
   private readonly MIN_STATION_RECYCLE_INTERVAL_MS = 5 * 60 * 1000;
+  // Chronic-failure guard: a camera that can't stream (no signal / dead)
+  // shouldn't keep recycling the shared HomeBase and disrupting its healthy
+  // siblings. Count recycles that didn't recover us; once over the cap (or if
+  // we report no signal), suppress recycles until `recycleSuppressedUntil`.
+  // Reset when video actually flows (livestreamActive).
+  private consecutiveFailedRecycles = 0;
+  private recycleSuppressedUntil = 0;
 
   // Background thumbnail refresh bookkeeping. A timer periodically wakes this
   // camera (at background priority, gated by the station coordinator) to keep
@@ -962,6 +973,10 @@ export class EufyDevice
     // can avoid recycling the HomeBase P2P session while we're streaming.
     this.streamServer.on("livestreamActive", () => {
       markStationStreamActive(this.getStationSN(), this.serialNumber);
+      // We're streaming again — recycling (if any) worked. Clear the chronic-
+      // failure guard so a future genuine wedge gets its recovery chance.
+      this.consecutiveFailedRecycles = 0;
+      this.recycleSuppressedUntil = 0;
     });
     this.streamServer.on("livestreamInactive", () => {
       markStationStreamInactive(this.getStationSN(), this.serialNumber);
@@ -1077,13 +1092,23 @@ export class EufyDevice
     staleMs?: number;
     consumers?: number;
   }): Promise<void> {
+    const now = Date.now();
+
+    // Guard A: recycles suppressed for this camera (chronic failure / no
+    // signal) — protect the healthy cameras on the shared HomeBase.
+    if (now < this.recycleSuppressedUntil) {
+      this.logger.warn(
+        `⏭️  Not recycling HomeBase for ${this.serialNumber} — suppressed ${Math.round((this.recycleSuppressedUntil - now) / 60000)} more min (camera not recovering; protecting siblings). Fix this camera's signal/power.`,
+      );
+      return;
+    }
+
     if (this.stationRecycleInFlight) {
       this.logger.info(
         "⏭️  Skipping station P2P recycle — another recycle is already in flight",
       );
       return;
     }
-    const now = Date.now();
     const sinceLast = now - this.lastStationRecycleAt;
     if (
       this.lastStationRecycleAt !== 0 &&
@@ -1142,6 +1167,29 @@ export class EufyDevice
         markStationStreamInactive(stationSN, busySibling);
       }
     }
+
+    // Guards B/C: a camera that can't stream (no WiFi signal) or that hasn't
+    // recovered after a recycle shouldn't keep recycling the shared HomeBase
+    // and disrupting healthy siblings. Suppress and fail fast instead.
+    const suppression = recycleSuppression({
+      isSelfStation,
+      signalLevel: this.latestProperties?.wifiSignalLevel,
+      consecutiveFailedRecycles: this.consecutiveFailedRecycles,
+    });
+    if (suppression.suppress) {
+      this.recycleSuppressedUntil = now + RECYCLE_SUPPRESS_MS;
+      const why =
+        suppression.reason === "no-signal"
+          ? `reports no WiFi signal (level 0) — can't stream regardless`
+          : `still wedged after ${this.consecutiveFailedRecycles} recycle(s) without recovering`;
+      this.logger.warn(
+        `🚫 ${this.serialNumber} ${why}. Suppressing HomeBase (${stationSN}) recycles for ${Math.round(RECYCLE_SUPPRESS_MS / 60000)}min to protect sibling cameras. Fix this camera's signal/power.`,
+      );
+      return;
+    }
+    // We're going ahead with a recycle. Count it as a failure until video
+    // actually flows (the livestreamActive handler resets this on recovery).
+    this.consecutiveFailedRecycles++;
 
     const triggerContext =
       info.reason === "cold-start-counter-maxed"
