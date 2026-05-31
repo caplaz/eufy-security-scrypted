@@ -8,8 +8,34 @@
  * @module utils/thumbnail-refresh
  */
 
-/** How old a cached thumbnail may get before a background refresh is allowed. */
-export const THUMBNAIL_REFRESH_THRESHOLD_MS = 45 * 60 * 1000; // 45 minutes
+/** Default age before a background refresh is allowed (overridable per camera). */
+export const THUMBNAIL_REFRESH_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+/**
+ * User-facing choices for the per-camera "Background Thumbnail Refresh"
+ * setting → threshold in ms, or null to disable. Solar cams can afford a
+ * shorter interval; battery/LTE cams should run longer or off.
+ */
+export const THUMBNAIL_REFRESH_CHOICES: Record<string, number | null> = {
+  Off: null,
+  "30 minutes": 30 * 60 * 1000,
+  "1 hour": 60 * 60 * 1000,
+  "2 hours": 2 * 60 * 60 * 1000,
+  "4 hours": 4 * 60 * 60 * 1000,
+};
+
+export const THUMBNAIL_REFRESH_DEFAULT_CHOICE = "2 hours";
+
+/**
+ * Resolve a stored setting choice to a threshold in ms, or null if disabled.
+ * Unknown/unset choices fall back to the default (2 hours).
+ */
+export function resolveRefreshChoice(choice: string | undefined): number | null {
+  if (choice && choice in THUMBNAIL_REFRESH_CHOICES) {
+    return THUMBNAIL_REFRESH_CHOICES[choice];
+  }
+  return THUMBNAIL_REFRESH_CHOICES[THUMBNAIL_REFRESH_DEFAULT_CHOICE];
+}
 
 export interface RefreshDecisionInput {
   /** Age of the cached keyframe in ms, or null if nothing is cached. */

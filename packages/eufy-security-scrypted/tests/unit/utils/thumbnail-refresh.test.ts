@@ -6,6 +6,7 @@ import {
   shouldRefreshThumbnail,
   nextRefreshBackoffMs,
   THUMBNAIL_REFRESH_THRESHOLD_MS,
+  resolveRefreshChoice,
 } from "../../../src/utils/thumbnail-refresh";
 
 describe("shouldRefreshThumbnail", () => {
@@ -44,6 +45,24 @@ describe("shouldRefreshThumbnail", () => {
         backoffRemainingMs: 5000,
       }),
     ).toBe(false);
+  });
+});
+
+describe("resolveRefreshChoice", () => {
+  it("defaults to 2 hours when unset or unknown", () => {
+    expect(resolveRefreshChoice(undefined)).toBe(2 * 60 * 60 * 1000);
+    expect(resolveRefreshChoice("nonsense")).toBe(2 * 60 * 60 * 1000);
+    expect(resolveRefreshChoice(undefined)).toBe(THUMBNAIL_REFRESH_THRESHOLD_MS);
+  });
+
+  it("maps named choices to durations", () => {
+    expect(resolveRefreshChoice("30 minutes")).toBe(30 * 60 * 1000);
+    expect(resolveRefreshChoice("1 hour")).toBe(60 * 60 * 1000);
+    expect(resolveRefreshChoice("4 hours")).toBe(4 * 60 * 60 * 1000);
+  });
+
+  it("returns null for Off (disabled)", () => {
+    expect(resolveRefreshChoice("Off")).toBeNull();
   });
 });
 

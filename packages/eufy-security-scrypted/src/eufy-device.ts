@@ -99,7 +99,12 @@ import {
 import {
   shouldRefreshThumbnail,
   nextRefreshBackoffMs,
+  resolveRefreshChoice,
+  THUMBNAIL_REFRESH_CHOICES,
+  THUMBNAIL_REFRESH_DEFAULT_CHOICE,
 } from "./utils/thumbnail-refresh";
+
+const THUMBNAIL_REFRESH_SETTING_KEY = "thumbnailRefreshInterval";
 import { VideoClipsService } from "./services/video";
 import { PtzControlService, LightControlService } from "./services/control";
 
@@ -442,11 +447,30 @@ export class EufyDevice
     await this.propertiesLoaded;
 
     // Delegate to settings service
-    return this.settingsService.getSettings(
+    const settings = this.settingsService.getSettings(
       this.info! as any,
       this.latestProperties!,
       this.name || "Unknown Device",
     );
+
+    // Per-camera background thumbnail refresh interval (battery vs freshness).
+    settings.push({
+      key: THUMBNAIL_REFRESH_SETTING_KEY,
+      title: "Background Thumbnail Refresh",
+      description:
+        "How stale this camera's grid thumbnail may get before it is briefly " +
+        "woken to refresh it. Wakes only when the camera is idle and the " +
+        "HomeBase is free — never interrupts live view or recording. Lower = " +
+        "fresher tiles but more battery; choose Off or a long interval for " +
+        "battery/LTE cameras.",
+      value:
+        (this.storage.getItem(THUMBNAIL_REFRESH_SETTING_KEY) as string) ||
+        THUMBNAIL_REFRESH_DEFAULT_CHOICE,
+      choices: Object.keys(THUMBNAIL_REFRESH_CHOICES),
+      group: "Streaming",
+    });
+
+    return settings;
   }
 
   /**
@@ -454,6 +478,13 @@ export class EufyDevice
    * Delegates to the settings service for property updates and custom settings
    */
   async putSetting(key: string, value: SettingValue): Promise<void> {
+    // Per-camera thumbnail refresh interval — stored locally, not a device prop.
+    if (key === THUMBNAIL_REFRESH_SETTING_KEY) {
+      this.storage.setItem(key, String(value));
+      this.logger.info(`🖼️  Background thumbnail refresh set to: ${value}`);
+      return;
+    }
+
     // Callback to handle successful property updates
     const onSuccess = (settingKey: string, settingValue: SettingValue) => {
       // Update local properties if it's a device property
@@ -992,6 +1023,13 @@ export class EufyDevice
   /** One background-refresh evaluation; wakes the camera only if warranted. */
   private async runThumbnailRefreshTick(): Promise<void> {
     if (!this.streamServer) return;
+
+    // Per-camera interval (default 2h). "Off" disables the refresh entirely.
+    const thresholdMs = resolveRefreshChoice(
+      this.storage.getItem(THUMBNAIL_REFRESH_SETTING_KEY) as string | undefined,
+    );
+    if (thresholdMs === null) return;
+
     const cached = this.streamServer.getCachedKeyframe(Number.POSITIVE_INFINITY);
     const cacheAgeMs = cached ? cached.ageMs : null;
     const slotBusy = isStationSlotHeldByOther(
@@ -1001,7 +1039,12 @@ export class EufyDevice
     const backoffRemainingMs = Math.max(0, this.refreshBackoffUntil - Date.now());
 
     if (
-      !shouldRefreshThumbnail({ cacheAgeMs, slotBusy, backoffRemainingMs })
+      !shouldRefreshThumbnail({
+        cacheAgeMs,
+        slotBusy,
+        backoffRemainingMs,
+        thresholdMs,
+      })
     ) {
       return;
     }
