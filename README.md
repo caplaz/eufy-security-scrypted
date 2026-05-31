@@ -7,6 +7,8 @@
 
 ## Overview
 
+> **Fork notice.** This is a fork of [`caplaz/eufy-security-scrypted`](https://github.com/caplaz/eufy-security-scrypted) with substantial reliability and feature work for HomeBase-mediated (battery) cameras in HomeKit, beyond the upstream 0.3.1 release. Highlights: a per-HomeBase single-stream coordinator (a HomeBase serves only one camera P2P stream at a time), a snapshot/thumbnail cache that never wakes the camera, faster cold-start recovery, audio-aware fMP4 muxing with a video-only fallback, clean newest-tap-wins camera switching, **in-plugin H.265 → H.264 transcoding** (so HomeKit live view and the WebRTC browser preview work without Scrypted's per-camera "Transcoding Debug Mode"), and a CPU thermal governor that throttles transcoding when the host gets hot. See the [CHANGELOG](CHANGELOG.md) `[Unreleased]` section for the full list.
+
 This monorepo contains the complete Eufy Security integration for Scrypted, consisting of multiple packages that work together to provide comprehensive home security automation.
 
 The monorepo includes four specialized packages: the main Scrypted plugin for device integration, a WebSocket client library for communication, a streaming server for video delivery, and a command-line interface for testing and automation.

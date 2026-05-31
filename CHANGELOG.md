@@ -5,6 +5,27 @@ All notable changes to the Eufy Security Scrypted monorepo will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — local fork (`josha/eufy-security-scrypted`, branch `fix/h265-muxer-codec`)
+
+Reliability + feature work on top of 0.3.1, focused on making HomeBase-mediated
+(battery) cameras behave well in HomeKit. Not yet upstreamed; see the project's
+decisions log for rationale.
+
+### Added
+
+- **Per-HomeBase single-stream coordinator** (`utils/station-stream-coordinator`): a Eufy HomeBase serves only ONE camera P2P stream at a time; the coordinator serializes access (concurrency = 1 per station) so cameras don't stampede and mutually starve. Live requests preempt; background work (thumbnail refresh) is denied while busy. 4G LTE cameras are their own station.
+- **Snapshot/thumbnail cache that never wakes the camera**: snapshots serve the last-seen keyframe (any age) and convert to JPEG without starting a livestream; a true miss returns a neutral placeholder instead of throwing (throwing made Scrypted's Snapshot plugin fall back to the waking video path). Kills the Home-app "thumbnail storm". The last keyframe is persisted to storage and restored on reload. Optional per-camera "Background Thumbnail Refresh" setting.
+- **In-plugin H.265 → H.264 transcoding** (`utils/h264-transcode-server`): per-camera "Transcode to H.264" toggle (default on for H.265 cameras) runs a managed ffmpeg that re-encodes the muxed fMP4 to H.264 so HomeKit live view AND the Scrypted browser (WebRTC) preview work without enabling Scrypted's per-camera "Transcoding Debug Mode". Only engages while the live source is H.265; native H.264 passes through untouched.
+- **Thermal governor** (`utils/thermal-governor`): samples host CPU temperature and auto-throttles new transcodes (falls back to H.265 passthrough) above a critical threshold, with hysteresis and a Scrypted UI alert. Inert when the temperature source is unreadable.
+- **Clean camera switching**: tapping a second camera on the same HomeBase hands off cleanly (newest-tap-wins after a warm-up guard that absorbs the grid's simultaneous-request burst).
+
+### Fixed
+
+- **Cold-start latency**: a wedged/idle HomeBase P2P session is recycled within HomeKit's ~30s give-up window (cold-start no-data threshold 45s → 18s) instead of after the viewer has already quit.
+- **Audio-aware fMP4 muxing**: pick JMuxer `both` vs `video` mode by whether the camera actually delivers usable (ADTS) audio — mic-off / config-packet-only cameras no longer hang the muxer (which left live view black). Backstop: a `both` muxer that emits nothing within 4s is rebuilt video-only.
+- **Preemption handoff ordering**: the preempted camera now stops its P2P before the new one starts (the slot lease is released only after the stop completes), so the two don't overlap and starve the one-stream HomeBase.
+- **Codec mislabeling**: report the true source codec to Scrypted (codec set after the spread of the consumer's requested options) so an H.265 stream isn't relabeled H.264 and `-vcodec copy`'d as-is.
+
 ## [0.3.1] - 2026-04-20
 
 ### Added
