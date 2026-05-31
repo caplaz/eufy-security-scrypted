@@ -315,7 +315,14 @@ export class StreamServer extends EventEmitter {
   // Client activity monitoring for battery optimization
   private lastClientActivity = 0;
   private activityCheckInterval?: ReturnType<typeof setInterval>;
-  private readonly ACTIVITY_TIMEOUT = 30000; // 30 seconds of no activity
+  // How long to keep a battery camera streaming after the last consumer
+  // detaches (e.g. you close the Home app). `lastClientActivity` advances on
+  // every frame WHILE a muxer is attached, so this never trips during active
+  // viewing — it only governs the post-close drain. Kept long enough to reuse
+  // a warm stream across Scrypted Rebroadcast's quick reconnect churn (~1-2s)
+  // and avoid a cold "find sync frame" on a fast reopen, but short enough not
+  // to burn battery for 30s after every view. 12s balances both.
+  private readonly ACTIVITY_TIMEOUT = 12000;
 
   // Statistics
   private stats = {
