@@ -128,11 +128,20 @@ describe("SnapshotService", () => {
       expect(mockStreamServer.captureSnapshot).not.toHaveBeenCalled();
     });
 
-    it("throws WITHOUT waking the camera when no frame is cached yet", async () => {
+    it("returns a placeholder (never throws, never wakes) when no frame is cached yet", async () => {
       mockStreamServer.getCachedKeyframe = jest.fn().mockReturnValue(null);
 
-      await expect(service.takePicture()).rejects.toThrow(/No cached frame/);
+      // Must resolve, not reject: a rejection makes Scrypted's Snapshot plugin
+      // fall back to the video stream, which would wake the camera.
+      const result = await service.takePicture();
+      expect(result).toBeDefined();
       expect(mockStreamServer.captureSnapshot).not.toHaveBeenCalled();
+      // A real (placeholder) image MediaObject is created.
+      expect(sdk.mediaManager.createMediaObject).toHaveBeenCalledWith(
+        expect.any(Buffer),
+        "image/jpeg",
+        { sourceId: serialNumber },
+      );
     });
 
     it("propagates conversion errors", async () => {

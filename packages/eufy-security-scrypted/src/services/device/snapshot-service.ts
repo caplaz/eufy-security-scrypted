@@ -19,13 +19,17 @@ import { IStreamServer } from "./types";
  * This service captures H.264 keyframes from the camera stream
  * and converts them to JPEG images using FFmpeg.
  */
+// Tiny solid-color JPEG (320x180) returned for a thumbnail when no real frame
+// has been cached yet. Returning a VALID image (rather than throwing) is
+// essential: on a takePicture rejection, Scrypted's Snapshot plugin falls back
+// to pulling a frame from the *video stream*, which starts a livestream and
+// re-introduces the HomeBase stampede we're trying to avoid.
+const PLACEHOLDER_JPEG = Buffer.from(
+  "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYyLjI4LjEwMAD/2wBDAAgEBAQEBAUFBQUFBQYGBgYGBgYGBgYGBgYHBwcICAgHBwcGBgcHCAgICAkJCQgICAgJCQoKCgwMCwsODg4RERT/xABMAAEBAAAAAAAAAAAAAAAAAAAABwEBAQAAAAAAAAAAAAAAAAAAAAEQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAC0AUADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCNgKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//Z",
+  "base64",
+);
+
 export class SnapshotService {
-  // Serve a cached keyframe for thumbnails when one no older than this exists.
-  // Battery cameras can't be woken fast enough for a 5-up Home app grid (each
-  // wake is a cold P2P session of up to 60s, and they contend on the single
-  // HomeBase), so the grid is served from cache and only a genuinely stale
-  // camera pays for a live wake. Refreshed for free whenever the camera is
-  // already awake (live view, HKSV recording, motion-triggered stream).
   constructor(
     private serialNumber: string,
     private streamServer: IStreamServer,
@@ -80,13 +84,18 @@ export class SnapshotService {
         return await this.toJpegMediaObject(cached.data, cached.codec);
       }
 
-      // No frame has ever been cached this session (the camera hasn't
-      // streamed yet). Don't wake it for a thumbnail — that would contend
-      // for the shared HomeBase slot. The tile keeps its last image (or
-      // shows unavailable) until the camera next streams.
-      throw new Error(
-        "No cached frame yet — camera has not streamed this session; not waking for a thumbnail",
+      // No frame cached yet (camera hasn't streamed this session — e.g. right
+      // after a plugin reload). Return a placeholder rather than throwing:
+      // throwing makes Scrypted's Snapshot plugin fall back to the video
+      // stream, which starts a livestream and re-creates the stampede. The
+      // real frame appears once the camera next streams (tap / motion / the
+      // serial background refresh).
+      this.logger.info(
+        "📸 No cached frame yet — serving placeholder (not waking camera for a thumbnail)",
       );
+      return sdk.mediaManager.createMediaObject(PLACEHOLDER_JPEG, "image/jpeg", {
+        sourceId: this.serialNumber,
+      });
     } catch (error) {
       this.logger.error(`Failed to capture snapshot: ${error}`);
       throw error;
