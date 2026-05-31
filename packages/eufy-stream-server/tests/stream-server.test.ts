@@ -1010,6 +1010,40 @@ describe("StreamServer", () => {
       await s.stop();
     });
 
+    it("setCachedKeyframe seeds the cache (restore-after-reload)", async () => {
+      const { s } = makeServer();
+      await s.start();
+      expect(s.getCachedKeyframe(60000)).toBeNull();
+
+      const restored = Buffer.from([0x00, 0x00, 0x00, 0x01, 0x40, 0x01]);
+      s.setCachedKeyframe(restored, "H265");
+
+      const cached = s.getCachedKeyframe(60000);
+      expect(cached).not.toBeNull();
+      expect(cached!.codec).toBe("H265");
+      expect(cached!.data).toEqual(restored);
+      await s.stop();
+    });
+
+    it("setCachedKeyframe does NOT overwrite a live keyframe", async () => {
+      const { s, mockWsClient } = makeServer();
+      await s.start();
+      const eventHandler = mockWsClient.addEventListener.mock.calls[0][1];
+      eventHandler({
+        serialNumber: "TEST123",
+        buffer: { data: createTestH264Data() },
+        metadata: {
+          videoCodec: "h264",
+          videoFPS: 30,
+          videoWidth: 1920,
+          videoHeight: 1080,
+        },
+      });
+      s.setCachedKeyframe(Buffer.from([0xde, 0xad]), "H265");
+      expect(s.getCachedKeyframe(60000)!.codec).toBe("H264");
+      await s.stop();
+    });
+
     it("returns null when the cached keyframe is older than maxAgeMs", async () => {
       const { s, mockWsClient } = makeServer();
       await s.start();
