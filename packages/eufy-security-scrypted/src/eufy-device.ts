@@ -105,6 +105,7 @@ import {
 } from "./utils/thumbnail-refresh";
 
 const THUMBNAIL_REFRESH_SETTING_KEY = "thumbnailRefreshInterval";
+const TRANSCODE_H264_SETTING_KEY = "transcodeToH264";
 import { VideoClipsService } from "./services/video";
 import { PtzControlService, LightControlService } from "./services/control";
 
@@ -312,6 +313,7 @@ export class EufyDevice
       this.serialNumber,
       this.streamServer,
       this.logger,
+      () => this.shouldTranscodeToH264(),
     );
     this.ptzControlService = new PtzControlService(
       deviceApi,
@@ -477,7 +479,37 @@ export class EufyDevice
       group: "Streaming",
     });
 
+    // Per-camera in-plugin H.265 → H.264 transcode (HomeKit/WebRTC compat).
+    settings.push({
+      key: TRANSCODE_H264_SETTING_KEY,
+      title: "Transcode to H.264",
+      description:
+        "Re-encode this camera's H.265/HEVC video to H.264 inside the plugin " +
+        "so HomeKit live view and the Scrypted browser preview (WebRTC) work " +
+        "without enabling Scrypted's per-camera \"Transcoding Debug Mode\". " +
+        "Only engages while the stream is actually H.265 — native H.264 is " +
+        "passed through untouched. Costs CPU on the server (one software " +
+        "encode per active stream). Default: on for H.265 cameras.",
+      type: "boolean",
+      value: this.shouldTranscodeToH264(),
+      group: "Streaming",
+    });
+
     return settings;
+  }
+
+  /**
+   * Whether to emit H.264 (transcoded) to Scrypted for this camera. Honors the
+   * explicit per-camera toggle; when unset, defaults ON for cameras whose
+   * last-detected codec is H.265. The stream path additionally gates on the
+   * live codec actually being H.265, so a camera that sometimes sends native
+   * H.264 is never needlessly re-encoded.
+   */
+  private shouldTranscodeToH264(): boolean {
+    const raw = this.storage.getItem(TRANSCODE_H264_SETTING_KEY);
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+    return this.storage.getItem("lastDetectedVideoCodec") === "H265";
   }
 
   /**
@@ -489,6 +521,13 @@ export class EufyDevice
     if (key === THUMBNAIL_REFRESH_SETTING_KEY) {
       this.storage.setItem(key, String(value));
       this.logger.info(`🖼️  Background thumbnail refresh set to: ${value}`);
+      return;
+    }
+
+    // Per-camera H.264 transcode toggle — stored locally, not a device prop.
+    if (key === TRANSCODE_H264_SETTING_KEY) {
+      this.storage.setItem(key, String(value));
+      this.logger.info(`🎞️  Transcode to H.264 set to: ${value}`);
       return;
     }
 

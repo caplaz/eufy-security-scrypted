@@ -16,6 +16,7 @@ import {
 import sdk from "@scrypted/sdk";
 import { VideoQuality } from "@caplaz/eufy-security-client";
 import { FFmpegUtils } from "../../utils/ffmpeg-utils";
+import { H264TranscodeServer } from "../../utils/h264-transcode-server";
 import { Logger, ILogObj } from "tslog";
 import { IStreamServer } from "./types";
 
@@ -47,12 +48,33 @@ export interface StreamConfig {
  */
 export class StreamService {
   private streamServerStarted = false;
+  private transcodeServer?: H264TranscodeServer;
+  private resolvedFfmpegPath?: string;
 
+  /**
+   * @param shouldTranscode - returns whether this camera should emit H.264 to
+   *   Scrypted (the per-camera "Transcode to H.264" toggle). Transcoding only
+   *   actually engages when this returns true AND the live source is H.265 —
+   *   native H.264 is always passed through untouched. Defaults to disabled.
+   */
   constructor(
     private serialNumber: string,
     private streamServer: IStreamServer,
     private logger: Logger<ILogObj>,
+    private shouldTranscode: () => boolean = () => false,
   ) {}
+
+  /**
+   * True when we should hand Scrypted a transcoded H.264 stream: the toggle is
+   * on, the source is H.265, and the muxed fMP4 port (our transcode source) is
+   * available. Native H.264 sources never transcode.
+   */
+  private transcodeEnabled(): boolean {
+    if (!this.shouldTranscode()) return false;
+    const eufyCodec = this.streamServer.getVideoMetadata()?.videoCodec ?? "H264";
+    if (FFmpegUtils.toScryptedCodec(eufyCodec) !== "h265") return false;
+    return !!this.streamServer.getMuxedPort();
+  }
 
   /**
    * Get video dimensions based on quality setting
@@ -83,9 +105,14 @@ export class StreamService {
    */
   getVideoStreamOptions(quality?: VideoQuality): ResponseMediaStreamOptions[] {
     const { width, height } = this.getVideoDimensions(quality);
-    const codec = FFmpegUtils.toScryptedCodec(
-      this.streamServer.getVideoMetadata()?.videoCodec ?? "H264",
-    );
+    // Advertise H.264 when we will transcode, so downstream consumers know the
+    // stream is plain H.264 (no Scrypted-side transcode needed); otherwise
+    // report the true source codec.
+    const codec = this.transcodeEnabled()
+      ? "h264"
+      : FFmpegUtils.toScryptedCodec(
+          this.streamServer.getVideoMetadata()?.videoCodec ?? "H264",
+        );
 
     return [
       {
@@ -137,7 +164,101 @@ export class StreamService {
       "Creating MediaObject with fallback dimensions (metadata will be updated when stream starts)",
     );
 
+    // H.265 source + transcode toggle on → hand Scrypted real H.264 from the
+    // in-plugin transcode relay so HomeKit / WebRTC work without Scrypted's
+    // per-camera Transcoding Debug Mode.
+    if (this.transcodeEnabled()) {
+      const transcodePort = await this.ensureTranscodeServer();
+      if (transcodePort) {
+        this.logger.info(
+          `🎞️  Serving H.264 (transcoded from H.265) via relay port ${transcodePort}`,
+        );
+        return await this.createTranscodedMediaObject(
+          transcodePort,
+          quality,
+          options,
+        );
+      }
+      this.logger.warn(
+        "Transcode requested but relay unavailable — falling back to passthrough",
+      );
+    }
+
     return await this.createOptimizedMediaObject(port, quality, options);
+  }
+
+  /**
+   * Lazily start the H.264 transcode relay and return its port. Resolves the
+   * Scrypted-bundled ffmpeg path once (falls back to "ffmpeg" on PATH).
+   */
+  private async ensureTranscodeServer(): Promise<number | undefined> {
+    if (!this.transcodeServer) {
+      if (this.resolvedFfmpegPath === undefined) {
+        try {
+          this.resolvedFfmpegPath = await sdk.mediaManager.getFFmpegPath();
+        } catch {
+          this.resolvedFfmpegPath = "ffmpeg";
+        }
+      }
+      this.transcodeServer = new H264TranscodeServer({
+        serialNumber: this.serialNumber,
+        logger: this.logger,
+        getSourcePort: () => this.streamServer.getMuxedPort(),
+        ffmpegPath: this.resolvedFfmpegPath,
+      });
+    }
+    if (!this.transcodeServer.isRunning()) {
+      await this.transcodeServer.start();
+    }
+    return this.transcodeServer.getPort();
+  }
+
+  /**
+   * Build a MediaObject that reads plain H.264 fMP4 from the transcode relay.
+   */
+  private async createTranscodedMediaObject(
+    transcodePort: number,
+    quality: VideoQuality | undefined,
+    options?: RequestMediaStreamOptions,
+  ): Promise<MediaObject> {
+    const { width, height } = this.getVideoDimensions(quality);
+
+    const inputArguments = [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-fflags",
+      "+genpts+nobuffer",
+      "-analyzeduration",
+      "2000000",
+      "-probesize",
+      "1000000",
+      "-f",
+      "mp4",
+      "-i",
+      `tcp://127.0.0.1:${transcodePort}`,
+    ];
+
+    const ffmpegInput: FFmpegInput = {
+      url: undefined,
+      inputArguments,
+      mediaStreamOptions: {
+        id: options?.id || "main",
+        name: options?.name || "Eufy Camera Stream (H.264)",
+        container: "mp4",
+        video: {
+          ...options?.video,
+          // The relay emits real H.264, so this label is accurate and the
+          // downstream `-vcodec copy` produces a valid H.264 stream.
+          codec: "h264",
+          width,
+          height,
+        },
+        audio: { codec: "aac" },
+      },
+    };
+
+    return await sdk.mediaManager.createFFmpegMediaObject(ffmpegInput);
   }
 
   /**
@@ -146,6 +267,9 @@ export class StreamService {
    * @returns Promise that resolves when stream is stopped
    */
   async stopStream(): Promise<void> {
+    if (this.transcodeServer) {
+      await this.transcodeServer.stop();
+    }
     if (this.streamServerStarted) {
       this.logger.info("Stopping stream server");
       await this.streamServer.stop();
