@@ -922,7 +922,12 @@ export class StreamServer extends EventEmitter {
           this.lastVideoDataAt = 0;
           this.livestreamSessionStartedAt = 0;
         } else {
-          // Stream is not running and we don't want it running - all good
+          // Stream is not running and we don't want it running - all good.
+          // Still flip actual→false: bropat may have stopped the stream on
+          // its own (so we never hit the explicit stop branch above), and
+          // leaving `livestreamActualState` stuck true would leak a stale
+          // "active" entry into the cross-camera station registry.
+          this.setLivestreamActual(false);
           this.logger.debug("Livestream already stopped as desired");
         }
 

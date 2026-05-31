@@ -978,10 +978,31 @@ export class EufyDevice
         this.serialNumber,
       );
       if (busySibling) {
-        this.logger.warn(
-          `⏭️  Deferring station P2P recycle for ${stationSN} — sibling ${busySibling} is actively streaming on this HomeBase. Will retry on next consumer attach.`,
+        // The registry can go stale (a sibling that stopped without a clean
+        // inactive transition). Don't sacrifice our own recovery on a stale
+        // entry — confirm the sibling is *really* streaming before deferring.
+        // If it isn't, drop the stale entry and proceed with the recycle.
+        let siblingStreaming = true;
+        try {
+          const status = await this.wsClient.commands
+            .device(busySibling)
+            .isLivestreaming();
+          siblingStreaming = !!status?.livestreaming;
+        } catch (e) {
+          this.logger.warn(
+            `Sibling ${busySibling} isLivestreaming check failed — assuming it is streaming: ${e}`,
+          );
+        }
+        if (siblingStreaming) {
+          this.logger.warn(
+            `⏭️  Deferring station P2P recycle for ${stationSN} — sibling ${busySibling} is actively streaming on this HomeBase. Will retry on next consumer attach.`,
+          );
+          return;
+        }
+        this.logger.info(
+          `Registry flagged sibling ${busySibling} as streaming but bropat reports it isn't — clearing stale entry and proceeding with recycle.`,
         );
-        return;
+        markStationStreamInactive(stationSN, busySibling);
       }
     }
 
