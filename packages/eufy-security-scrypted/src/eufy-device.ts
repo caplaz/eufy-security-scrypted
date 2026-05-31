@@ -92,7 +92,14 @@ import {
   markStationStreamInactive,
   otherDeviceStreamingOnStation,
 } from "./utils/station-stream-registry";
-import { acquireStationSlot } from "./utils/station-stream-coordinator";
+import {
+  acquireStationSlot,
+  isStationSlotHeldByOther,
+} from "./utils/station-stream-coordinator";
+import {
+  shouldRefreshThumbnail,
+  nextRefreshBackoffMs,
+} from "./utils/thumbnail-refresh";
 import { VideoClipsService } from "./services/video";
 import { PtzControlService, LightControlService } from "./services/control";
 
@@ -156,6 +163,18 @@ export class EufyDevice
   private lastStationRecycleAt = 0;
   private stationRecycleInFlight = false;
   private readonly MIN_STATION_RECYCLE_INTERVAL_MS = 5 * 60 * 1000;
+
+  // Background thumbnail refresh bookkeeping. A timer periodically wakes this
+  // camera (at background priority, gated by the station coordinator) to keep
+  // its cached thumbnail reasonably fresh — but only when the HomeBase slot is
+  // free and the cache is stale, with exponential backoff for cameras that
+  // never deliver video.
+  private thumbnailRefreshInterval?: ReturnType<typeof setInterval>;
+  private thumbnailRefreshKick?: ReturnType<typeof setTimeout>;
+  private consecutiveRefreshFailures = 0;
+  private refreshBackoffUntil = 0;
+  private readonly THUMBNAIL_REFRESH_CHECK_MS = 5 * 60 * 1000; // check every 5 min
+  private readonly THUMBNAIL_REFRESH_CAPTURE_TIMEOUT_MS = 55 * 1000;
 
   // Device info and state
   private latestProperties?: DeviceProperties;
@@ -917,6 +936,8 @@ export class EufyDevice
       markStationStreamInactive(this.getStationSN(), this.serialNumber);
     });
 
+    this.startThumbnailRefresh();
+
     this.logger.debug(
       "Stream server created with WebSocket client integration",
     );
@@ -943,6 +964,68 @@ export class EufyDevice
    */
   private getStationSN(): string {
     return this.latestProperties?.stationSerialNumber || this.serialNumber;
+  }
+
+  /**
+   * Start the periodic background thumbnail refresh. Staggered per device so
+   * cameras on the same HomeBase don't all check at once. Each tick wakes the
+   * camera only if its cache is stale AND the HomeBase slot is free AND we're
+   * not in failure backoff — so it never competes with a live view/recording
+   * and never hammers a dead camera.
+   */
+  private startThumbnailRefresh(): void {
+    // Deterministic per-device stagger across the check interval.
+    let hash = 0;
+    for (let i = 0; i < this.serialNumber.length; i++) {
+      hash = (hash * 31 + this.serialNumber.charCodeAt(i)) >>> 0;
+    }
+    const stagger = hash % this.THUMBNAIL_REFRESH_CHECK_MS;
+
+    this.thumbnailRefreshKick = setTimeout(() => {
+      this.runThumbnailRefreshTick().catch(() => {});
+      this.thumbnailRefreshInterval = setInterval(() => {
+        this.runThumbnailRefreshTick().catch(() => {});
+      }, this.THUMBNAIL_REFRESH_CHECK_MS);
+    }, stagger);
+  }
+
+  /** One background-refresh evaluation; wakes the camera only if warranted. */
+  private async runThumbnailRefreshTick(): Promise<void> {
+    if (!this.streamServer) return;
+    const cached = this.streamServer.getCachedKeyframe(Number.POSITIVE_INFINITY);
+    const cacheAgeMs = cached ? cached.ageMs : null;
+    const slotBusy = isStationSlotHeldByOther(
+      this.getStationSN(),
+      this.serialNumber,
+    );
+    const backoffRemainingMs = Math.max(0, this.refreshBackoffUntil - Date.now());
+
+    if (
+      !shouldRefreshThumbnail({ cacheAgeMs, slotBusy, backoffRemainingMs })
+    ) {
+      return;
+    }
+
+    this.logger.info(
+      `🖼️  Background thumbnail refresh (cache ${cacheAgeMs === null ? "empty" : Math.round(cacheAgeMs / 60000) + "min old"})`,
+    );
+    try {
+      // Background-priority wake (the coordinator denies if the slot is taken).
+      // The captured keyframe is cached by the stream server for snapshots.
+      await this.streamServer.captureSnapshot(
+        this.THUMBNAIL_REFRESH_CAPTURE_TIMEOUT_MS,
+      );
+      this.consecutiveRefreshFailures = 0;
+      this.refreshBackoffUntil = 0;
+      this.logger.info("🖼️  Thumbnail refreshed from background wake");
+    } catch {
+      this.consecutiveRefreshFailures++;
+      const backoff = nextRefreshBackoffMs(this.consecutiveRefreshFailures);
+      this.refreshBackoffUntil = Date.now() + backoff;
+      this.logger.info(
+        `🖼️  Thumbnail refresh did not complete (#${this.consecutiveRefreshFailures}) — backing off ${Math.round(backoff / 60000)}min`,
+      );
+    }
   }
 
   private async recycleStationP2P(info: {
@@ -1186,6 +1269,10 @@ export class EufyDevice
     }
     this.talkbackActive = false;
     this.intercomStartedLivestream = false;
+
+    // Stop the background thumbnail refresh timers.
+    if (this.thumbnailRefreshKick) clearTimeout(this.thumbnailRefreshKick);
+    if (this.thumbnailRefreshInterval) clearInterval(this.thumbnailRefreshInterval);
 
     // Drop ourselves from the station-stream registry so a disposed device
     // can't keep a sibling's recycle deferred forever.
