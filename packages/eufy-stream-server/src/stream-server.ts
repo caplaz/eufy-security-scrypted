@@ -219,16 +219,28 @@ export class StreamServer extends EventEmitter {
   /**
    * Cold-start threshold: no data has EVER arrived in this session
    * (`lastVideoDataAt === 0`), so we're waiting for the first frame.
-   * Battery cameras with deep sleep (T8170 S340 solar, T8160 doorbell)
-   * legitimately need 30–45s to wake up after a `startLivestream`
-   * command — firing the wedge at 15s prematurely tears down the
-   * session while the camera is still booting and triggers a station
-   * recycle that doesn't actually help (camera still needs to wake).
-   * 45s is long enough to clear the camera-wake window but short
-   * enough to leave room for the existing 30s start-retry-then-counter
-   * mechanism to make progress.
+   *
+   * This is gated by the VIEWER'S patience, not the camera's wake time.
+   * HomeKit kills a live session ~30s after the request if no video has
+   * arrived (observed: "streaming session killed, duration: 30s"). The one
+   * thing that reliably recovers a deeply-idle/wedged P2P session is a
+   * station recycle — and on the cameras that actually stream here (Front
+   * Door, garages) the camera itself wakes fast: it delivers its first
+   * frame within ~1–2s AFTER the recycle. So the entire pre-recycle wait is
+   * dead time. At 45s the recycle landed AFTER HomeKit had already given up
+   * (and torn down the prebuffer ffmpeg output → "Connection refused"), so
+   * the recovered video reached nobody.
+   *
+   * 18s leaves a healthy-but-cold camera room to deliver its first frame
+   * with no recycle at all, yet still fits detect (~18s) + recycle/restart/
+   * first-frame (~10s) ≈ 28s inside HomeKit's ~30s window, so the recovered
+   * stream reaches the viewer that's still waiting. A genuinely deep-sleep
+   * battery camera that needs >30s to wake was going to miss this live view
+   * regardless of how long we wait; recycling early still warms the keyframe
+   * cache + P2P session for the next tap. Signal-dead cameras can't loop on
+   * this — recycle suppression (no-signal / chronic-failure) stops them.
    */
-  private readonly COLD_START_STALE_THRESHOLD_MS = 45000;
+  private readonly COLD_START_STALE_THRESHOLD_MS = 18000;
 
   /**
    * Timestamp of when the current livestream "session" was established —
