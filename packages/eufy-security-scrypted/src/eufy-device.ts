@@ -88,13 +88,9 @@ import {
 } from "./services/device";
 import { PropertyMapper } from "./utils/property-mapper";
 import {
-  markStationStreamActive,
-  markStationStreamInactive,
-  otherDeviceStreamingOnStation,
-} from "./utils/station-stream-registry";
-import {
   acquireStationSlot,
   isStationSlotHeldByOther,
+  otherDeviceDeliveringOnStation,
 } from "./utils/station-stream-coordinator";
 import {
   recycleSuppression,
@@ -974,17 +970,15 @@ export class EufyDevice
       },
     );
 
-    // Maintain the cross-camera station-stream registry so a wedged sibling
-    // can avoid recycling the HomeBase P2P session while we're streaming.
     this.streamServer.on("livestreamActive", () => {
-      markStationStreamActive(this.getStationSN(), this.serialNumber);
       // We're streaming again — recycling (if any) worked. Clear the chronic-
       // failure guard so a future genuine wedge gets its recovery chance.
+      // (The coordinator tracks "delivering" via the lease for the recycle
+      // guard's sibling check.)
       this.consecutiveFailedRecycles = 0;
       this.recycleSuppressedUntil = 0;
     });
     this.streamServer.on("livestreamInactive", () => {
-      markStationStreamInactive(this.getStationSN(), this.serialNumber);
       // The camera just stopped — save its last frame so the tile survives a
       // reload. (Populated by any stream: live view, motion recording, etc.)
       this.persistThumbnailKeyframe();
@@ -1193,36 +1187,15 @@ export class EufyDevice
     // device will retry organically; by then the sibling may be idle.
     // Self-station 4G cameras have no siblings, so they never defer.
     if (!isSelfStation) {
-      const busySibling = otherDeviceStreamingOnStation(
+      const busySibling = otherDeviceDeliveringOnStation(
         stationSN,
         this.serialNumber,
       );
       if (busySibling) {
-        // The registry can go stale (a sibling that stopped without a clean
-        // inactive transition). Don't sacrifice our own recovery on a stale
-        // entry — confirm the sibling is *really* streaming before deferring.
-        // If it isn't, drop the stale entry and proceed with the recycle.
-        let siblingStreaming = true;
-        try {
-          const status = await this.wsClient.commands
-            .device(busySibling)
-            .isLivestreaming();
-          siblingStreaming = !!status?.livestreaming;
-        } catch (e) {
-          this.logger.warn(
-            `Sibling ${busySibling} isLivestreaming check failed — assuming it is streaming: ${e}`,
-          );
-        }
-        if (siblingStreaming) {
-          this.logger.warn(
-            `⏭️  Deferring station P2P recycle for ${stationSN} — sibling ${busySibling} is actively streaming on this HomeBase. Will retry on next consumer attach.`,
-          );
-          return;
-        }
-        this.logger.info(
-          `Registry flagged sibling ${busySibling} as streaming but bropat reports it isn't — clearing stale entry and proceeding with recycle.`,
+        this.logger.warn(
+          `⏭️  Deferring station P2P recycle for ${stationSN} — sibling ${busySibling} is actively streaming on this HomeBase. Will retry on next consumer attach.`,
         );
-        markStationStreamInactive(stationSN, busySibling);
+        return;
       }
     }
 
@@ -1422,10 +1395,6 @@ export class EufyDevice
     // Stop the background thumbnail refresh timers.
     if (this.thumbnailRefreshKick) clearTimeout(this.thumbnailRefreshKick);
     if (this.thumbnailRefreshInterval) clearInterval(this.thumbnailRefreshInterval);
-
-    // Drop ourselves from the station-stream registry so a disposed device
-    // can't keep a sibling's recycle deferred forever.
-    markStationStreamInactive(this.getStationSN(), this.serialNumber);
 
     // Dispose stream service (will stop stream server if running)
     this.streamService

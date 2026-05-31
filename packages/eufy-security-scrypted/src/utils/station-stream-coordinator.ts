@@ -199,6 +199,20 @@ export function stationSlotHolder(stationSN: string): string | undefined {
   return holders.get(stationSN)?.deviceSN;
 }
 
+/**
+ * If another device on `stationSN` currently holds the slot AND is actually
+ * delivering video, return its serial; otherwise undefined. Used to decide
+ * whether to defer a station P2P recycle (don't tear down a sibling's working
+ * stream). Replaces the old separate "stream registry".
+ */
+export function otherDeviceDeliveringOnStation(
+  stationSN: string,
+  deviceSN: string,
+): string | undefined {
+  const h = holders.get(stationSN);
+  return h && h.deviceSN !== deviceSN && h.isDelivering ? h.deviceSN : undefined;
+}
+
 /** Test-only: clear all slot state. */
 export function _resetStationStreamCoordinator(): void {
   holders.clear();

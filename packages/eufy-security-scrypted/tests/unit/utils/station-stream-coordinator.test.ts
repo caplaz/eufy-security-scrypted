@@ -5,6 +5,7 @@
 import {
   acquireStationSlot,
   isStationSlotHeldByOther,
+  otherDeviceDeliveringOnStation,
   stationSlotHolder,
   _resetStationStreamCoordinator,
 } from "../../../src/utils/station-stream-coordinator";
@@ -108,6 +109,18 @@ describe("station-stream-coordinator", () => {
     acquireStationSlot(ST, A, "live", () => {});
     expect(isStationSlotHeldByOther(ST, B)).toBe(true);
     expect(isStationSlotHeldByOther(ST, A)).toBe(false);
+  });
+
+  it("otherDeviceDeliveringOnStation only reports a DELIVERING sibling", () => {
+    const leaseA = acquireStationSlot(ST, A, "live", () => {});
+    // Holds the slot but not delivering yet → not reported.
+    expect(otherDeviceDeliveringOnStation(ST, B)).toBeUndefined();
+    leaseA!.markDelivering();
+    expect(otherDeviceDeliveringOnStation(ST, B)).toBe(A);
+    // Never reports the querying device itself.
+    expect(otherDeviceDeliveringOnStation(ST, A)).toBeUndefined();
+    leaseA!.release();
+    expect(otherDeviceDeliveringOnStation(ST, B)).toBeUndefined();
   });
 
   it("whenReady resolves immediately when the slot was free", async () => {
