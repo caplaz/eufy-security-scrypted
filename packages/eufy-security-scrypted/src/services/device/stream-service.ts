@@ -236,10 +236,15 @@ export class StreamService {
         name: options?.name || "Eufy Camera Stream",
         container: useMuxed ? "mp4" : options?.container,
         video: {
+          ...options?.video,
+          // Our source codec is authoritative. A consumer (e.g. HomeKit)
+          // requests `codec: 'h264'`; spreading that over ours would relabel
+          // our H.265 stream as H.264, so it gets `-vcodec copy`'d as-is and
+          // fails ("codec must be h264 but is h265"). Report what we actually
+          // send (h265 for these cameras) so downstream transcodes correctly.
           codec: scryptedCodec,
           width,
           height,
-          ...options?.video,
         },
         ...(useMuxed && { audio: { codec: "aac" } }),
       },
