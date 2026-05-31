@@ -87,6 +87,8 @@ export interface StationSlotLease {
    * Already resolved when nothing was preempted.
    */
   readonly whenReady: Promise<void>;
+  /** Mark this camera as delivering video (protects it from preemption). */
+  markDelivering(): void;
 }
 
 /**
@@ -902,6 +904,11 @@ export class StreamServer extends EventEmitter {
   private setLivestreamActual(active: boolean): void {
     if (this.livestreamActualState === active) return;
     this.livestreamActualState = active;
+    if (active) {
+      // We're delivering video now — protect our HomeBase slot from being
+      // preempted by another camera's (e.g. grid-preview) live request.
+      this.streamLease?.markDelivering();
+    }
     this.emit(active ? "livestreamActive" : "livestreamInactive", {
       serialNumber: this.options.serialNumber,
     });

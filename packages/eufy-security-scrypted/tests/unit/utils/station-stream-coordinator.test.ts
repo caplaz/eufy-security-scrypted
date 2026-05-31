@@ -50,13 +50,34 @@ describe("station-stream-coordinator", () => {
     expect(stationSlotHolder(ST)).toBe(B); // not clobbered
   });
 
-  it("live PREEMPTS an older live holder (newest tap wins)", () => {
+  it("live preempts a STUCK older live holder (past warm-up, not delivering)", () => {
     const revokeA = jest.fn();
-    acquireStationSlot(ST, A, "live", revokeA);
-    const leaseB = acquireStationSlot(ST, B, "live", () => {});
+    acquireStationSlot(ST, A, "live", revokeA, 0);
+    // B requests past A's warm-up grace; A never started delivering → take over.
+    const leaseB = acquireStationSlot(ST, B, "live", () => {}, 9000);
     expect(revokeA).toHaveBeenCalledTimes(1);
     expect(leaseB).not.toBeNull();
     expect(stationSlotHolder(ST)).toBe(B);
+  });
+
+  it("live does NOT preempt a live holder still in its warm-up grace", () => {
+    const revokeA = jest.fn();
+    acquireStationSlot(ST, A, "live", revokeA, 0);
+    const leaseB = acquireStationSlot(ST, B, "live", () => {}, 1000); // within 8s
+    expect(revokeA).not.toHaveBeenCalled();
+    expect(leaseB).toBeNull();
+    expect(stationSlotHolder(ST)).toBe(A);
+  });
+
+  it("live does NOT preempt a DELIVERING live holder (protects a working stream)", () => {
+    const revokeA = jest.fn();
+    const leaseA = acquireStationSlot(ST, A, "live", revokeA, 0);
+    leaseA!.markDelivering();
+    // Even long after warm-up, a delivering holder is not kicked off.
+    const leaseB = acquireStationSlot(ST, B, "live", () => {}, 100000);
+    expect(revokeA).not.toHaveBeenCalled();
+    expect(leaseB).toBeNull();
+    expect(stationSlotHolder(ST)).toBe(A);
   });
 
   it("does not preempt or revoke when the same device re-acquires", () => {
@@ -100,8 +121,8 @@ describe("station-stream-coordinator", () => {
   });
 
   it("whenReady waits for the preempted holder to release before resolving", async () => {
-    const leaseA = acquireStationSlot(ST, A, "live", () => {});
-    const leaseB = acquireStationSlot(ST, B, "live", () => {});
+    const leaseA = acquireStationSlot(ST, A, "live", () => {}, 0);
+    const leaseB = acquireStationSlot(ST, B, "live", () => {}, 9000); // preempts stuck A
 
     // Before A releases, B is not yet ready.
     const early = await Promise.race([
@@ -116,8 +137,8 @@ describe("station-stream-coordinator", () => {
   });
 
   it("a revoked holder releasing does not delete a newer holder's slot", () => {
-    const leaseA = acquireStationSlot(ST, A, "live", () => {});
-    acquireStationSlot(ST, B, "live", () => {}); // preempts A
+    const leaseA = acquireStationSlot(ST, A, "live", () => {}, 0);
+    acquireStationSlot(ST, B, "live", () => {}, 9000); // preempts stuck A
     leaseA!.release(); // A finally tears down
     expect(stationSlotHolder(ST)).toBe(B);
     expect(isStationSlotHeldByOther(ST, B)).toBe(false);

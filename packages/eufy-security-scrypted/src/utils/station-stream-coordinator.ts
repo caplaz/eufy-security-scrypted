@@ -46,6 +46,14 @@ export interface StationSlotLease {
    * nothing was preempted it is already resolved.
    */
   readonly whenReady: Promise<void>;
+  /**
+   * Mark that this camera is now actually delivering video. A delivering
+   * holder will NOT be preempted by another camera's live request — only a
+   * stuck/warming holder can be taken over. This is what stops the Home-app
+   * grid (which fires a live preview request per camera) from kicking a
+   * working stream off the single HomeBase slot.
+   */
+  markDelivering(): void;
 }
 
 interface Holder {
@@ -54,6 +62,10 @@ interface Holder {
   onRevoke: () => void;
   /** Callbacks fired when THIS holder's lease is released. */
   onReleased: Array<() => void>;
+  /** When this holder acquired the slot (for the warm-up grace). */
+  acquiredAt: number;
+  /** Whether this holder is actually delivering video yet. */
+  isDelivering: boolean;
 }
 
 // Max time a preemptor waits for the previous holder to release before
@@ -61,18 +73,34 @@ interface Holder {
 // hang if it never does).
 const PREEMPT_HANDOFF_TIMEOUT_MS = 4000;
 
+// A freshly-granted holder is protected from preemption this long, giving a
+// battery camera time to wake and deliver its first frame before another
+// request can take the slot. Prevents the grid's burst of live requests from
+// thrashing during warm-up.
+const PREEMPT_MIN_HOLD_MS = 8000;
+
 const holders = new Map<string, Holder>();
 
 /**
  * Attempt to acquire the single stream slot for `stationSN` on behalf of
- * `deviceSN`. Returns a lease, or null if denied (background and the slot is
- * busy). For "live" this always succeeds, preempting any current holder.
+ * `deviceSN`.
+ *
+ * Returns a lease, or null if DENIED:
+ *  - "background" is denied whenever the slot is held.
+ *  - "live" is denied if the current holder is actively delivering video OR is
+ *    still within its warm-up grace — a working/warming stream is never kicked
+ *    off. The caller fails fast and the consumer retries; the slot frees when
+ *    the holder stops. "live" preempts only a stuck holder (acquired, past
+ *    warm-up, not yet delivering — e.g. a dead camera).
+ *
+ * @param nowMs - current time (injectable for tests)
  */
 export function acquireStationSlot(
   stationSN: string,
   deviceSN: string,
   priority: StreamPriority,
   onRevoke: () => void,
+  nowMs: number = Date.now(),
 ): StationSlotLease | null {
   const current = holders.get(stationSN);
 
@@ -83,7 +111,17 @@ export function acquireStationSlot(
       // Background never interrupts a holder.
       return null;
     }
-    // "live": preempt whoever holds it (background OR an older live session).
+    // "live" always beats a background holder (a thumbnail refresh). But it
+    // will NOT kick off another LIVE stream that is working or still warming
+    // up — only a STUCK live holder (past warm-up, not yet delivering, e.g. a
+    // dead camera) can be taken over. This stops the Home-app grid's burst of
+    // live preview requests from thrashing the single HomeBase slot.
+    if (current.priority === "live") {
+      const withinWarmup = nowMs - current.acquiredAt < PREEMPT_MIN_HOLD_MS;
+      if (current.isDelivering || withinWarmup) {
+        return null;
+      }
+    }
     // Wait for the preempted holder to release before we start, so the two
     // don't overlap on the single HomeBase slot.
     whenReady = new Promise<void>((resolve) => {
@@ -103,12 +141,22 @@ export function acquireStationSlot(
     }
   }
 
-  const holder: Holder = { deviceSN, priority, onRevoke, onReleased: [] };
+  const holder: Holder = {
+    deviceSN,
+    priority,
+    onRevoke,
+    onReleased: [],
+    acquiredAt: nowMs,
+    isDelivering: false,
+  };
   holders.set(stationSN, holder);
 
   let released = false;
   return {
     whenReady,
+    markDelivering() {
+      holder.isDelivering = true;
+    },
     get active() {
       return !released && holders.get(stationSN) === holder;
     },
