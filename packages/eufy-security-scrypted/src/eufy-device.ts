@@ -367,7 +367,10 @@ export class EufyDevice
   private syncStateToProperties() {
     if (!this.stateReady) return;
     const state = this.stateService.getState();
-    if (state.motionDetected !== undefined)
+    if (
+      state.motionDetected !== undefined &&
+      !this.hasExternalMotionSensorMixin()
+    )
       this.motionDetected = state.motionDetected;
     if (state.binaryState !== undefined) this.binaryState = state.binaryState;
     if (state.brightness !== undefined) this.brightness = state.brightness;
@@ -376,6 +379,26 @@ export class EufyDevice
       this.batteryLevel = state.batteryLevel;
     if (state.chargeState !== undefined) this.chargeState = state.chargeState;
     if (state.sensors) this.sensors = state.sensors as any;
+  }
+
+  /**
+   * True when the user has attached Scrypted's "Custom Motion Sensor"
+   * extension to this camera. That mixin replaces the camera's motion
+   * source with an external sensor (the documented Scrypted way to drive
+   * HKSV from a better sensor), so Eufy-reported motion must not
+   * overwrite it (#26). Scrypted doesn't expose which mixin owns an
+   * interface, so detection is by the extension's device name. Fails
+   * open: any lookup problem means Eufy motion keeps working.
+   */
+  private hasExternalMotionSensorMixin(): boolean {
+    try {
+      return (this.mixins || []).some((mixinId) => {
+        const mixinDevice = sdk.systemManager.getDeviceById(mixinId);
+        return mixinDevice?.name === "Custom Motion Sensor";
+      });
+    } catch {
+      return false;
+    }
   }
 
   /**
