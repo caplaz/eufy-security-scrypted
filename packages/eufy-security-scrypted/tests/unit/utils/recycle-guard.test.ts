@@ -20,7 +20,10 @@ describe("recycleSuppression", () => {
 
   it("suppresses after the failure cap (chronic failure)", () => {
     expect(
-      recycleSuppression({ ...base, consecutiveFailedRecycles: MAX_FAILED_RECYCLES }),
+      recycleSuppression({
+        ...base,
+        consecutiveFailedRecycles: MAX_FAILED_RECYCLES,
+      }),
     ).toEqual({ suppress: true, reason: "chronic-failure" });
   });
 
@@ -40,13 +43,17 @@ describe("recycleSuppression", () => {
 
   it("does not suppress on decent signal before the cap", () => {
     expect(
-      recycleSuppression({ ...base, signalLevel: 1, consecutiveFailedRecycles: 0 }),
+      recycleSuppression({
+        ...base,
+        signalLevel: 1,
+        consecutiveFailedRecycles: 0,
+      }),
     ).toEqual({ suppress: false });
   });
 
   it("treats unknown signal as not-no-signal", () => {
-    expect(
-      recycleSuppression({ ...base, signalLevel: undefined }),
-    ).toEqual({ suppress: false });
+    expect(recycleSuppression({ ...base, signalLevel: undefined })).toEqual({
+      suppress: false,
+    });
   });
 });

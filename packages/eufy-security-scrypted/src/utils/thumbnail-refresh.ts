@@ -30,7 +30,9 @@ export const THUMBNAIL_REFRESH_DEFAULT_CHOICE = "2 hours";
  * Resolve a stored setting choice to a threshold in ms, or null if disabled.
  * Unknown/unset choices fall back to the default (2 hours).
  */
-export function resolveRefreshChoice(choice: string | undefined): number | null {
+export function resolveRefreshChoice(
+  choice: string | undefined,
+): number | null {
   if (choice && choice in THUMBNAIL_REFRESH_CHOICES) {
     return THUMBNAIL_REFRESH_CHOICES[choice];
   }

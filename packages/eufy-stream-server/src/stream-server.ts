@@ -1427,7 +1427,11 @@ export class StreamServer extends EventEmitter {
 
     // While preempted, stay down despite a reconnecting consumer — don't fight
     // the camera that took the HomeBase slot.
-    if (totalConsumers > 0 && !this.livestreamIntendedState && !this.slotRevoked) {
+    if (
+      totalConsumers > 0 &&
+      !this.livestreamIntendedState &&
+      !this.slotRevoked
+    ) {
       this.livestreamIntendedState = true;
       this.lastClientActivity = Date.now();
       this.startActivityMonitoring();

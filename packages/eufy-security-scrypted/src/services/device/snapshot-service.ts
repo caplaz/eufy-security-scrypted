@@ -93,9 +93,13 @@ export class SnapshotService {
       this.logger.info(
         "📸 No cached frame yet — serving placeholder (not waking camera for a thumbnail)",
       );
-      return sdk.mediaManager.createMediaObject(PLACEHOLDER_JPEG, "image/jpeg", {
-        sourceId: this.serialNumber,
-      });
+      return sdk.mediaManager.createMediaObject(
+        PLACEHOLDER_JPEG,
+        "image/jpeg",
+        {
+          sourceId: this.serialNumber,
+        },
+      );
     } catch (error) {
       this.logger.error(`Failed to capture snapshot: ${error}`);
       throw error;

@@ -28,9 +28,7 @@ describe("shouldRefreshThumbnail", () => {
   });
 
   it("does NOT refresh a fresh cache", () => {
-    expect(
-      shouldRefreshThumbnail({ ...base, cacheAgeMs: 60_000 }),
-    ).toBe(false);
+    expect(shouldRefreshThumbnail({ ...base, cacheAgeMs: 60_000 })).toBe(false);
   });
 
   it("never refreshes while the HomeBase slot is busy (yields to live)", () => {
@@ -54,7 +52,9 @@ describe("resolveRefreshChoice", () => {
   it("defaults to 2 hours when unset or unknown", () => {
     expect(resolveRefreshChoice(undefined)).toBe(2 * 60 * 60 * 1000);
     expect(resolveRefreshChoice("nonsense")).toBe(2 * 60 * 60 * 1000);
-    expect(resolveRefreshChoice(undefined)).toBe(THUMBNAIL_REFRESH_THRESHOLD_MS);
+    expect(resolveRefreshChoice(undefined)).toBe(
+      THUMBNAIL_REFRESH_THRESHOLD_MS,
+    );
   });
 
   it("maps named choices to durations", () => {

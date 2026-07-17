@@ -92,10 +92,7 @@ import {
   isStationSlotHeldByOther,
   otherDeviceDeliveringOnStation,
 } from "./utils/station-stream-coordinator";
-import {
-  recycleSuppression,
-  RECYCLE_SUPPRESS_MS,
-} from "./utils/recycle-guard";
+import { recycleSuppression, RECYCLE_SUPPRESS_MS } from "./utils/recycle-guard";
 import {
   shouldRefreshThumbnail,
   nextRefreshBackoffMs,
@@ -903,9 +900,10 @@ export class EufyDevice
     // H.264 NAL types and never find a keyframe in an H.265 stream —
     // HomeKit's transcoder then sees "Unable to find sync frame in rtsp
     // prebuffer" and the session dies at the 30s timeout.
-    const storedCodec = this.storage.getItem(
-      "lastDetectedVideoCodec",
-    ) as "H264" | "H265" | null;
+    const storedCodec = this.storage.getItem("lastDetectedVideoCodec") as
+      | "H264"
+      | "H265"
+      | null;
     const initialVideoCodec =
       storedCodec === "H264" || storedCodec === "H265"
         ? storedCodec
@@ -943,17 +941,21 @@ export class EufyDevice
     // Persist live-detected codec so the next plugin restart starts with
     // the right hint. The event fires exactly once per stream-server
     // instance (on the first video data event).
-    this.streamServer.on("metadataReceived", (metadata: { videoCodec?: string }) => {
-      const codec = metadata?.videoCodec?.toUpperCase();
-      const normalized = codec === "H265" || codec === "HEVC" ? "H265" : "H264";
-      const previous = this.storage.getItem("lastDetectedVideoCodec");
-      if (previous !== normalized) {
-        this.storage.setItem("lastDetectedVideoCodec", normalized);
-        this.logger.info(
-          `💾 Persisted detected video codec: ${normalized} (was: ${previous ?? "unset"})`,
-        );
-      }
-    });
+    this.streamServer.on(
+      "metadataReceived",
+      (metadata: { videoCodec?: string }) => {
+        const codec = metadata?.videoCodec?.toUpperCase();
+        const normalized =
+          codec === "H265" || codec === "HEVC" ? "H265" : "H264";
+        const previous = this.storage.getItem("lastDetectedVideoCodec");
+        if (previous !== normalized) {
+          this.storage.setItem("lastDetectedVideoCodec", normalized);
+          this.logger.info(
+            `💾 Persisted detected video codec: ${normalized} (was: ${previous ?? "unset"})`,
+          );
+        }
+      },
+    );
 
     this.streamServer.on(
       "upstreamWedged",
@@ -1014,7 +1016,8 @@ export class EufyDevice
     return this.latestProperties?.stationSerialNumber || this.serialNumber;
   }
 
-  private static readonly THUMBNAIL_KEYFRAME_STORAGE_KEY = "lastThumbnailKeyframe";
+  private static readonly THUMBNAIL_KEYFRAME_STORAGE_KEY =
+    "lastThumbnailKeyframe";
   // Keyframes are small (compressed H.264/H.265, typically 10–110 KB). Cap to
   // avoid bloating Scrypted's storage if a frame is unexpectedly large.
   private static readonly MAX_PERSISTED_KEYFRAME_BYTES = 220 * 1024;
@@ -1097,13 +1100,18 @@ export class EufyDevice
     );
     if (thresholdMs === null) return;
 
-    const cached = this.streamServer.getCachedKeyframe(Number.POSITIVE_INFINITY);
+    const cached = this.streamServer.getCachedKeyframe(
+      Number.POSITIVE_INFINITY,
+    );
     const cacheAgeMs = cached ? cached.ageMs : null;
     const slotBusy = isStationSlotHeldByOther(
       this.getStationSN(),
       this.serialNumber,
     );
-    const backoffRemainingMs = Math.max(0, this.refreshBackoffUntil - Date.now());
+    const backoffRemainingMs = Math.max(
+      0,
+      this.refreshBackoffUntil - Date.now(),
+    );
 
     if (
       !shouldRefreshThumbnail({
@@ -1394,7 +1402,8 @@ export class EufyDevice
 
     // Stop the background thumbnail refresh timers.
     if (this.thumbnailRefreshKick) clearTimeout(this.thumbnailRefreshKick);
-    if (this.thumbnailRefreshInterval) clearInterval(this.thumbnailRefreshInterval);
+    if (this.thumbnailRefreshInterval)
+      clearInterval(this.thumbnailRefreshInterval);
 
     // Dispose stream service (will stop stream server if running)
     this.streamService

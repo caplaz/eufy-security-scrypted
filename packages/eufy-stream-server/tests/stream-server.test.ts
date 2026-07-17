@@ -1341,7 +1341,9 @@ describe("StreamServer", () => {
 
       audioCallback({
         serialNumber: "TEST_DEVICE_123",
-        buffer: { data: Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06]) },
+        buffer: {
+          data: Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
+        },
         metadata: { audioCodec: "AAC" },
       });
       expect((server as any).deliversAudio).toBeUndefined();
@@ -1349,7 +1351,9 @@ describe("StreamServer", () => {
       // A real ADTS frame flips it on so audio-capable cameras use `both`.
       audioCallback({
         serialNumber: "TEST_DEVICE_123",
-        buffer: { data: Buffer.from([0xff, 0xf1, 0x50, 0x80, 0x00, 0x1f, 0xfc]) },
+        buffer: {
+          data: Buffer.from([0xff, 0xf1, 0x50, 0x80, 0x00, 0x1f, 0xfc]),
+        },
         metadata: { audioCodec: "AAC" },
       });
       expect((server as any).deliversAudio).toBe(true);
@@ -1607,9 +1611,7 @@ describe("StreamServer", () => {
       // client to start the livestream.
       await wait(20);
 
-      expect(
-        mockWsClient.commands.device().startLivestream,
-      ).toHaveBeenCalled();
+      expect(mockWsClient.commands.device().startLivestream).toHaveBeenCalled();
 
       socket.destroy();
     });

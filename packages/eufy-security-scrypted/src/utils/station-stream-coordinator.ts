@@ -216,7 +216,9 @@ export function otherDeviceDeliveringOnStation(
   deviceSN: string,
 ): string | undefined {
   const h = holders.get(stationSN);
-  return h && h.deviceSN !== deviceSN && h.isDelivering ? h.deviceSN : undefined;
+  return h && h.deviceSN !== deviceSN && h.isDelivering
+    ? h.deviceSN
+    : undefined;
 }
 
 /** Test-only: clear all slot state. */
