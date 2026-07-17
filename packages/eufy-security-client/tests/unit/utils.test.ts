@@ -155,6 +155,86 @@ describe("Utils Module", () => {
         const stats = rateLimitedProcessor.getStats();
         expect(stats.rateLimitedMessages).toBe(1);
       });
+
+      it("never rate-limits livestream video/audio data messages", () => {
+        const processor = new WebSocketMessageProcessor(undefined, {
+          maxMessagesPerSecond: 3,
+          rateLimitWindowMs: 60_000,
+        });
+
+        const videoMsg = JSON.stringify({
+          type: MESSAGE_TYPES.EVENT,
+          event: {
+            source: "device",
+            event: DEVICE_EVENTS.LIVESTREAM_VIDEO_DATA,
+            serialNumber: "T8210TEST",
+            buffer: { data: [0, 0, 0, 1, 0x65, 1, 2, 3] },
+          },
+        });
+        const audioMsg = JSON.stringify({
+          type: MESSAGE_TYPES.EVENT,
+          event: {
+            source: "device",
+            event: DEVICE_EVENTS.LIVESTREAM_AUDIO_DATA,
+            serialNumber: "T8210TEST",
+            buffer: { data: [255, 241, 1, 2, 3] },
+          },
+        });
+
+        // A single camera easily exceeds any per-second budget (video +
+        // audio events). None of these may ever be dropped.
+        for (let i = 0; i < 20; i++) {
+          expect(processor.processMessage(videoMsg).valid).toBe(true);
+          expect(processor.processMessage(audioMsg).valid).toBe(true);
+        }
+        expect(processor.getStats().rateLimitedMessages).toBe(0);
+      });
+
+      it("never rate-limits command result messages", () => {
+        const processor = new WebSocketMessageProcessor(undefined, {
+          maxMessagesPerSecond: 2,
+          rateLimitWindowMs: 60_000,
+        });
+
+        const resultMsg = JSON.stringify({
+          type: MESSAGE_TYPES.RESULT,
+          messageId: "abc",
+          success: true,
+          result: {},
+        });
+
+        // Dropping a result message would strand its pending command promise.
+        for (let i = 0; i < 10; i++) {
+          expect(processor.processMessage(resultMsg).valid).toBe(true);
+        }
+        expect(processor.getStats().rateLimitedMessages).toBe(0);
+      });
+
+      it("exempt messages do not consume the budget of limited messages", () => {
+        const processor = new WebSocketMessageProcessor(undefined, {
+          maxMessagesPerSecond: 2,
+          rateLimitWindowMs: 60_000,
+        });
+
+        const videoMsg = JSON.stringify({
+          type: MESSAGE_TYPES.EVENT,
+          event: {
+            source: "device",
+            event: DEVICE_EVENTS.LIVESTREAM_VIDEO_DATA,
+            serialNumber: "T8210TEST",
+            buffer: { data: [1] },
+          },
+        });
+        for (let i = 0; i < 5; i++) {
+          expect(processor.processMessage(videoMsg).valid).toBe(true);
+        }
+
+        // The generic budget (2/window) must still be fully available.
+        const generic = JSON.stringify({ type: "test" });
+        expect(processor.processMessage(generic).valid).toBe(true);
+        expect(processor.processMessage(generic).valid).toBe(true);
+        expect(processor.processMessage(generic).valid).toBe(false);
+      });
     });
 
     describe("large message handling", () => {

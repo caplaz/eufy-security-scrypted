@@ -89,16 +89,27 @@ export class WebSocketMessageProcessor {
   }
 
   /**
+   * Messages that must NEVER be dropped by the rate limiter:
+   *  - livestream video/audio data — a streaming camera alone produces
+   *    ~15 video + ~40 ADTS audio events per second, so any global
+   *    per-second cap is exceeded the moment two cameras stream (or one
+   *    camera streams during an event burst). A dropped video event means
+   *    missing NAL units → corrupted/black video downstream.
+   *  - command results — dropping one strands its pending command promise
+   *    until the command timeout.
+   */
+  private isRateLimitExempt(messageStr: string): boolean {
+    return (
+      messageStr.includes(`"${DEVICE_EVENTS.LIVESTREAM_VIDEO_DATA}"`) ||
+      messageStr.includes(`"${DEVICE_EVENTS.LIVESTREAM_AUDIO_DATA}"`) ||
+      messageStr.includes(`"type":"${MESSAGE_TYPES.RESULT}"`)
+    );
+  }
+
+  /**
    * Process a raw WebSocket message with validation and rate limiting
    */
   processMessage(data: any): { valid: boolean; message?: any; error?: string } {
-    // Rate limiting check
-    if (!this.rateLimiter.canProcess()) {
-      this.rateLimitedMessages++;
-      this.logger?.warn("Message rate limit exceeded, dropping message");
-      return { valid: false, error: "Rate limit exceeded" };
-    }
-
     // Basic data validation
     if (!data) {
       this.invalidMessages++;
@@ -112,6 +123,16 @@ export class WebSocketMessageProcessor {
     } catch (_error) {
       this.invalidMessages++;
       return { valid: false, error: "Failed to convert message to string" };
+    }
+
+    // Rate limiting — stream data and command results are exempt and do not
+    // consume the budget; the cap only applies to everything else.
+    if (!this.isRateLimitExempt(messageStr)) {
+      if (!this.rateLimiter.canProcess()) {
+        this.rateLimitedMessages++;
+        this.logger?.warn("Message rate limit exceeded, dropping message");
+        return { valid: false, error: "Rate limit exceeded" };
+      }
     }
 
     // Smart message size filtering - allow important message types to be larger
