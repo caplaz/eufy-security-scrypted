@@ -369,6 +369,11 @@ export class StreamServer extends EventEmitter {
   private cachedPPS: Buffer | null = null;
   private cachedVPS: Buffer | null = null; // H.265 Video Parameter Set
 
+  /** Annex-B 4-byte start code used to re-frame cached parameter-set NALs. */
+  private static readonly ANNEX_B_START_CODE = Buffer.from([
+    0x00, 0x00, 0x00, 0x01,
+  ]);
+
   // Last decodable keyframe, retained so snapshots/thumbnails can be served
   // without waking the camera. Populated whenever a keyframe flows through —
   // from live view, HKSV recording, a motion-triggered stream, or a prior
@@ -1476,21 +1481,25 @@ export class StreamServer extends EventEmitter {
       clearTimeout(this.startStopTimeout);
       this.startStopTimeout = undefined;
     }
+    this.cancelPostSnapshotLinger("server stopping");
 
     // Stop activity monitoring
     this.stopActivityMonitoring();
 
-    // Guarantee the registry sees this device as no longer streaming, even
-    // if the teardown below doesn't traverse the graceful-stop branch.
-    this.setLivestreamActual(false);
-    this.releaseStreamSlot();
-
-    // Stop livestream if there are active clients
-    const activeClients = this.connectionManager.getActiveConnectionCount();
-    if (activeClients > 0) {
+    // Stop the upstream livestream if we intended it to run. Gate on intent,
+    // not on raw TCP client count — the normal HomeKit path attaches only
+    // muxed-port consumers (zero raw TCP clients), and skipping the stop for
+    // them left the camera streaming after a plugin reload/shutdown until
+    // the upstream idled it out (battery drain on every restart).
+    if (this.livestreamIntendedState) {
       this.livestreamIntendedState = false;
       await this.ensureLivestreamState();
     }
+
+    // Guarantee the registry sees this device as no longer streaming, even
+    // if the teardown above didn't traverse the graceful-stop branch.
+    this.setLivestreamActual(false);
+    this.releaseStreamSlot();
 
     // Clean up WebSocket event listeners
     if (this.eventRemover) {
@@ -1603,22 +1612,41 @@ export class StreamServer extends EventEmitter {
 
       // Cache parameter-set NAL units so new clients can decode mid-stream.
       // H.264: SPS=7, PPS=8   H.265: VPS=32, SPS=33, PPS=34
+      //
+      // Cache the individual NAL (re-framed with a start code), NOT the whole
+      // event buffer. Eufy usually bundles the parameter sets with the IDR in
+      // one event; caching the full event would put a stale keyframe inside
+      // every cache slot — new clients would receive old frames ahead of the
+      // live stream, and the snapshot prepend path would place an old IDR
+      // before the fresh one (ffmpeg decodes the FIRST picture it finds).
       nalUnits.forEach((nal) => {
+        const framedNal = () =>
+          Buffer.concat([StreamServer.ANNEX_B_START_CODE, nal.data]);
         if (!isHevc && nal.type === 7) {
-          this.cachedSPS = data;
-          this.logger.debug(`Cached H.264 SPS (${data.length} bytes)`);
+          this.cachedSPS = framedNal();
+          this.logger.debug(
+            `Cached H.264 SPS (${this.cachedSPS.length} bytes)`,
+          );
         } else if (!isHevc && nal.type === 8) {
-          this.cachedPPS = data;
-          this.logger.debug(`Cached H.264 PPS (${data.length} bytes)`);
+          this.cachedPPS = framedNal();
+          this.logger.debug(
+            `Cached H.264 PPS (${this.cachedPPS.length} bytes)`,
+          );
         } else if (isHevc && nal.type === 32) {
-          this.cachedVPS = data;
-          this.logger.debug(`Cached H.265 VPS (${data.length} bytes)`);
+          this.cachedVPS = framedNal();
+          this.logger.debug(
+            `Cached H.265 VPS (${this.cachedVPS.length} bytes)`,
+          );
         } else if (isHevc && nal.type === 33) {
-          this.cachedSPS = data;
-          this.logger.debug(`Cached H.265 SPS (${data.length} bytes)`);
+          this.cachedSPS = framedNal();
+          this.logger.debug(
+            `Cached H.265 SPS (${this.cachedSPS.length} bytes)`,
+          );
         } else if (isHevc && nal.type === 34) {
-          this.cachedPPS = data;
-          this.logger.debug(`Cached H.265 PPS (${data.length} bytes)`);
+          this.cachedPPS = framedNal();
+          this.logger.debug(
+            `Cached H.265 PPS (${this.cachedPPS.length} bytes)`,
+          );
         }
       });
 

@@ -1653,4 +1653,116 @@ describe("StreamServer", () => {
       socket.destroy();
     });
   });
+
+  describe("parameter-set caching (individual NAL units, not whole events)", () => {
+    const START = Buffer.from([0x00, 0x00, 0x00, 0x01]);
+    const SPS_NAL = Buffer.from([0x67, 0x42, 0x00, 0x1e]);
+    const PPS_NAL = Buffer.from([0x68, 0xce, 0x3c, 0x80]);
+    // Distinctive payloads so we can detect which IDR ended up where.
+    const IDR_A = Buffer.from([0x65, 0xaa, 0xaa, 0xaa, 0xaa]);
+    const IDR_B = Buffer.from([0x65, 0xbb, 0xbb, 0xbb, 0xbb]);
+
+    const h264Metadata = {
+      videoCodec: "H264",
+      videoFPS: 30,
+      videoWidth: 1920,
+      videoHeight: 1080,
+    };
+
+    const fireVideo = (data: Buffer) => {
+      const handler = mockWsClient.addEventListener.mock.calls.find(
+        (c: any[]) => c[0] === "livestream video data",
+      )[1];
+      handler({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: { data },
+        metadata: h264Metadata,
+      });
+    };
+
+    it("caches only the parameter-set NALs from a bundled SPS+PPS+IDR event", async () => {
+      await server.start();
+
+      // Eufy typically bundles parameter sets with the IDR in one event.
+      fireVideo(Buffer.concat([START, SPS_NAL, START, PPS_NAL, START, IDR_A]));
+      await wait(50);
+
+      // A new raw TCP client receives the cached headers on connect. It must
+      // get the SPS and PPS — and must NOT get the stale IDR frame.
+      const client = new net.Socket();
+      const received: Buffer[] = [];
+      client.on("data", (d) => received.push(d as Buffer));
+      await new Promise<void>((resolve) => {
+        client.connect(testPort, "127.0.0.1", () => resolve());
+      });
+      await wait(100);
+
+      const combined = Buffer.concat(received);
+      expect(combined.includes(SPS_NAL)).toBe(true);
+      expect(combined.includes(PPS_NAL)).toBe(true);
+      expect(combined.includes(IDR_A)).toBe(false);
+
+      client.destroy();
+    });
+
+    it("snapshot for a later IDR-only event does not embed the previous IDR", async () => {
+      // Frame A arrives bundled with the parameter sets.
+      fireVideo(Buffer.concat([START, SPS_NAL, START, PPS_NAL, START, IDR_A]));
+      await wait(20);
+
+      // A snapshot is requested, then frame B arrives as an IDR-only event
+      // (no parameter sets in the same event → the cached ones get prepended).
+      const snapshotPromise = server.captureSnapshot(3000);
+      await wait(20);
+      fireVideo(Buffer.concat([START, IDR_B]));
+
+      const payload = await snapshotPromise;
+
+      // Decodable: parameter sets present, followed by frame B.
+      expect(payload.includes(SPS_NAL)).toBe(true);
+      expect(payload.includes(PPS_NAL)).toBe(true);
+      expect(payload.includes(IDR_B)).toBe(true);
+      // Correct: the stale frame A must not precede frame B in the payload —
+      // ffmpeg decodes the FIRST picture it finds, which would be frame A.
+      expect(payload.includes(IDR_A)).toBe(false);
+    });
+  });
+
+  describe("stop() with muxer-only consumers", () => {
+    it("stops the upstream livestream even when no raw TCP clients exist", async () => {
+      // The normal HomeKit path: consumers attach only via the muxed port
+      // (zero raw TCP clients). stop() must still stop the camera.
+      const deviceApi = {
+        startLivestream: jest.fn().mockResolvedValue({}),
+        stopLivestream: jest.fn().mockResolvedValue({}),
+        isLivestreaming: jest.fn().mockResolvedValue({ livestreaming: true }),
+      };
+      const wsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: { device: jest.fn().mockReturnValue(deviceApi) },
+      };
+      const s = new StreamServer({
+        port: testPort + 1,
+        host: "127.0.0.1",
+        wsClient: wsClient as any,
+        serialNumber: "TEST_DEVICE_123",
+      });
+      await s.start();
+
+      // Attach a muxed client — this sets livestream intent.
+      const muxedPort = s.getMuxedPort()!;
+      const socket = net.createConnection({
+        port: muxedPort,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      await wait(100);
+      expect((s as any).livestreamIntendedState).toBe(true);
+
+      await s.stop();
+
+      expect(deviceApi.stopLivestream).toHaveBeenCalled();
+      socket.destroy();
+    });
+  });
 });
