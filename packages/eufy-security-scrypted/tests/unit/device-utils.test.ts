@@ -1,10 +1,6 @@
 jest.unmock("../../src/utils/device-utils");
 
 import { DeviceUtils } from "../../src/utils/device-utils";
-import {
-  getDeviceCapabilities,
-  isDoorbell,
-} from "@caplaz/eufy-security-client";
 
 jest.mock("@scrypted/sdk", () => ({
   ScryptedInterface: {
@@ -26,6 +22,7 @@ jest.mock("@scrypted/sdk", () => ({
     Camera: "Camera",
     Doorbell: "Doorbell",
     Sensor: "Sensor",
+    Lock: "Lock",
     Unknown: "Unknown",
   },
   SecuritySystemMode: {
@@ -36,34 +33,10 @@ jest.mock("@scrypted/sdk", () => ({
   },
 }));
 
-jest.mock("@caplaz/eufy-security-client", () => ({
-  GuardMode: {
-    AWAY: 0,
-    HOME: 1,
-    DISARMED: 6,
-    CUSTOM1: 3,
-    CUSTOM2: 4,
-    CUSTOM3: 5,
-  },
-  AlarmMode: {},
-  getDeviceCapabilities: jest
-    .fn()
-    .mockReturnValue({ battery: false, floodlight: false, panTilt: false }),
-  isDoorbell: jest.fn().mockReturnValue(false),
-  isCamera: jest.fn().mockReturnValue(true),
-  isSensor: jest.fn().mockReturnValue(false),
-  isLock: jest.fn().mockReturnValue(false),
-  MODEL_NAMES: {},
-}));
-
 jest.mock("../../src/utils/ffmpeg-utils", () => ({
   FFmpegUtils: {
     convertH264ToJPEG: jest.fn().mockResolvedValue(Buffer.from([])),
   },
-}));
-
-jest.mock("../../src/utils/scrypted-device-detection", () => ({
-  getScryptedDeviceType: jest.fn().mockReturnValue("Camera"),
 }));
 
 const makeApi = (properties: any, hasTalkback = false) => ({
@@ -83,12 +56,6 @@ const makeWsClient = (properties: any, hasTalkback = false) => ({
 describe("DeviceUtils", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (getDeviceCapabilities as jest.Mock).mockReturnValue({
-      battery: false,
-      floodlight: false,
-      panTilt: false,
-    });
-    (isDoorbell as jest.Mock).mockReturnValue(false);
   });
 
   describe("createDeviceManifest", () => {
@@ -131,11 +98,6 @@ describe("DeviceUtils", () => {
     });
 
     it("adds Battery when battery-capable device has battery property", async () => {
-      (getDeviceCapabilities as jest.Mock).mockReturnValue({
-        battery: true,
-        floodlight: false,
-        panTilt: false,
-      });
       const wsClient = makeWsClient({ ...baseProps, battery: 80 }) as any;
       const result = await DeviceUtils.createDeviceManifest(wsClient, "CAM001");
 
@@ -143,11 +105,6 @@ describe("DeviceUtils", () => {
     });
 
     it("adds Charger when battery-capable device has chargingStatus", async () => {
-      (getDeviceCapabilities as jest.Mock).mockReturnValue({
-        battery: true,
-        floodlight: false,
-        panTilt: false,
-      });
       const wsClient = makeWsClient({ ...baseProps, chargingStatus: 1 }) as any;
       const result = await DeviceUtils.createDeviceManifest(wsClient, "CAM001");
 
@@ -155,32 +112,25 @@ describe("DeviceUtils", () => {
     });
 
     it("adds OnOff for floodlight devices with light property", async () => {
-      (getDeviceCapabilities as jest.Mock).mockReturnValue({
-        battery: false,
-        floodlight: true,
-        panTilt: false,
-      });
-      const wsClient = makeWsClient({ ...baseProps, light: true }) as any;
+      const wsClient = makeWsClient({
+        ...baseProps,
+        type: 3,
+        light: true,
+      }) as any;
       const result = await DeviceUtils.createDeviceManifest(wsClient, "CAM001");
 
       expect(result.interfaces).toContain("OnOff");
     });
 
     it("adds PanTiltZoom for PTZ devices", async () => {
-      (getDeviceCapabilities as jest.Mock).mockReturnValue({
-        battery: false,
-        floodlight: false,
-        panTilt: true,
-      });
-      const wsClient = makeWsClient(baseProps) as any;
+      const wsClient = makeWsClient({ ...baseProps, type: 31 }) as any;
       const result = await DeviceUtils.createDeviceManifest(wsClient, "CAM001");
 
       expect(result.interfaces).toContain("PanTiltZoom");
     });
 
     it("adds BinarySensor for doorbell devices", async () => {
-      (isDoorbell as jest.Mock).mockReturnValue(true);
-      const wsClient = makeWsClient(baseProps) as any;
+      const wsClient = makeWsClient({ ...baseProps, type: 5 }) as any;
       const result = await DeviceUtils.createDeviceManifest(wsClient, "CAM001");
 
       expect(result.interfaces).toContain("BinarySensor");
@@ -202,6 +152,56 @@ describe("DeviceUtils", () => {
       const result = await DeviceUtils.createDeviceManifest(wsClient, "CAM001");
 
       expect(result.providerNativeId).toBe("station_CAM001");
+    });
+
+    it("registers FamiLock S3 as a doorbell with video interfaces", async () => {
+      const result = await DeviceUtils.createDeviceManifest(
+        makeWsClient(
+          {
+            type: 203,
+            model: "T85V0",
+            battery: 70,
+            serialNumber: "T85V0X",
+          },
+          true,
+        ) as any,
+        "T85V0X",
+      );
+
+      expect(result.type).toBe("Doorbell");
+      expect(result.interfaces).toEqual(
+        expect.arrayContaining([
+          "Camera",
+          "VideoCamera",
+          "BinarySensor",
+          "Battery",
+          "Intercom",
+        ]),
+      );
+    });
+
+    it("registers C33 and Siren E20 without camera interfaces", async () => {
+      const lock = await DeviceUtils.createDeviceManifest(
+        makeWsClient({
+          type: 201,
+          model: "T85L0",
+          serialNumber: "T85L0X",
+        }) as any,
+        "T85L0X",
+      );
+      const siren = await DeviceUtils.createDeviceManifest(
+        makeWsClient({
+          type: 123,
+          model: "T90R0",
+          serialNumber: "T90R0X",
+        }) as any,
+        "T90R0X",
+      );
+
+      expect(lock.type).toBe("Lock");
+      expect(lock.interfaces).not.toContain("Camera");
+      expect(siren.type).toBe("Sensor");
+      expect(siren.interfaces).not.toContain("Camera");
     });
   });
 });

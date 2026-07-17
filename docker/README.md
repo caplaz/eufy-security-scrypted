@@ -2,6 +2,8 @@
 
 This directory contains a simple Docker Compose setup for running the official [`bropat/eufy-security-ws`](https://hub.docker.com/r/bropat/eufy-security-ws) Docker image locally for development and testing.
 
+This repository is tested against `eufy-security-ws` 3.1.0 (API schema 21). The Compose file pins that release for reproducibility. Upgrade the image only with a corresponding compatibility review and test run.
+
 ## 🚀 Quick Start
 
 1. **Configure your Eufy credentials:**

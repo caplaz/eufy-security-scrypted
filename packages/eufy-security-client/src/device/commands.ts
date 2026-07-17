@@ -115,6 +115,33 @@ export interface DevicePanAndTiltCommand extends BaseDeviceCommand<
 }
 
 /**
+ * Move camera to a saved preset position.
+ */
+export interface DevicePresetPositionCommand extends BaseDeviceCommand<
+  typeof DEVICE_COMMANDS.PRESET_POSITION
+> {
+  position: number;
+}
+
+/**
+ * Save the current camera position as a preset.
+ */
+export interface DeviceSavePresetPositionCommand extends BaseDeviceCommand<
+  typeof DEVICE_COMMANDS.SAVE_PRESET_POSITION
+> {
+  position: number;
+}
+
+/**
+ * Delete a saved camera preset position.
+ */
+export interface DeviceDeletePresetPositionCommand extends BaseDeviceCommand<
+  typeof DEVICE_COMMANDS.DELETE_PRESET_POSITION
+> {
+  position: number;
+}
+
+/**
  * Calibrate camera
  */
 export interface DeviceCalibrateCommand extends BaseDeviceCommand<
@@ -199,6 +226,9 @@ export type DeviceCommand =
   | DeviceStartRtspLivestreamCommand
   | DeviceStopRtspLivestreamCommand
   | DevicePanAndTiltCommand
+  | DevicePresetPositionCommand
+  | DeviceSavePresetPositionCommand
+  | DeviceDeletePresetPositionCommand
   | DeviceCalibrateCommand
   | DeviceQuickResponseCommand
   | DeviceGetVoicesCommand
