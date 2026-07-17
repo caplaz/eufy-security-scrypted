@@ -41,6 +41,9 @@ describe("eufy-security-ws 3.1.0 device support", () => {
 
   test("matches 4.1.0 battery, station, lock, and PTZ classifications", () => {
     expect(DeviceType.WATER_FREEZE_SENSOR_8920).toBe(20);
+    expect(
+      getDeviceCapabilities(DeviceType.WATER_FREEZE_SENSOR_8920).sensor,
+    ).toBe(true);
     expect(getDeviceCapabilities(DeviceType.CAMERA_C35).battery).toBe(true);
     expect(getDeviceCapabilities(DeviceType.ENTRY_SENSOR_E20).battery).toBe(
       true,

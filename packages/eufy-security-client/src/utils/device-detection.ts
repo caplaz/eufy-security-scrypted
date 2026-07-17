@@ -123,6 +123,7 @@ export const SENSOR_DEVICE_TYPES = new Set<number>([
   DeviceType.SIREN_SENSOR_E20,
   DeviceType.ENTRY_SENSOR_E20,
   DeviceType.PIR_SENSOR_E20,
+  DeviceType.WATER_FREEZE_SENSOR_8920, // T8920
 ]);
 
 /**
