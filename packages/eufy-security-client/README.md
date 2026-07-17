@@ -4,6 +4,8 @@
 
 Connect to Eufy cameras, doorbells, and security systems through the `eufy-security-ws` server. Provides type-safe commands, real-time events, and video streaming capabilities.
 
+This repository is tested against `eufy-security-ws` 3.1.0 (API schema 21). The Compose file pins that release for reproducibility. Upgrade the image only with a corresponding compatibility review and test run.
+
 ## 🎯 Quick Start
 
 ### Prerequisites

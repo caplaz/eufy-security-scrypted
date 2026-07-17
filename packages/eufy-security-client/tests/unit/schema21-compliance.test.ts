@@ -15,13 +15,14 @@ import {
 
 describe("Schema 21 Compliance Tests", () => {
   describe("Undocumented Command Removal Validation", () => {
-    test("should NOT include undocumented preset position commands", () => {
-      const allDeviceCommands = Object.values(DEVICE_COMMANDS);
-
-      // These were removed as they're not in the official schema 21 docs
-      expect(allDeviceCommands).not.toContain("device.preset_position");
-      expect(allDeviceCommands).not.toContain("device.save_preset_position");
-      expect(allDeviceCommands).not.toContain("device.delete_preset_position");
+    test("should include schema 21 preset position commands", () => {
+      expect(DEVICE_COMMANDS.PRESET_POSITION).toBe("device.preset_position");
+      expect(DEVICE_COMMANDS.SAVE_PRESET_POSITION).toBe(
+        "device.save_preset_position",
+      );
+      expect(DEVICE_COMMANDS.DELETE_PRESET_POSITION).toBe(
+        "device.delete_preset_position",
+      );
     });
 
     test("device commands should only contain documented ones", () => {
@@ -42,10 +43,9 @@ describe("Schema 21 Compliance Tests", () => {
       expect(allDeviceCommands).toContain("device.calibrate");
       expect(allDeviceCommands).toContain("device.quick_response");
 
-      // Should NOT contain undocumented preset commands
-      expect(allDeviceCommands).not.toContain("device.preset_position");
-      expect(allDeviceCommands).not.toContain("device.save_preset_position");
-      expect(allDeviceCommands).not.toContain("device.delete_preset_position");
+      expect(allDeviceCommands).toContain("device.preset_position");
+      expect(allDeviceCommands).toContain("device.save_preset_position");
+      expect(allDeviceCommands).toContain("device.delete_preset_position");
     });
 
     test("station commands should contain documented ones", () => {
@@ -121,11 +121,6 @@ describe("Schema 21 Compliance Tests", () => {
       // Verify that common undocumented commands are not present
       const allDeviceCommands = Object.values(DEVICE_COMMANDS);
 
-      // These are commonly seen in implementations but not documented in schema 21
-      expect(allDeviceCommands).not.toContain("device.preset_position");
-      expect(allDeviceCommands).not.toContain("device.save_preset_position");
-      expect(allDeviceCommands).not.toContain("device.delete_preset_position");
-
       // Should not contain any test or debug commands
       expect(allDeviceCommands.some((cmd) => cmd.includes("test"))).toBe(false);
       expect(allDeviceCommands.some((cmd) => cmd.includes("debug"))).toBe(
@@ -152,6 +147,13 @@ describe("Schema 21 Compliance Tests", () => {
       expect(DEVICE_COMMANDS.TRIGGER_ALARM).toBe("device.trigger_alarm");
       expect(DEVICE_COMMANDS.RESET_ALARM).toBe("device.reset_alarm");
       expect(DEVICE_COMMANDS.PAN_AND_TILT).toBe("device.pan_and_tilt");
+      expect(DEVICE_COMMANDS.PRESET_POSITION).toBe("device.preset_position");
+      expect(DEVICE_COMMANDS.SAVE_PRESET_POSITION).toBe(
+        "device.save_preset_position",
+      );
+      expect(DEVICE_COMMANDS.DELETE_PRESET_POSITION).toBe(
+        "device.delete_preset_position",
+      );
       expect(DEVICE_COMMANDS.CALIBRATE).toBe("device.calibrate");
       expect(DEVICE_COMMANDS.QUICK_RESPONSE).toBe("device.quick_response");
 
@@ -170,12 +172,11 @@ describe("Schema 21 Compliance Tests", () => {
       expect(SERVER_COMMANDS.SET_API_SCHEMA).toBe("set_api_schema");
     });
 
-    test("should NOT have deprecated or removed commands", () => {
-      // Explicitly check that removed commands are not present
+    test("should have schema 21 preset command keys", () => {
       const deviceKeys = Object.keys(DEVICE_COMMANDS);
-      expect(deviceKeys).not.toContain("PRESET_POSITION");
-      expect(deviceKeys).not.toContain("SAVE_PRESET_POSITION");
-      expect(deviceKeys).not.toContain("DELETE_PRESET_POSITION");
+      expect(deviceKeys).toContain("PRESET_POSITION");
+      expect(deviceKeys).toContain("SAVE_PRESET_POSITION");
+      expect(deviceKeys).toContain("DELETE_PRESET_POSITION");
     });
   });
 

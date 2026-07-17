@@ -75,6 +75,7 @@ export const CAMERA_DEVICE_TYPES = new Set<number>([
   DeviceType.CAMERA_S4, // T8172
   DeviceType.SOLOCAM_E42, // T8173
   DeviceType.CAMERA_4G_S330, // T86P2
+  DeviceType.CAMERA_POE_S4, // T8E00
   DeviceType.CAMERA_C35, // T8110
 ]);
 
@@ -91,6 +92,7 @@ export const DOORBELL_DEVICE_TYPES = new Set<number>([
   DeviceType.BATTERY_DOORBELL_PLUS_E340, // E340 doorbell
   DeviceType.BATTERY_DOORBELL_C30, // C30 doorbell
   DeviceType.BATTERY_DOORBELL_C31, // C31 doorbell
+  DeviceType.LOCK_85V0, // FamiLock S3 dual video lock
 ]);
 
 /**
@@ -142,6 +144,7 @@ export const LOCK_DEVICE_TYPES = new Set<number>([
   DeviceType.LOCK_85L0,
   DeviceType.LOCK_85D0,
   DeviceType.LOCK_85V0,
+  DeviceType.LOCK_85P0,
 ]);
 
 /**
@@ -150,7 +153,10 @@ export const LOCK_DEVICE_TYPES = new Set<number>([
  */
 export const BASE_STATION_DEVICE_TYPES = new Set<number>([
   DeviceType.STATION, // Basic station
+  DeviceType.HB3, // HomeBase 3 / S380
   DeviceType.MINIBASE_CHIME, // MiniBase Chime
+  DeviceType.HOMEBASE_MINI, // HomeBase Mini
+  DeviceType.NVR_S4_MAX, // NVR S4 Max
 ]);
 
 /**
@@ -179,6 +185,10 @@ export const BATTERY_DEVICE_TYPES = new Set<number>([
   DeviceType.OUTDOOR_PT_CAMERA, // S340 outdoor pan/tilt
   DeviceType.CAMERA_E40, // EufyCam E40
   DeviceType.CAMERA_FG, // T8150 4G Starlight
+  DeviceType.CAMERA_S4,
+  DeviceType.SOLOCAM_E42,
+  DeviceType.CAMERA_4G_S330,
+  DeviceType.CAMERA_C35,
   DeviceType.WALL_LIGHT_CAM_81A0, // Wall light cam 81A0
   DeviceType.SMART_DROP, // T8790
 
@@ -190,6 +200,8 @@ export const BATTERY_DEVICE_TYPES = new Set<number>([
   DeviceType.BATTERY_DOORBELL_PLUS_E340,
   DeviceType.BATTERY_DOORBELL_C30,
   DeviceType.BATTERY_DOORBELL_C31,
+  DeviceType.LOCK_85V0,
+  DeviceType.ENTRY_SENSOR_E20,
 
   // Battery locks (from original hasBattery())
   DeviceType.LOCK_WIFI,
@@ -204,7 +216,7 @@ export const BATTERY_DEVICE_TYPES = new Set<number>([
   DeviceType.LOCK_8531,
   DeviceType.LOCK_85L0,
   DeviceType.LOCK_85D0,
-  DeviceType.LOCK_85V0,
+  DeviceType.LOCK_85P0,
 
   // Smart safes (from original hasBattery())
   DeviceType.SMART_SAFE_7400,
@@ -230,6 +242,10 @@ export const PAN_TILT_DEVICE_TYPES = new Set<number>([
   DeviceType.INDOOR_PT_CAMERA_C210,
   DeviceType.INDOOR_PT_CAMERA_C220_V2,
   DeviceType.INDOOR_PT_CAMERA_C220_V3,
+  DeviceType.CAMERA_S4,
+  DeviceType.SOLOCAM_E42,
+  DeviceType.CAMERA_4G_S330,
+  DeviceType.CAMERA_POE_S4,
 ]);
 
 /**
@@ -285,11 +301,13 @@ export const BATTERY_DOORBELL_TYPES = new Set<number>([
   DeviceType.BATTERY_DOORBELL_PLUS_E340,
   DeviceType.BATTERY_DOORBELL_C30,
   DeviceType.BATTERY_DOORBELL_C31,
+  DeviceType.LOCK_85V0,
 ]);
 
 export const DUAL_DOORBELL_TYPES = new Set<number>([
   DeviceType.DOORBELL_SOLO, // Solo doorbell (dual)
   DeviceType.BATTERY_DOORBELL_PLUS, // Battery doorbell plus (dual)
+  DeviceType.LOCK_85V0, // FamiLock S3 dual video lock
 ]);
 
 export const LOCK_BLE_TYPES = new Set<number>([
@@ -309,6 +327,7 @@ export const LOCK_WIFI_TYPES = new Set<number>([
   DeviceType.LOCK_85L0,
   DeviceType.LOCK_85D0,
   DeviceType.LOCK_85V0,
+  DeviceType.LOCK_85P0,
 ]);
 
 export const LOCK_KEYPAD_TYPES = new Set<number>([
@@ -464,7 +483,10 @@ export function isSensor(deviceType: number): boolean {
  * @returns True if the device is an entry sensor
  */
 export function isEntrySensor(deviceType: number): boolean {
-  return deviceType === DeviceType.SENSOR;
+  return (
+    deviceType === DeviceType.SENSOR ||
+    deviceType === DeviceType.ENTRY_SENSOR_E20
+  );
 }
 
 /**
@@ -476,7 +498,10 @@ export function isEntrySensor(deviceType: number): boolean {
  * @returns True if the device is a motion sensor
  */
 export function isMotionSensor(deviceType: number): boolean {
-  return deviceType === DeviceType.MOTION_SENSOR;
+  return (
+    deviceType === DeviceType.MOTION_SENSOR ||
+    deviceType === DeviceType.PIR_SENSOR_E20
+  );
 }
 
 /**
@@ -749,6 +774,8 @@ export const MODEL_NAMES: Record<string, string> = {
   T8030: "HomeBase S380 (HomeBase 3)",
   T8021: "Smart Lock Wi-Fi Bridge",
   T8023: "MiniBase Chime",
+  T8025: "HomeBase Mini",
+  T8N00: "NVR S4 Max",
 
   // EufyCam Series
   T8111: "eufyCam",
@@ -777,6 +804,7 @@ export const MODEL_NAMES: Record<string, string> = {
   T8171: "SoloCam E30",
   T8172: "SoloCam S4",
   T8173: "SoloCam E42",
+  T8E00: "PoE Bullet-PTZ Cam S4",
 
   // Floodlight Cameras
   T8420: "Floodlight Camera",
@@ -810,6 +838,15 @@ export const MODEL_NAMES: Record<string, string> = {
   // Sensors
   T8900: "Entry Sensor",
   T8910: "Motion Sensor",
+  T8920: "Water and Freeze Sensor",
+  T90M0: "Motion Sensor E20",
+  T90R0: "Siren E20",
+
+  // Smart Locks
+  T85L0: "Smart Lock C33",
+  T85D0: "Smart Lock C30",
+  T85V0: "FamiLock S3 (Smart Lock E20)",
+  T85P0: "FamiLock E34",
 
   // Indoor Cameras (C220 variants)
   T8W11C: "Indoor Cam C220",

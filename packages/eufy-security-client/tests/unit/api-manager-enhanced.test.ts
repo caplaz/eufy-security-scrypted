@@ -221,6 +221,38 @@ describe("ApiManager", () => {
       expect(typeof deviceCommands.startLivestream).toBe("function");
     });
 
+    it("sends schema-21 preset commands with the device serial and position", async () => {
+      mockStateManager.isReady.mockReturnValue(true);
+      mockWebSocketClient.sendMessage.mockResolvedValue({ success: true });
+      const commands = apiManager.commands.device("T8172TEST");
+
+      await commands.presetPosition(3);
+      await commands.savePresetPosition(3);
+      await commands.deletePresetPosition(3);
+
+      expect(mockWebSocketClient.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: "device.preset_position",
+          serialNumber: "T8172TEST",
+          position: 3,
+        }),
+      );
+      expect(mockWebSocketClient.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: "device.save_preset_position",
+          serialNumber: "T8172TEST",
+          position: 3,
+        }),
+      );
+      expect(mockWebSocketClient.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: "device.delete_preset_position",
+          serialNumber: "T8172TEST",
+          position: 3,
+        }),
+      );
+    });
+
     it("should provide station command builder", () => {
       const stationCommands = apiManager.commands.station("TEST_STATION");
       expect(stationCommands).toBeDefined();

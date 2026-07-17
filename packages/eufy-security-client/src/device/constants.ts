@@ -31,6 +31,9 @@ export const DEVICE_COMMANDS = {
 
   // Camera control
   PAN_AND_TILT: "device.pan_and_tilt",
+  PRESET_POSITION: "device.preset_position",
+  SAVE_PRESET_POSITION: "device.save_preset_position",
+  DELETE_PRESET_POSITION: "device.delete_preset_position",
   CALIBRATE: "device.calibrate",
   QUICK_RESPONSE: "device.quick_response",
   GET_VOICES: "device.get_voices",
@@ -177,10 +180,12 @@ export enum DeviceType {
   BATTERY_DOORBELL_2 = 16,
   HB3 = 18,
   CAMERA3 = 19,
+  WATER_FREEZE_SENSOR_8920 = 20, // T8920
   CAMERA3C = 23,
   PROFESSIONAL_247 = 24,
   MINIBASE_CHIME = 25,
   CAMERA3_PRO = 26,
+  HOMEBASE_MINI = 28, // T8025
   INDOOR_CAMERA = 30,
   INDOOR_PT_CAMERA = 31,
   SOLO_CAMERA = 32,
@@ -246,6 +251,9 @@ export enum DeviceType {
   LOCK_85L0 = 201,
   LOCK_85D0 = 202,
   LOCK_85V0 = 203,
+  LOCK_85P0 = 209, // T85P0
+  NVR_S4_MAX = 300, // T8N00
+  CAMERA_POE_S4 = 301, // T8E00
   WALL_LIGHT_CAM_81A0 = 10005,
   INDOOR_PT_CAMERA_C220 = 10008,
   INDOOR_PT_CAMERA_C210 = 10009,

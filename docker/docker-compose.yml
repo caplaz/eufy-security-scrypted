@@ -1,6 +1,6 @@
 services:
   eufy-security-ws:
-    image: bropat/eufy-security-ws:latest
+    image: bropat/eufy-security-ws:3.1.0
     container_name: eufy-security-ws
     ports:
       - "${PORT:-3000}:${PORT:-3000}"

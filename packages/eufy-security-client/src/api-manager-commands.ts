@@ -351,6 +351,27 @@ export class DeviceCommandBuilder {
     });
   }
 
+  async presetPosition(position: number) {
+    return this.api.command(DEVICE_COMMANDS.PRESET_POSITION, {
+      serialNumber: this.serialNumber,
+      position,
+    });
+  }
+
+  async savePresetPosition(position: number) {
+    return this.api.command(DEVICE_COMMANDS.SAVE_PRESET_POSITION, {
+      serialNumber: this.serialNumber,
+      position,
+    });
+  }
+
+  async deletePresetPosition(position: number) {
+    return this.api.command(DEVICE_COMMANDS.DELETE_PRESET_POSITION, {
+      serialNumber: this.serialNumber,
+      position,
+    });
+  }
+
   /**
    * Calibrate the device
    */

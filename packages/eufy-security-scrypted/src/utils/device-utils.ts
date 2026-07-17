@@ -10,7 +10,6 @@ import {
   Device,
   DeviceInformation,
   ScryptedDeviceType,
-  ScryptedInterface,
   SecuritySystemMode,
   Setting,
   SettingValue,
@@ -27,9 +26,9 @@ import { FFmpegUtils } from "./ffmpeg-utils";
 import {
   MODEL_NAMES,
   getDeviceCapabilities,
-  isDoorbell,
 } from "@caplaz/eufy-security-client";
 import { getScryptedDeviceType } from "./scrypted-device-detection";
+import { buildScryptedDeviceInterfaces } from "./scrypted-device-interfaces";
 
 // Maps Eufy alarm/guard modes to Scrypted security system modes
 export const alarmModeMap: Record<AlarmMode, SecuritySystemMode> = {
@@ -272,16 +271,6 @@ export class DeviceUtils {
     const capabilities = getDeviceCapabilities(properties.type);
     const deviceType = getScryptedDeviceType(properties.type);
 
-    // Base interfaces that all camera devices should have
-    const interfaces = [
-      ScryptedInterface.Camera,
-      ScryptedInterface.VideoCamera,
-      // ScryptedInterface.VideoClips,
-      ScryptedInterface.MotionSensor,
-      ScryptedInterface.Settings,
-      ScryptedInterface.Refresh,
-    ];
-
     // Talkback support varies by device. Ask the server (which consults the
     // upstream eufy-security-client DeviceCommands table) rather than inferring
     // it from the presence of `microphone`/`speaker` properties — many models
@@ -289,39 +278,14 @@ export class DeviceUtils {
     // properties at all, which previously hid the talk button in HomeKit.
     // The argument is the upstream CommandName enum value (camelCase), not the
     // snake_case WS protocol command name.
-    const { exists: hasTalkback } = await api.hasCommand("deviceStartTalkback");
-    if (hasTalkback) {
-      interfaces.push(ScryptedInterface.Intercom);
-    }
-
-    // Add Battery interface only for battery-powered devices
-    if (capabilities.battery) {
-      if (properties.battery !== undefined)
-        interfaces.push(ScryptedInterface.Battery);
-      if (properties.chargingStatus !== undefined)
-        interfaces.push(ScryptedInterface.Charger);
-    }
-
-    if (capabilities.floodlight) {
-      if (properties.light !== undefined)
-        interfaces.push(ScryptedInterface.OnOff);
-      if (properties.lightSettingsBrightnessManual !== undefined)
-        interfaces.push(ScryptedInterface.Brightness);
-    }
-
-    // Add Pan/Tilt/Zoom interface for PTZ capable devices
-    if (capabilities.panTilt) {
-      interfaces.push(ScryptedInterface.PanTiltZoom);
-    }
-
-    // Add BinarySensor interface for doorbell devices
-    if (isDoorbell(properties.type)) {
-      interfaces.push(ScryptedInterface.BinarySensor);
-    }
-
-    if (properties.wifiRssi !== undefined) {
-      interfaces.push(ScryptedInterface.Sensors);
-    }
+    const { exists: hasTalkback } = capabilities.camera
+      ? await api.hasCommand("deviceStartTalkback")
+      : { exists: false };
+    const interfaces = buildScryptedDeviceInterfaces(
+      capabilities,
+      properties,
+      hasTalkback,
+    );
 
     // Human-readable model name resolution
     const humanModel = properties.model

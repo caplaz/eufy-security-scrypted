@@ -26,3 +26,6 @@ coverage/
 # Docker persistent data
 docker/data/persistent.json
 .worktrees/
+
+# Local Codex planning artifacts
+docs/superpowers/
