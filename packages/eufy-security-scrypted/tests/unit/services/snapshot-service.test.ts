@@ -45,6 +45,9 @@ describe("SnapshotService", () => {
     mockStreamServer = {
       captureSnapshot: jest.fn().mockResolvedValue(mockH264Data),
       getVideoMetadata: jest.fn().mockReturnValue(null),
+      // Default: no fresh cached frame, so takePicture falls back to a live
+      // capture. Cache-hit behavior is exercised in its own describe block.
+      getCachedKeyframe: jest.fn().mockReturnValue(null),
     } as any;
 
     // Mock FFmpegUtils static method
@@ -68,59 +71,85 @@ describe("SnapshotService", () => {
       const options = service.getPictureOptions();
 
       expect(options).toEqual({
-        timeout: 15000,
+        timeout: 60000,
       });
     });
   });
 
-  describe("takePicture", () => {
-    it("should capture snapshot and convert to JPEG", async () => {
+  describe("takePicture — cache-only (never wakes the camera)", () => {
+    const cachedKeyframe = Buffer.from([
+      0x00, 0x00, 0x00, 0x01, 0x40, 0x01, 0x99,
+    ]); // pretend H.265 keyframe
+
+    it("serves the cached frame and converts it to JPEG", async () => {
+      mockStreamServer.getCachedKeyframe = jest.fn().mockReturnValue({
+        data: cachedKeyframe,
+        codec: "H265",
+        ageMs: 4200,
+      });
+
       const result = await service.takePicture();
 
-      expect(mockStreamServer.captureSnapshot).toHaveBeenCalledWith(15000);
+      // Cached frame converted with its own stored codec.
       expect(FFmpegUtils.convertH264ToJPEG).toHaveBeenCalledWith(
-        mockH264Data,
+        cachedKeyframe,
         2,
-        "H264", // default when getVideoMetadata returns null
+        "H265",
       );
       expect(sdk.mediaManager.createMediaObject).toHaveBeenCalledWith(
         mockJpegData,
         "image/jpeg",
         { sourceId: serialNumber },
       );
-      expect(mockLogger.info).toHaveBeenCalledWith(
-        "📸 Taking snapshot from camera stream",
-      );
+      expect(result).toBeDefined();
+      // The whole point: a thumbnail NEVER wakes the camera.
+      expect(mockStreamServer.captureSnapshot).not.toHaveBeenCalled();
     });
 
-    it("should use custom timeout from options", async () => {
-      await service.takePicture({ timeout: 20000 });
-
-      expect(mockStreamServer.captureSnapshot).toHaveBeenCalledWith(20000);
-    });
-
-    it("should log snapshot size", async () => {
+    it("requests the cache at any age (never treats a frame as too stale)", async () => {
+      mockStreamServer.getCachedKeyframe = jest.fn().mockReturnValue({
+        data: cachedKeyframe,
+        codec: "H265",
+        ageMs: 999999,
+      });
       await service.takePicture();
-
-      expect(mockLogger.info).toHaveBeenCalledWith(
-        `Captured H.264 keyframe: ${mockH264Data.length} bytes - converting to JPEG`,
-      );
-      expect(mockLogger.info).toHaveBeenCalledWith(
-        `✅ Snapshot converted to JPEG: ${mockJpegData.length} bytes`,
+      expect(mockStreamServer.getCachedKeyframe).toHaveBeenCalledWith(
+        Number.POSITIVE_INFINITY,
       );
     });
 
-    it("should handle capture errors", async () => {
-      const error = new Error("Capture failed");
-      mockStreamServer.captureSnapshot.mockRejectedValueOnce(error);
+    it("ignores any requested timeout (no on-demand wake path)", async () => {
+      mockStreamServer.getCachedKeyframe = jest.fn().mockReturnValue({
+        data: cachedKeyframe,
+        codec: "H265",
+        ageMs: 10,
+      });
+      await service.takePicture({ timeout: 20000 });
+      expect(mockStreamServer.captureSnapshot).not.toHaveBeenCalled();
+    });
 
-      await expect(service.takePicture()).rejects.toThrow("Capture failed");
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        `Failed to capture snapshot: ${error}`,
+    it("returns a placeholder (never throws, never wakes) when no frame is cached yet", async () => {
+      mockStreamServer.getCachedKeyframe = jest.fn().mockReturnValue(null);
+
+      // Must resolve, not reject: a rejection makes Scrypted's Snapshot plugin
+      // fall back to the video stream, which would wake the camera.
+      const result = await service.takePicture();
+      expect(result).toBeDefined();
+      expect(mockStreamServer.captureSnapshot).not.toHaveBeenCalled();
+      // A real (placeholder) image MediaObject is created.
+      expect(sdk.mediaManager.createMediaObject).toHaveBeenCalledWith(
+        expect.any(Buffer),
+        "image/jpeg",
+        { sourceId: serialNumber },
       );
     });
 
-    it("should handle conversion errors", async () => {
+    it("propagates conversion errors", async () => {
+      mockStreamServer.getCachedKeyframe = jest.fn().mockReturnValue({
+        data: cachedKeyframe,
+        codec: "H265",
+        ageMs: 10,
+      });
       const error = new Error("Conversion failed");
       (FFmpegUtils.convertH264ToJPEG as jest.Mock).mockRejectedValueOnce(error);
 
@@ -128,14 +157,6 @@ describe("SnapshotService", () => {
       expect(mockLogger.error).toHaveBeenCalledWith(
         `Failed to capture snapshot: ${error}`,
       );
-    });
-
-    it("should work with different timeout values", async () => {
-      await service.takePicture({ timeout: 5000 });
-      expect(mockStreamServer.captureSnapshot).toHaveBeenCalledWith(5000);
-
-      await service.takePicture({ timeout: 30000 });
-      expect(mockStreamServer.captureSnapshot).toHaveBeenCalledWith(30000);
     });
   });
 

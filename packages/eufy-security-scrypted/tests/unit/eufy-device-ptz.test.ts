@@ -15,6 +15,20 @@ import { Logger, ILogObj } from "tslog";
 jest.mock("@scrypted/sdk", () => ({
   ScryptedDeviceBase: class {
     ptzCapabilities = { pan: false, tilt: false, zoom: false };
+    info: any = { serialNumber: "TEST123" };
+    storage: any = {
+      _m: new Map<string, string>(),
+      getItem(k: string) {
+        return this._m.has(k) ? this._m.get(k) : null;
+      },
+      setItem(k: string, v: string) {
+        this._m.set(k, String(v));
+      },
+      removeItem(k: string) {
+        this._m.delete(k);
+      },
+    };
+    log: any = { a: jest.fn(), clearAlert: jest.fn() };
   },
   ScryptedInterface: {
     MotionSensor: "MotionSensor",
@@ -51,6 +65,16 @@ jest.mock("@caplaz/eufy-stream-server", () => ({
     start: jest.fn().mockResolvedValue(undefined),
     stop: jest.fn().mockResolvedValue(undefined),
     getPort: jest.fn().mockReturnValue(8080),
+    getMuxedPort: jest.fn().mockReturnValue(undefined),
+    getActiveConnectionCount: jest.fn().mockReturnValue(0),
+    getVideoMetadata: jest.fn().mockReturnValue(null),
+    getCachedKeyframe: jest.fn().mockReturnValue(null),
+    setCachedKeyframe: jest.fn(),
+    captureSnapshot: jest.fn(),
+    isRunning: jest.fn().mockReturnValue(false),
+    on: jest.fn(),
+    off: jest.fn(),
+    removeListener: jest.fn(),
   })),
 }));
 

@@ -44,6 +44,51 @@ export interface StreamServerOptions {
   wsClient: EufyWebSocketClient;
   /** Device serial number to filter events (required for Eufy cameras) */
   serialNumber: string;
+  /**
+   * Codec hint to use BEFORE live metadata is captured. Live metadata only
+   * arrives after the first video frame, but downstream consumers
+   * (Rebroadcast plugin, HomeKit) read `getVideoMetadata()` synchronously
+   * when `getVideoStream()` is called — before any frame has been
+   * received. If we report the wrong codec, the Rebroadcast prebuffer's
+   * sync-frame detection is set up for the wrong NAL unit types and
+   * never finds a keyframe (Eufy H.265 cameras → "Unable to find sync
+   * frame in rtsp prebuffer" → HomeKit timeout).
+   *
+   * The device layer persists the last-detected codec to Scrypted device
+   * storage and passes it here on instantiation. The captured live
+   * metadata replaces this hint as soon as the first frame arrives.
+   */
+  initialVideoCodec?: "H264" | "H265";
+  /**
+   * Optional gate for the shared HomeBase stream slot. A Eufy HomeBase serves
+   * only one camera P2P stream at a time, so the device layer injects this to
+   * serialize starts across cameras on the same station. Called synchronously
+   * right before `startLivestream`:
+   *   - priority "live" (a viewer/recorder is attached) always succeeds,
+   *     preempting any current holder (whose `onRevoke` fires).
+   *   - priority "background" (thumbnail refresh) returns null if the slot is
+   *     busy — the server then does NOT start.
+   * Returns a lease whose `release()` must be called when the stream stops.
+   * When omitted (e.g. the CLI), the server starts unconditionally as before.
+   */
+  acquireStreamSlot?: (
+    priority: "live" | "background",
+    onRevoke: () => void,
+  ) => StationSlotLease | null;
+}
+
+/** A held lease on a station's single stream slot. */
+export interface StationSlotLease {
+  release(): void;
+  readonly active: boolean;
+  /**
+   * Resolves when it is safe to start streaming — i.e. any camera this grant
+   * preempted has released the HomeBase slot (or a safety timeout elapsed).
+   * Already resolved when nothing was preempted.
+   */
+  readonly whenReady: Promise<void>;
+  /** Mark this camera as delivering video (protects it from preemption). */
+  markDelivering(): void;
 }
 
 /**
@@ -69,8 +114,11 @@ export interface StreamServerOptions {
  */
 export class StreamServer extends EventEmitter {
   private logger: Logger<ILogObj>;
-  private options: Required<Omit<StreamServerOptions, "logger">> & {
+  private options: Required<
+    Omit<StreamServerOptions, "logger" | "acquireStreamSlot">
+  > & {
     logger?: Logger<ILogObj>;
+    acquireStreamSlot?: StreamServerOptions["acquireStreamSlot"];
   };
   private server?: net.Server;
   private muxedServer?: net.Server;
@@ -78,11 +126,45 @@ export class StreamServer extends EventEmitter {
    * Map of muxed-client socket → its dedicated JMuxer instance. Each
    * connection gets its own muxer so every consumer receives a complete
    * fMP4 init segment at the start of its stream.
+   *
+   * JMuxer must be constructed with the correct `videoCodec` (H.264 vs
+   * H.265) because the codec choice affects which remuxer / fMP4 sample
+   * description box it writes (`avcC` vs `hvcC`). The codec isn't known
+   * until the first video event arrives, so a muxed client connecting
+   * before the first frame is held in `pendingMuxerSockets` instead —
+   * counts as an active consumer (so the upstream livestream starts) but
+   * has no JMuxer yet.
    */
   private muxerStreams = new Map<
     net.Socket,
     { muxer: JMuxer; duplex: Duplex }
   >();
+  private pendingMuxerSockets = new Set<net.Socket>();
+
+  /**
+   * Count every "thing currently waiting on or consuming the livestream":
+   *   • Raw TCP clients (legacy snapshot, raw video).
+   *   • Active muxer clients (rebroadcast ffmpeg consuming fMP4).
+   *   • Pending muxer sockets (rebroadcast ffmpeg connected, codec
+   *     metadata not yet known so the muxer isn't constructed).
+   *   • Pending snapshot resolvers (a Camera.takePicture call waiting
+   *     for the next keyframe).
+   *
+   * Used everywhere we decide "is anyone still waiting on bytes" —
+   * watchdog gating, idle-stop gating, post-snapshot linger expiration,
+   * post-recycle re-arming. Excluding snapshot resolvers caused the
+   * activity monitor's idle-stop to tear down the livestream during a
+   * battery-camera cold-start while a snapshot was still waiting, which
+   * cost ~30s of wasted cold-start time on the follow-up consumer.
+   */
+  private getTotalConsumers(): number {
+    return (
+      this.connectionManager.getActiveConnectionCount() +
+      this.muxerStreams.size +
+      this.pendingMuxerSockets.size +
+      this.snapshotResolvers.length
+    );
+  }
   private connectionManager: ConnectionManager;
   private h264Parser: H264Parser;
   private isActive = false;
@@ -94,18 +176,177 @@ export class StreamServer extends EventEmitter {
   private livestreamIntendedState = false;
   private livestreamActualState = false;
   private startStopTimeout?: ReturnType<typeof setTimeout>;
+  /**
+   * Counts back-to-back `startLivestream` attempts that produced no video
+   * data. Resets to 0 once `livestreamActualState` flips true or the
+   * intended state is cleared. Used to cap the retry loop so a wedged
+   * upstream (e.g. HomeBase that's accepting CMD_START_REALTIME_MEDIA but
+   * not returning any P2P data) doesn't get hammered indefinitely — each
+   * extra `startLivestream` we send to a stuck HomeBase compounds the
+   * backpressure and slows recovery.
+   */
+  private consecutiveNoDataStarts = 0;
+  /**
+   * How many `startLivestream` commands with no resulting video data we
+   * tolerate before declaring the upstream wedged. Set to 1: re-sending
+   * `startLivestream` to a deeply-idle T86P2 doesn't help (each fresh start
+   * tends to reset the half-open P2P negotiation), whereas a station P2P
+   * recycle reliably does. So we send once, wait the full cold-start window
+   * (`startStopTimeout` below uses `COLD_START_STALE_THRESHOLD_MS`), then go
+   * straight to the recycle instead of hammering 3× and burning ~90s first.
+   */
+  private readonly MAX_NO_DATA_STARTS = 1;
+
+  /**
+   * Timestamp of the most recent `LIVESTREAM_VIDEO_DATA` event for this
+   * device. Used by the mid-session wedge watchdog: if intent is "stream
+   * should be flowing" but no bytes have arrived for STALE_DATA_THRESHOLD_MS
+   * while consumers are still attached, we treat the upstream as wedged
+   * and emit `upstreamWedged` (same path as the cold-start counter).
+   *
+   * Reset to 0 whenever the stream is intentionally stopped so a stale
+   * timestamp can't trigger the watchdog on the next session.
+   */
+  private lastVideoDataAt = 0;
+  /**
+   * Mid-session threshold: data WAS flowing in this session
+   * (`lastVideoDataAt > 0`) and has now stopped. 15s is plenty — a
+   * working stream should never have a 15s data gap. Fires the wedge
+   * fast so the station recycle path can recover the session quickly.
+   */
+  private readonly STALE_DATA_THRESHOLD_MS = 15000;
+
+  /**
+   * Cold-start threshold: no data has EVER arrived in this session
+   * (`lastVideoDataAt === 0`), so we're waiting for the first frame.
+   *
+   * This is gated by the VIEWER'S patience, not the camera's wake time.
+   * HomeKit kills a live session ~30s after the request if no video has
+   * arrived (observed: "streaming session killed, duration: 30s"). The one
+   * thing that reliably recovers a deeply-idle/wedged P2P session is a
+   * station recycle — and on the cameras that actually stream here (Front
+   * Door, garages) the camera itself wakes fast: it delivers its first
+   * frame within ~1–2s AFTER the recycle. So the entire pre-recycle wait is
+   * dead time. At 45s the recycle landed AFTER HomeKit had already given up
+   * (and torn down the prebuffer ffmpeg output → "Connection refused"), so
+   * the recovered video reached nobody.
+   *
+   * 18s leaves a healthy-but-cold camera room to deliver its first frame
+   * with no recycle at all, yet still fits detect (~18s) + recycle/restart/
+   * first-frame (~10s) ≈ 28s inside HomeKit's ~30s window, so the recovered
+   * stream reaches the viewer that's still waiting. A genuinely deep-sleep
+   * battery camera that needs >30s to wake was going to miss this live view
+   * regardless of how long we wait; recycling early still warms the keyframe
+   * cache + P2P session for the next tap. Signal-dead cameras can't loop on
+   * this — recycle suppression (no-signal / chronic-failure) stops them.
+   */
+  private readonly COLD_START_STALE_THRESHOLD_MS = 18000;
+
+  /**
+   * Timestamp of when the current livestream "session" was established —
+   * either when we issued `startLivestream` or when `ensureLivestreamState`
+   * observed bropat reporting `isLivestreaming=true` while we have intent.
+   *
+   * The mid-session wedge watchdog uses `max(lastVideoDataAt, livestreamSessionStartedAt)`
+   * as its freshness anchor, so the wedge can fire even on the "zombie
+   * already-running" case where bropat says streaming is active but no
+   * `LIVESTREAM_VIDEO_DATA` events ever arrive. Without this anchor the
+   * watchdog skipped firing whenever `lastVideoDataAt === 0` (because
+   * nothing had ever flowed), leaving snapshots/muxers to spin for the
+   * full timeout against a wedged P2P session.
+   *
+   * Reset to 0 on graceful stop and in `markUpstreamWedged`.
+   */
+  private livestreamSessionStartedAt = 0;
+
+  /**
+   * Timer that holds the livestream open for a short window after a
+   * snapshot completes — gives HomeKit/Home app time to follow up with a
+   * stream request without paying the full cold-start penalty (~30s on
+   * battery cameras like the T86P2 4G LTE). HomeKit's flow is reliably
+   * "snapshot, then stream within seconds" when the user taps a tile.
+   *
+   * Cancelled the moment a consumer attaches (the consumer will keep the
+   * stream alive on its own merit) OR when the next snapshot starts (it's
+   * using the same warm session). Battery cost: at most LINGER_MS of
+   * livestream per snapshot when no consumer follows up.
+   */
+  private postSnapshotLingerTimer?: ReturnType<typeof setTimeout>;
+  private readonly POST_SNAPSHOT_LINGER_MS = 8000;
+
+  /**
+   * Set by the device layer while a station P2P recycle is in flight
+   * (station.disconnect → station.connect → wait for CONNECTED event).
+   * While true, `ensureLivestreamState` defers any `startLivestream`
+   * command — sending one to a recovering station typically wastes the
+   * attempt because bropat will accept the command but the underlying
+   * P2P transport isn't ready to deliver frames. When the flag clears,
+   * `setRecycleInFlight(false)` re-arms the livestream if consumers are
+   * still waiting so the user gets data without having to retry.
+   */
+  private recycleInFlight = false;
 
   // Video metadata from first frame
   private videoMetadata: VideoMetadata | null = null;
+  /**
+   * Codec hint provided at construction time (see `StreamServerOptions.initialVideoCodec`).
+   * Returned by `getVideoMetadata()` (as a synthetic metadata object with
+   * codec only, dimensions/fps zeroed) ONLY when no real live metadata
+   * has been captured yet. The first live `LIVESTREAM_VIDEO_DATA` event
+   * replaces this with full real metadata.
+   */
+  private hintedVideoCodec?: "H264" | "H265";
   private metadataReceived = false;
 
   // Audio metadata from first audio frame
   private audioMetadata: AudioMetadata | null = null;
 
+  /**
+   * Whether this camera actually delivers an audio track. Many Eufy cameras
+   * run with the mic disabled (`microphone: false`) and send video only.
+   * JMuxer in `both` mode never emits fMP4 until EVERY declared track has a
+   * sample (see remux `isReady()`), so muxing a video-only camera as `both`
+   * hangs forever and the downstream ffmpeg times out. We detect audio
+   * empirically (set true the first time any audio frame arrives) and pick
+   * the muxer mode accordingly. `undefined` = not yet determined.
+   */
+  private deliversAudio: boolean | undefined = undefined;
+
+  /**
+   * How long a `both`-mode muxer may produce zero fMP4 output before we give up
+   * on audio and rebuild it video-only. A camera with a real, continuous audio
+   * track emits in well under a second; this only fires for cameras that report
+   * audio but don't actually deliver a usable track (which would otherwise hang
+   * the live view forever). Kept short so it still lands inside the consumer's
+   * patience window after the handoff/cold-start latency.
+   */
+  private readonly BOTH_TO_VIDEO_FALLBACK_MS = 4000;
+
+  /**
+   * Lease on the shared HomeBase stream slot (see
+   * `StreamServerOptions.acquireStreamSlot`). Held while this camera is the
+   * one streaming on its station; released when the stream stops.
+   */
+  private streamLease: StationSlotLease | null = null;
+  /**
+   * Set when a higher-priority camera on the same HomeBase preempted us. While
+   * true we stay down (don't re-start) despite lingering consumers and don't
+   * treat the resulting "no video" as an upstream wedge. Cleared once our
+   * consumers drain (the viewer gave up) so a future tap starts fresh.
+   */
+  private slotRevoked = false;
+
   // Client activity monitoring for battery optimization
   private lastClientActivity = 0;
   private activityCheckInterval?: ReturnType<typeof setInterval>;
-  private readonly ACTIVITY_TIMEOUT = 30000; // 30 seconds of no activity
+  // How long to keep a battery camera streaming after the last consumer
+  // detaches (e.g. you close the Home app). `lastClientActivity` advances on
+  // every frame WHILE a muxer is attached, so this never trips during active
+  // viewing — it only governs the post-close drain. Kept long enough to reuse
+  // a warm stream across Scrypted Rebroadcast's quick reconnect churn (~1-2s)
+  // and avoid a cold "find sync frame" on a fast reopen, but short enough not
+  // to burn battery for 30s after every view. 12s balances both.
+  private readonly ACTIVITY_TIMEOUT = 12000;
 
   // Statistics
   private stats = {
@@ -128,6 +369,19 @@ export class StreamServer extends EventEmitter {
   private cachedPPS: Buffer | null = null;
   private cachedVPS: Buffer | null = null; // H.265 Video Parameter Set
 
+  // Last decodable keyframe, retained so snapshots/thumbnails can be served
+  // without waking the camera. Populated whenever a keyframe flows through —
+  // from live view, HKSV recording, a motion-triggered stream, or a prior
+  // snapshot — so the Home app grid can be served instantly from cache
+  // instead of forcing one cold P2P wake per camera (which all contend on the
+  // single HomeBase and mostly time out, leaving stale tiles). The buffer is
+  // self-contained: parameter sets are prepended so it decodes on its own.
+  private lastKeyframe: {
+    data: Buffer;
+    codec: "H264" | "H265";
+    timestamp: number;
+  } | null = null;
+
   constructor(options: StreamServerOptions) {
     super();
 
@@ -139,7 +393,11 @@ export class StreamServer extends EventEmitter {
       logger: options.logger,
       wsClient: options.wsClient,
       serialNumber: options.serialNumber,
+      initialVideoCodec: options.initialVideoCodec ?? "H264",
+      acquireStreamSlot: options.acquireStreamSlot,
     };
+
+    this.hintedVideoCodec = options.initialVideoCodec;
 
     // Use external logger if provided, otherwise create internal tslog Logger
     // Note: When external logger is provided, it controls its own debug level
@@ -240,20 +498,63 @@ export class StreamServer extends EventEmitter {
       // Clean up any stale connections first
       this.cleanupStaleConnections();
 
-      // Total consumer count = TCP video clients (snapshot, raw video) +
-      // in-process muxer clients (fMP4 over the muxed port). Without
-      // counting the muxers here the activity timer was killing the
-      // livestream whenever the muxer was the only consumer, which broke
-      // long-lived downstream rebroadcast sessions.
-      const totalConsumers =
-        this.connectionManager.getActiveConnectionCount() +
-        this.muxerStreams.size;
+      const totalConsumers = this.getTotalConsumers();
 
-      if (timeSinceActivity > this.ACTIVITY_TIMEOUT && totalConsumers === 0) {
+      // Mid-session wedge detection. Runs BEFORE the idle-stop check so
+      // that the wedge path (which clears intent + emits recycle signal)
+      // takes precedence over a graceful inactivity stop.
+      //
+      // Freshness anchor = max(lastVideoDataAt, livestreamSessionStartedAt).
+      // Using sessionStartedAt as a fallback means we also catch the
+      // "zombie already-running" case: bropat reports `isLivestreaming=true`
+      // so `ensureLivestreamState` doesn't issue a fresh `startLivestream`
+      // (and therefore doesn't increment the cold-start counter), but no
+      // video data ever arrives. Without this anchor, `lastVideoDataAt`
+      // stayed at 0 and the watchdog skipped firing — snapshots and
+      // HomeKit sessions would hang for the full 60s/30s timeout.
+      //
+      // Battery-safe gating, in order:
+      //   1. `livestreamIntendedState === true`  — we want a stream.
+      //   2. `anchor > 0`                        — a session is established
+      //      (so we don't false-fire before anything has happened).
+      //   3. `now - anchor > STALE_DATA_THRESHOLD_MS` — data has not
+      //      flowed (or has stopped flowing) for too long.
+      //   4. `totalConsumers > 0`                — somebody is actually
+      //      waiting on bytes. With zero consumers the existing
+      //      inactivity stop below handles cleanup more gracefully.
+      const freshnessAnchor = Math.max(
+        this.lastVideoDataAt,
+        this.livestreamSessionStartedAt,
+      );
+      const staleMs = now - freshnessAnchor;
+      // Pick the right threshold for the situation. See the comments
+      // on `STALE_DATA_THRESHOLD_MS` and `COLD_START_STALE_THRESHOLD_MS`
+      // for the rationale.
+      const isColdStart = this.lastVideoDataAt === 0;
+      const threshold = isColdStart
+        ? this.COLD_START_STALE_THRESHOLD_MS
+        : this.STALE_DATA_THRESHOLD_MS;
+      if (
+        this.livestreamIntendedState &&
+        !this.slotRevoked &&
+        freshnessAnchor > 0 &&
+        staleMs > threshold &&
+        totalConsumers > 0
+      ) {
+        this.markUpstreamWedged("data-flow-stale", {
+          staleMs,
+          consumers: totalConsumers,
+        });
+      } else if (
+        timeSinceActivity > this.ACTIVITY_TIMEOUT &&
+        totalConsumers === 0
+      ) {
         this.logger.info(
           `🕒 No client activity for ${Math.round(timeSinceActivity / 1000)}s and no active clients, stopping camera stream`,
         );
         this.livestreamIntendedState = false;
+        this.lastVideoDataAt = 0;
+        this.livestreamSessionStartedAt = 0;
         this.stopActivityMonitoring();
         this.ensureLivestreamState();
       } else if (totalConsumers === 0 && this.livestreamIntendedState) {
@@ -358,11 +659,19 @@ export class StreamServer extends EventEmitter {
 
         // Mark livestream as actually running when we receive data
         if (!this.livestreamActualState) {
-          this.livestreamActualState = true;
+          this.setLivestreamActual(true);
+          this.consecutiveNoDataStarts = 0;
           this.logger.info(
             "📹 Livestream confirmed active - receiving video data",
           );
         }
+
+        // Kick the stale-data watchdog. Unconditional — we want to track
+        // upstream liveness regardless of whether anyone is consuming the
+        // bytes downstream. (Bropat pushes events whenever the camera
+        // delivers; if those events stop while we still want a stream,
+        // the bropat session is wedged.)
+        this.lastVideoDataAt = Date.now();
 
         // Log video data events based on client activity
         const activeClients = this.connectionManager.getActiveConnectionCount();
@@ -442,17 +751,28 @@ export class StreamServer extends EventEmitter {
           audioFrameCount++;
         }
 
+        // Eufy delivers AAC pre-wrapped in ADTS — JMuxer consumes ADTS
+        // directly. Anything else (e.g. AudioSpecificConfig, the 2-byte codec
+        // config packet that arrives ahead of the first frame) is dropped
+        // because synthesizing an ADTS header without the real sample
+        // rate/channel count would produce a stream the decoder misinterprets.
+        const isAdts = this.isAdtsFrame(audioBuffer);
+
+        // Only a real ADTS frame counts as "this camera delivers audio". JMuxer
+        // `both` mode never emits a byte until it has an actual audio SAMPLE, so
+        // a camera that sends audio events but no usable ADTS (seen on some
+        // models — only the config packet arrives) would hang the muxer forever
+        // and the live view would stay black. Gating on ADTS means such a camera
+        // is detected as video-only and muxed in `video` mode instead. Set this
+        // before the no-muxer early-return so detection works even when the
+        // first ADTS frame arrives before any muxer client has attached.
+        if (isAdts) this.deliversAudio = true;
+
         if (this.muxerStreams.size === 0) {
           return;
         }
 
-        // Eufy delivers AAC pre-wrapped in ADTS — JMuxer consumes ADTS
-        // directly. Anything else (e.g. AudioSpecificConfig, which is the
-        // 2-byte codec config packet that arrives ahead of the first frame)
-        // is dropped because synthesizing an ADTS header without knowing
-        // the actual sample rate/channel count would produce a stream the
-        // decoder would misinterpret.
-        if (!this.isAdtsFrame(audioBuffer)) {
+        if (!isAdts) {
           return;
         }
 
@@ -476,6 +796,164 @@ export class StreamServer extends EventEmitter {
    */
   private isAdtsFrame(data: Buffer): boolean {
     return data.length >= 7 && data[0] === 0xff && (data[1] & 0xf0) === 0xf0;
+  }
+
+  /**
+   * Called by the device layer around a station P2P recycle.
+   *
+   * When set to `true`, defers further `startLivestream` commands (see
+   * the comment on `recycleInFlight`). When cleared to `false`, if
+   * consumers are still attached, re-trigger `ensureLivestreamState` so
+   * the user automatically gets a stream as soon as the bropat P2P
+   * session is back up — they don't have to retry HomeKit.
+   *
+   * Safe to call multiple times with the same value; only state
+   * transitions perform work.
+   */
+  setRecycleInFlight(value: boolean): void {
+    if (this.recycleInFlight === value) return;
+    this.recycleInFlight = value;
+
+    if (value) {
+      this.logger.info(
+        "🧊 Stream server entering recycle-in-flight state — startLivestream deferred",
+      );
+      return;
+    }
+
+    const totalConsumers = this.getTotalConsumers();
+
+    this.logger.info(
+      `🔥 Stream server exiting recycle-in-flight state (consumers: ${totalConsumers})`,
+    );
+
+    if (totalConsumers > 0) {
+      // Consumers are waiting on a stream that we deferred. Re-arm
+      // intent and kick off a fresh start. The counter was already
+      // cleared by markUpstreamWedged so this attempt starts clean.
+      this.livestreamIntendedState = true;
+      this.lastClientActivity = Date.now();
+      this.startActivityMonitoring();
+      this.ensureLivestreamState().catch((e) =>
+        this.logger.warn(`Post-recycle ensureLivestreamState failed: ${e}`),
+      );
+    }
+  }
+
+  /**
+   * Signal that the upstream P2P session is wedged. Two callers:
+   *  - cold-start: `consecutiveNoDataStarts` reached `MAX_NO_DATA_STARTS`
+   *    (3 fresh `startLivestream` attempts produced zero video bytes).
+   *  - mid-session: data was flowing, then stopped for more than
+   *    `STALE_DATA_THRESHOLD_MS` while consumers still want a stream.
+   *
+   * Resets every piece of state that could cause us to keep poking the
+   * upstream: livestream intent, the cold-start counter, the data-flow
+   * watchdog, and the in-flight start/stop timeout. We deliberately do
+   * NOT auto-restart — the listener (eufy-device.ts) recycles the bropat
+   * station P2P session, and the next consumer that attaches will trigger
+   * a fresh livestream organically. This keeps the camera from being
+   * woken unnecessarily when no one is actually watching.
+   */
+  private markUpstreamWedged(
+    reason: "cold-start-counter-maxed" | "data-flow-stale",
+    detail: { attempts?: number; staleMs?: number; consumers?: number },
+  ): void {
+    if (reason === "cold-start-counter-maxed") {
+      this.logger.error(
+        `❌ Giving up after ${detail.attempts} consecutive startLivestream attempts with no data — upstream P2P (HomeBase/station) appears wedged. Will not auto-retry until a fresh consumer attaches.`,
+      );
+    } else {
+      this.logger.error(
+        `❌ Mid-session wedge: ${detail.staleMs}ms since last video data while ${detail.consumers} consumer(s) attached — upstream P2P appears wedged. Will not auto-retry until a fresh consumer attaches.`,
+      );
+    }
+
+    this.livestreamIntendedState = false;
+    this.setLivestreamActual(false);
+    this.releaseStreamSlot();
+    this.consecutiveNoDataStarts = 0;
+    this.lastVideoDataAt = 0;
+    this.livestreamSessionStartedAt = 0;
+    this.cancelPostSnapshotLinger("upstream wedged");
+    if (this.startStopTimeout) {
+      clearTimeout(this.startStopTimeout);
+      this.startStopTimeout = undefined;
+    }
+
+    this.emit("upstreamWedged", {
+      serialNumber: this.options.serialNumber,
+      reason,
+      ...detail,
+    });
+    this.emit(
+      "streamError",
+      new Error(
+        reason === "cold-start-counter-maxed"
+          ? "Upstream livestream not delivering data after multiple attempts"
+          : "Upstream livestream stopped delivering data mid-session",
+      ),
+    );
+  }
+
+  /** Release our HomeBase stream-slot lease, if held. Idempotent. */
+  private releaseStreamSlot(): void {
+    if (this.streamLease) {
+      this.streamLease.release();
+      this.streamLease = null;
+    }
+  }
+
+  /**
+   * Invoked (synchronously, by the coordinator) when a higher-priority camera
+   * on the same HomeBase preempts our slot. Stop our livestream and stay down
+   * — WITHOUT recycling, since this is contention, not a wedge — until our own
+   * consumers drain. The slot already belongs to the preemptor at this point.
+   */
+  private handleSlotRevoked(): void {
+    if (this.slotRevoked) return;
+    this.logger.info(
+      "↩️  HomeBase stream slot revoked by another camera — yielding",
+    );
+    this.slotRevoked = true;
+    this.livestreamIntendedState = false;
+    // Stop our P2P livestream FIRST, then release the slot — do NOT release
+    // synchronously here. The preemptor's `whenReady` is gated on our release,
+    // so releasing before our stream has actually stopped lets the preemptor
+    // call `startLivestream` while our P2P is still up. On the one-stream-at-a-
+    // time HomeBase that overlap starves the handoff: the preemptor gets a
+    // frame or two (enough for metadata) and then stalls, while our redundant
+    // stop races its start (`device_livestream_not_running`). Deferring the
+    // release until after our stop completes (in `ensureLivestreamState`'s stop
+    // branch, with the `finally` as a backstop for the already-stopped case)
+    // makes it a clean staggered handoff: we stop → free the HomeBase → the
+    // preemptor starts on an idle station. `whenReady`'s timeout still bounds
+    // the preemptor's wait if our stop hangs.
+    void this.ensureLivestreamState()
+      .catch((e) =>
+        this.logger.warn(`Post-revoke ensureLivestreamState failed: ${e}`),
+      )
+      .finally(() => this.releaseStreamSlot());
+  }
+
+  /**
+   * Update whether the livestream is actually delivering video, emitting a
+   * `livestreamActive` / `livestreamInactive` transition event (with the
+   * device serial) when it changes. Consumers (eufy-device.ts) use these to
+   * maintain the cross-camera station-stream registry that gates P2P
+   * recycles. Idempotent — emits only on an actual state change.
+   */
+  private setLivestreamActual(active: boolean): void {
+    if (this.livestreamActualState === active) return;
+    this.livestreamActualState = active;
+    if (active) {
+      // We're delivering video now — protect our HomeBase slot from being
+      // preempted by another camera's (e.g. grid-preview) live request.
+      this.streamLease?.markDelivering();
+    }
+    this.emit(active ? "livestreamActive" : "livestreamInactive", {
+      serialNumber: this.options.serialNumber,
+    });
   }
 
   /**
@@ -511,27 +989,109 @@ export class StreamServer extends EventEmitter {
         }
 
         if (this.livestreamIntendedState && !actualStreamingStatus) {
+          // Defer if a station P2P recycle is in flight — startLivestream
+          // sent during the recovery window typically lands on a station
+          // that bropat hasn't finished re-connecting, wasting the attempt
+          // and (worse) burning a slot in the cold-start counter. The
+          // recycle handler will re-arm the livestream when it completes
+          // if consumers are still waiting.
+          if (this.recycleInFlight) {
+            this.logger.info(
+              "⏸️  Deferring startLivestream — station P2P recycle is in flight",
+            );
+            break;
+          }
+
+          // Stop hammering a wedged upstream. After MAX_NO_DATA_STARTS
+          // consecutive startLivestream commands without ever receiving
+          // video data, give up and signal an upstream wedge.
+          if (this.consecutiveNoDataStarts >= this.MAX_NO_DATA_STARTS) {
+            this.markUpstreamWedged("cold-start-counter-maxed", {
+              attempts: this.consecutiveNoDataStarts,
+            });
+            break;
+          }
+
+          // If a higher-priority camera on this HomeBase preempted us, stay
+          // down until our own consumers drain — don't fight for the slot.
+          if (this.slotRevoked) {
+            this.logger.info(
+              "⏸️  Slot revoked by another camera on this HomeBase — not starting until consumers drain",
+            );
+            break;
+          }
+
+          // Acquire the shared HomeBase stream slot before starting. Only the
+          // slot holder ever issues startLivestream, so cameras never stampede
+          // the one-stream-at-a-time HomeBase.
+          if (this.options.acquireStreamSlot && !this.streamLease?.active) {
+            const priority =
+              this.getTotalConsumers() > 0 ? "live" : "background";
+            const lease = this.options.acquireStreamSlot(priority, () =>
+              this.handleSlotRevoked(),
+            );
+            if (!lease) {
+              // Background (thumbnail refresh) denied — the slot is busy with a
+              // viewer/recorder. Don't wake; abandon this attempt quietly.
+              this.logger.info(
+                `⛔ HomeBase stream slot busy — deferring ${priority} start`,
+              );
+              this.livestreamIntendedState = false;
+              break;
+            }
+            this.logger.info(`🎟️  Acquired HomeBase stream slot (${priority})`);
+            this.streamLease = lease;
+            // If we preempted another camera, wait for it to step off the
+            // shared HomeBase slot before starting, so the two don't overlap
+            // (which causes mutual P2P starvation and audio bleeding into the
+            // wrong muxer). Resolves immediately when nothing was preempted.
+            await lease.whenReady;
+            // Bail if we were ourselves preempted/torn down while waiting.
+            if (!this.livestreamIntendedState || this.slotRevoked) {
+              break;
+            }
+          }
+
           // Need to start livestream
+          this.consecutiveNoDataStarts++;
+          this.livestreamSessionStartedAt = Date.now();
           this.logger.info(
-            `🎥 Starting livestream (attempt ${attempt}/${maxRetries})`,
+            `🎥 Starting livestream (attempt ${attempt}/${maxRetries}, consecutive-no-data=${this.consecutiveNoDataStarts}/${this.MAX_NO_DATA_STARTS})`,
           );
           await this.options.wsClient.commands
             .device(this.options.serialNumber)
             .startLivestream();
           this.logger.info("✅ Livestream start command sent successfully");
 
-          // Set timeout to check if it actually started
+          // Wait the full cold-start window before re-evaluating. A
+          // deeply-idle battery camera can legitimately take 30–45s to wake
+          // and deliver its first frame, so checking sooner just provokes a
+          // premature re-send/recycle. With MAX_NO_DATA_STARTS=1 this
+          // re-entry will conclude the upstream is wedged (no data after a
+          // full window) and hand off to the station P2P recycle.
           this.startStopTimeout = setTimeout(() => {
             if (this.livestreamIntendedState && !this.livestreamActualState) {
               this.logger.warn(
-                "⚠️ Livestream start timeout - no video data received, will retry",
+                `⚠️ No video data ${this.COLD_START_STALE_THRESHOLD_MS / 1000}s after startLivestream — escalating to wedge/recycle`,
               );
               this.ensureLivestreamState();
             }
-          }, 30000); // 30 seconds to receive first video data
+          }, this.COLD_START_STALE_THRESHOLD_MS);
         } else if (this.livestreamIntendedState && actualStreamingStatus) {
-          // Stream is already running and we want it running - all good
-          this.logger.debug("Livestream already running as desired");
+          // Stream is already running and we want it running - all good.
+          // Set the session anchor if it's not already set so the
+          // mid-session watchdog can fire on the "zombie already-running"
+          // case (bropat reports streaming but no LIVESTREAM_VIDEO_DATA
+          // events ever arrive — no startLivestream command means no
+          // cold-start counter increment to catch it the other way).
+          if (this.livestreamSessionStartedAt === 0) {
+            this.livestreamSessionStartedAt = Date.now();
+            this.logger.info(
+              "📡 Bropat reports livestream already active — anchoring session for wedge watchdog",
+            );
+          } else {
+            this.logger.debug("Livestream already running as desired");
+          }
         } else if (!this.livestreamIntendedState && actualStreamingStatus) {
           // Need to stop livestream
           this.logger.info(
@@ -541,15 +1101,43 @@ export class StreamServer extends EventEmitter {
             .device(this.options.serialNumber)
             .stopLivestream();
           this.logger.info("✅ Livestream stop command sent successfully");
-          this.livestreamActualState = false;
+          this.setLivestreamActual(false);
+          this.releaseStreamSlot();
+          // Clear the stale-data watchdog timestamp on graceful stop so
+          // the next session's watchdog starts fresh (won't false-fire
+          // from a previous session's last-data timestamp).
+          this.lastVideoDataAt = 0;
+          this.livestreamSessionStartedAt = 0;
         } else {
-          // Stream is not running and we don't want it running - all good
+          // Stream is not running and we don't want it running - all good.
+          // Still flip actual→false: bropat may have stopped the stream on
+          // its own (so we never hit the explicit stop branch above), and
+          // leaving `livestreamActualState` stuck true would leak a stale
+          // "active" entry into the cross-camera station registry.
+          this.setLivestreamActual(false);
           this.logger.debug("Livestream already stopped as desired");
         }
 
         // Success - break out of retry loop
         break;
       } catch (error: any) {
+        // Stopping a stream that isn't actually running is a no-op success,
+        // not a failure. This happens when we yield/stop a camera that was
+        // told to start but never delivered (e.g. a preempted dead camera):
+        // bropat reports it "livestreaming" but stop_livestream then fails
+        // with device_livestream_not_running. Treat it as already stopped.
+        const msg = String(error?.message || error);
+        if (msg.includes("device_livestream_not_running")) {
+          this.logger.info(
+            "Livestream already stopped upstream (not running) — treating as success",
+          );
+          this.setLivestreamActual(false);
+          this.releaseStreamSlot();
+          this.lastVideoDataAt = 0;
+          this.livestreamSessionStartedAt = 0;
+          break;
+        }
+
         this.logger.warn(
           `❌ Livestream command failed (attempt ${attempt}/${maxRetries}):`,
           error.message || error,
@@ -638,53 +1226,164 @@ export class StreamServer extends EventEmitter {
    * meaningfully faster than the previous ffmpeg-subprocess approach and
    * matches what the Eufy cameras actually deliver byte-for-byte.
    */
-  private handleMuxedClient(socket: net.Socket): void {
+  private async handleMuxedClient(socket: net.Socket): Promise<void> {
+    // Mark this socket as a pending consumer immediately so the upstream
+    // livestream starts even though we don't yet have a JMuxer to feed.
+    // `updateLivestreamStateForMuxerClients` counts both pending and active
+    // muxers as consumers.
+    this.pendingMuxerSockets.add(socket);
+
+    const pendingCleanup = () => {
+      this.pendingMuxerSockets.delete(socket);
+    };
+    socket.on("close", pendingCleanup);
+    socket.on("error", pendingCleanup);
+
+    // Kick off the upstream livestream (no-op if already running).
+    this.updateLivestreamStateForMuxerClients();
+
+    // Wait for the codec to be known via the first video event's metadata.
+    // Defaults to H.264 if the camera/stream never delivers metadata in
+    // time — matches the previous (silently-wrong-for-H.265) behaviour
+    // rather than dropping the client.
+    // Default to the construction-time hint (persisted from the last
+    // detected codec for this device). Without this, the muxer would
+    // build an avcC sample description (H.264) for an H.265 camera that
+    // happens to time out the metadata wait — producing un-decodable
+    // fMP4 the moment H.265 data does arrive. Falls back to H.264 only
+    // if there's no hint either.
+    let videoCodec: "H264" | "H265" = this.hintedVideoCodec ?? "H264";
+    try {
+      // 60s — battery cameras (T8170 S340 sleep mode, T86P2 4G LTE cold-start)
+      // can take 30–45s to deliver their first IDR after startLivestream.
+      const metadata = await this.waitForVideoMetadata(60000);
+      const c = metadata.videoCodec.toUpperCase();
+      videoCodec = c === "H265" || c === "HEVC" ? "H265" : "H264";
+    } catch (e) {
+      this.logger.warn(
+        `Muxer client: timed out waiting for video metadata, falling back to hinted codec ${videoCodec}. ${e}`,
+      );
+    }
+
+    // Socket may have given up while we waited.
+    if (socket.destroyed || !this.pendingMuxerSockets.has(socket)) {
+      this.pendingMuxerSockets.delete(socket);
+      return;
+    }
+
     const videoFps = this.videoMetadata?.videoFPS ?? 15;
-    // Always declare both tracks. The muxed client connects BEFORE the
-    // first audio frame arrives from Eufy, so `audioMetadata` is null at
-    // this point on a cold start; if we picked mode based on it we'd lock
-    // in video-only and silently drop every audio frame thereafter.
-    // JMuxer's `both` mode correctly holds audio until the video track is
-    // ready, then emits both tracks into the fMP4 moov.
-    const mode = "both";
 
-    const muxer = new JMuxer({
-      mode,
-      fps: videoFps,
-      flushingTime: 0,
-      clearBuffer: false,
-      debug: false,
-    });
-
-    const duplex: Duplex = muxer.createStream();
-    let firstChunkLogged = false;
-    duplex.on("data", (chunk: Buffer) => {
-      if (!firstChunkLogged) {
-        this.logger.info(
-          `JMuxer emitting fMP4 (first chunk: ${chunk.length} bytes, mode=${mode}, fps=${videoFps})`,
-        );
-        firstChunkLogged = true;
+    // Pick the muxer mode by whether this camera actually delivers audio.
+    // JMuxer `both` will not emit a single fMP4 byte until BOTH the video
+    // AND audio tracks have a sample (remux `isReady()`), so a mic-off,
+    // video-only camera muxed as `both` hangs forever and the downstream
+    // ffmpeg dies with "timeout waiting for data" — live view never starts.
+    //
+    // If we've already seen audio from this device, use `both`. If we know
+    // it's video-only, use `video`. If we don't know yet (first stream,
+    // muxer connects before the first audio frame), briefly wait for an
+    // audio frame now that video is confirmed flowing — a mic-on camera
+    // delivers audio within ~1-2s of video; if none arrives, it's video-only.
+    // The socket stays in `pendingMuxerSockets` during this wait so it still
+    // counts as a consumer (keeping the livestream alive).
+    if (this.deliversAudio === undefined) {
+      const audioDeadline = Date.now() + 2500;
+      while (Date.now() < audioDeadline && this.deliversAudio === undefined) {
+        if (socket.destroyed) {
+          this.pendingMuxerSockets.delete(socket);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 150));
       }
-      if (!socket.destroyed) socket.write(chunk);
-    });
-    duplex.on("error", (err) => {
-      this.logger.warn(`JMuxer duplex error: ${err.message}`);
-    });
+      if (this.deliversAudio === undefined) this.deliversAudio = false;
+    }
 
-    this.muxerStreams.set(socket, { muxer, duplex });
+    // Now graduate the socket from pending → active muxer.
+    this.pendingMuxerSockets.delete(socket);
+    const mode: "both" | "video" = this.deliversAudio ? "both" : "video";
     this.logger.info(
-      `Muxed client attached (total active muxers: ${this.muxerStreams.size})`,
+      `Muxer mode=${mode} (deliversAudio=${this.deliversAudio}) for ${this.options.serialNumber}`,
     );
 
-    // This is the first consumer of the stream — bring up the livestream
-    // if the stream server's TCP video clients haven't already started it.
+    let emittedFirstChunk = false;
+    let bothFallbackTimer: ReturnType<typeof setTimeout> | undefined;
+
+    // Build (or rebuild) the JMuxer for this socket in the given mode and wire
+    // its output to the socket. Replacing the entry in `muxerStreams` is how the
+    // `both`→`video` fallback swaps modes without dropping the client.
+    const buildMuxer = (useMode: "both" | "video"): void => {
+      const muxer = new JMuxer({
+        mode: useMode,
+        videoCodec,
+        fps: videoFps,
+        flushingTime: 0,
+        clearBuffer: false,
+        debug: false,
+      });
+      const duplex: Duplex = muxer.createStream();
+      duplex.on("data", (chunk: Buffer) => {
+        if (!emittedFirstChunk) {
+          emittedFirstChunk = true;
+          if (bothFallbackTimer) {
+            clearTimeout(bothFallbackTimer);
+            bothFallbackTimer = undefined;
+          }
+          this.logger.info(
+            `JMuxer emitting fMP4 (first chunk: ${chunk.length} bytes, mode=${useMode}, codec=${videoCodec}, fps=${videoFps})`,
+          );
+        }
+        if (!socket.destroyed) socket.write(chunk);
+      });
+      duplex.on("error", (err) => {
+        this.logger.warn(`JMuxer duplex error: ${err.message}`);
+      });
+      this.muxerStreams.set(socket, { muxer, duplex });
+    };
+
+    buildMuxer(mode);
+    this.logger.info(
+      `Muxed client attached (codec=${videoCodec}, total active muxers: ${this.muxerStreams.size})`,
+    );
+
+    // `both` mode never emits a single fMP4 byte until JMuxer has BOTH a video
+    // keyframe and an audio sample (remux `isReady()`). Some cameras report
+    // audio (a stray ADTS frame flips `deliversAudio`) but don't actually
+    // deliver a continuous audio track once muxing starts — so `both` waits
+    // forever and the live view stays black. Guarantee video by rebuilding the
+    // muxer video-only if no output appears shortly. Video-capable cameras with
+    // real audio emit in well under this window, so they keep their audio.
+    if (mode === "both") {
+      bothFallbackTimer = setTimeout(() => {
+        bothFallbackTimer = undefined;
+        if (emittedFirstChunk || socket.destroyed) return;
+        if (!this.muxerStreams.has(socket)) return;
+        this.logger.warn(
+          `Muxer 'both' produced no fMP4 in ${this.BOTH_TO_VIDEO_FALLBACK_MS}ms — rebuilding video-only for ${this.options.serialNumber} (camera reports audio but isn't delivering a usable track)`,
+        );
+        const existing = this.muxerStreams.get(socket);
+        try {
+          existing?.muxer.destroy();
+        } catch {
+          // ignore — being replaced anyway
+        }
+        buildMuxer("video");
+      }, this.BOTH_TO_VIDEO_FALLBACK_MS);
+    }
+
+    // Re-evaluate consumer state now that the socket moved from pending →
+    // active. No-op if the livestream is already running.
     this.updateLivestreamStateForMuxerClients();
 
     const cleanup = () => {
-      if (!this.muxerStreams.has(socket)) return;
+      if (bothFallbackTimer) {
+        clearTimeout(bothFallbackTimer);
+        bothFallbackTimer = undefined;
+      }
+      const existing = this.muxerStreams.get(socket);
+      if (!existing) return;
       this.muxerStreams.delete(socket);
       try {
-        muxer.destroy();
+        existing.muxer.destroy();
       } catch (e) {
         this.logger.warn(`JMuxer destroy threw during cleanup: ${e}`);
       }
@@ -703,12 +1402,32 @@ export class StreamServer extends EventEmitter {
    * (TCP video clients + in-process muxer clients). Called on every
    * muxer-client attach/detach.
    */
-  private async updateLivestreamStateForMuxerClients(): Promise<void> {
-    const totalConsumers =
-      this.connectionManager.getActiveConnectionCount() +
-      this.muxerStreams.size;
+  private cancelPostSnapshotLinger(reason: string): void {
+    if (this.postSnapshotLingerTimer) {
+      clearTimeout(this.postSnapshotLingerTimer);
+      this.postSnapshotLingerTimer = undefined;
+      this.logger.debug(`Cancelled post-snapshot linger: ${reason}`);
+    }
+  }
 
-    if (totalConsumers > 0 && !this.livestreamIntendedState) {
+  private async updateLivestreamStateForMuxerClients(): Promise<void> {
+    const totalConsumers = this.getTotalConsumers();
+
+    // A consumer is attaching (or detaching). If we were lingering after a
+    // snapshot waiting for exactly this, cancel — the consumer's own
+    // lifecycle now governs the livestream.
+    if (totalConsumers > 0) {
+      this.cancelPostSnapshotLinger("consumer attached");
+    } else if (this.slotRevoked) {
+      // Our consumers have all drained after a preemption — reset so a future
+      // viewer can start fresh (and re-take the slot, newest-wins).
+      this.slotRevoked = false;
+      this.logger.debug("Consumers drained after slot revoke — cleared");
+    }
+
+    // While preempted, stay down despite a reconnecting consumer — don't fight
+    // the camera that took the HomeBase slot.
+    if (totalConsumers > 0 && !this.livestreamIntendedState && !this.slotRevoked) {
       this.livestreamIntendedState = true;
       this.lastClientActivity = Date.now();
       this.startActivityMonitoring();
@@ -757,6 +1476,11 @@ export class StreamServer extends EventEmitter {
     // Stop activity monitoring
     this.stopActivityMonitoring();
 
+    // Guarantee the registry sees this device as no longer streaming, even
+    // if the teardown below doesn't traverse the graceful-stop branch.
+    this.setLivestreamActual(false);
+    this.releaseStreamSlot();
+
     // Stop livestream if there are active clients
     const activeClients = this.connectionManager.getActiveConnectionCount();
     if (activeClients > 0) {
@@ -787,6 +1511,12 @@ export class StreamServer extends EventEmitter {
       if (!socket.destroyed) socket.destroy();
     }
     this.muxerStreams.clear();
+
+    // Also close any muxer clients still waiting for first-frame metadata
+    for (const socket of this.pendingMuxerSockets) {
+      if (!socket.destroyed) socket.destroy();
+    }
+    this.pendingMuxerSockets.clear();
 
     // Close muxed server
     if (this.muxedServer) {
@@ -888,17 +1618,65 @@ export class StreamServer extends EventEmitter {
         }
       });
 
-      // Resolve any pending snapshot requests with keyframe data
-      // This happens BEFORE checking if server is active, so snapshots work without TCP server
+      // Resolve any pending snapshot requests with keyframe data.
+      // Snapshot requests need a decodable picture, so parameter-set-only
+      // events (H.264 SPS/PPS or H.265 VPS/SPS/PPS without an IRAP slice)
+      // don't qualify — FFmpeg can't produce a JPEG from those alone.
+      // H.264: require IDR (type 5).  H.265: require an IRAP slice
+      // (types 16–23: BLA/IDR/CRA and reserved IRAP).
+      //
+      // This happens BEFORE checking if server is active, so snapshots
+      // work without TCP server.
+      const hasSnapshotKeyframe = isHevc
+        ? nalUnits.some((nal) => nal.type >= 16 && nal.type <= 23)
+        : nalUnits.some((nal) => nal.type === 5);
       let snapshotsHandled = false;
-      if (isKeyFrame && this.snapshotResolvers.length > 0) {
-        this.logger.debug(
-          `Resolving ${this.snapshotResolvers.length} snapshot request(s) with keyframe data`,
-        );
-        const resolvers = [...this.snapshotResolvers];
-        this.snapshotResolvers = [];
-        resolvers.forEach(({ resolve }) => resolve(data));
-        snapshotsHandled = true;
+      if (hasSnapshotKeyframe) {
+        // Build a self-contained, decodable bitstream for the JPEG
+        // converter. H.265 IDR slices reference VPS/SPS/PPS by ID — without
+        // those parameter sets in the same buffer, ffmpeg can't decode and
+        // produces a malformed JPEG that Scrypted renders as a broken
+        // image icon. We prepend the cached parameter sets unless they're
+        // already present in this data event (Eufy sometimes bundles
+        // them, sometimes delivers them as separate prior events).
+        const types = new Set(nalUnits.map((n) => n.type));
+        const parts: Buffer[] = [];
+        if (isHevc) {
+          if (!types.has(32) && this.cachedVPS) parts.push(this.cachedVPS);
+          if (!types.has(33) && this.cachedSPS) parts.push(this.cachedSPS);
+          if (!types.has(34) && this.cachedPPS) parts.push(this.cachedPPS);
+        } else {
+          if (!types.has(7) && this.cachedSPS) parts.push(this.cachedSPS);
+          if (!types.has(8) && this.cachedPPS) parts.push(this.cachedPPS);
+        }
+        const snapshotPayload =
+          parts.length > 0 ? Buffer.concat([...parts, data]) : data;
+
+        // Retain this keyframe for cache-served snapshots/thumbnails. This
+        // fires for EVERY keyframe regardless of whether a snapshot is
+        // pending, so the cache refreshes for free whenever the camera is
+        // already awake (live view, HKSV, motion, or a prior snapshot).
+        this.lastKeyframe = {
+          data: snapshotPayload,
+          codec: isHevc ? "H265" : "H264",
+          timestamp: Date.now(),
+        };
+
+        // Resolve any pending snapshot requests with the same decodable buffer.
+        if (this.snapshotResolvers.length > 0) {
+          this.logger.debug(
+            `Resolving ${this.snapshotResolvers.length} snapshot request(s) with keyframe data`,
+          );
+          if (parts.length > 0) {
+            this.logger.debug(
+              `Prepended ${parts.length} parameter set(s) to snapshot keyframe (${snapshotPayload.length} bytes total)`,
+            );
+          }
+          const resolvers = [...this.snapshotResolvers];
+          this.snapshotResolvers = [];
+          resolvers.forEach(({ resolve }) => resolve(snapshotPayload));
+          snapshotsHandled = true;
+        }
       }
 
       // If server is not active, we've already handled snapshot resolution above
@@ -953,10 +1731,29 @@ export class StreamServer extends EventEmitter {
   }
 
   /**
-   * Get video metadata from the first received frame
+   * Get video metadata. Returns real metadata captured from the first
+   * `LIVESTREAM_VIDEO_DATA` event if available, otherwise falls back to a
+   * synthetic record built from the construction-time codec hint. Width,
+   * height, and fps in the synthetic record are 0 — callers that need
+   * those should treat 0 as "not yet known" and use their own fallbacks.
+   *
+   * The codec field is the load-bearing one: downstream consumers (stream
+   * service, snapshot service) use it to advertise the correct codec to
+   * Scrypted's media pipeline. Reporting the wrong codec causes the
+   * Rebroadcast prebuffer to set up sync-frame detection for the wrong
+   * NAL unit types and never find a keyframe.
    */
   getVideoMetadata(): VideoMetadata | null {
-    return this.videoMetadata;
+    if (this.videoMetadata) return this.videoMetadata;
+    if (this.hintedVideoCodec) {
+      return {
+        videoCodec: this.hintedVideoCodec,
+        videoWidth: 0,
+        videoHeight: 0,
+        videoFPS: 0,
+      };
+    }
+    return null;
   }
 
   /**
@@ -1054,6 +1851,39 @@ export class StreamServer extends EventEmitter {
   }
 
   /**
+   * Return the most recently seen keyframe if it is no older than `maxAgeMs`,
+   * otherwise null. Lets callers serve a snapshot/thumbnail without waking a
+   * (battery) camera. The returned buffer is self-contained — parameter sets
+   * are prepended — so it decodes to a JPEG on its own.
+   *
+   * @param maxAgeMs - Maximum acceptable age of the cached keyframe, in ms
+   */
+  getCachedKeyframe(
+    maxAgeMs: number,
+  ): { data: Buffer; codec: "H264" | "H265"; ageMs: number } | null {
+    if (!this.lastKeyframe) return null;
+    const ageMs = Date.now() - this.lastKeyframe.timestamp;
+    if (ageMs > maxAgeMs) return null;
+    return {
+      data: this.lastKeyframe.data,
+      codec: this.lastKeyframe.codec,
+      ageMs,
+    };
+  }
+
+  /**
+   * Seed the keyframe cache from a previously-persisted frame (e.g. restored
+   * from Scrypted storage after a plugin reload) so snapshots/thumbnails serve
+   * the last-seen image immediately, without waking the camera. Only seeds if
+   * the cache is currently empty (a live frame always wins). Timestamp is set
+   * to now so the restored frame isn't treated as stale right after a restart.
+   */
+  setCachedKeyframe(data: Buffer, codec: "H264" | "H265"): void {
+    if (this.lastKeyframe) return;
+    this.lastKeyframe = { data, codec, timestamp: Date.now() };
+  }
+
+  /**
    * Capture a single snapshot frame from the stream.
    * Starts the livestream if not already running, waits for a keyframe,
    * captures the frame, and stops the stream.
@@ -1064,6 +1894,11 @@ export class StreamServer extends EventEmitter {
   async captureSnapshot(timeoutMs: number = 15000): Promise<Buffer> {
     this.logger.info("📸 Capturing snapshot...");
 
+    // Cancel any pending post-snapshot stop — this snapshot is about to
+    // use the (possibly still-warm) livestream, so we don't want it torn
+    // down while we wait for a keyframe.
+    this.cancelPostSnapshotLinger("new snapshot starting");
+
     const wasStreamRunning = this.livestreamIntendedState;
 
     try {
@@ -1071,6 +1906,13 @@ export class StreamServer extends EventEmitter {
       if (!this.livestreamIntendedState) {
         this.logger.debug("Starting livestream for snapshot capture");
         this.livestreamIntendedState = true;
+        // Kick off the activity monitor so the mid-session wedge watchdog
+        // can fire if upstream P2P stalls. Without this, snapshots that
+        // started the livestream (with no muxer client attached yet) had
+        // no watchdog at all — a wedged session would only surface after
+        // the 60s snapshot timeout.
+        this.lastClientActivity = Date.now();
+        this.startActivityMonitoring();
         await this.ensureLivestreamState();
       } else {
         this.logger.debug(
@@ -1116,18 +1958,52 @@ export class StreamServer extends EventEmitter {
 
       return snapshotBuffer;
     } finally {
-      // Stop livestream if it wasn't running before
-      if (!wasStreamRunning) {
-        this.logger.debug(
-          "Stopping livestream after snapshot capture (was not running before)",
+      // Only stop the livestream if (a) we were the ones who started it
+      // (`!wasStreamRunning`) AND (b) no other consumer has attached during
+      // our snapshot wait. Without (b) we tear down the livestream out from
+      // under a concurrently-attached HomeKit muxer client, which causes the
+      // downstream Rebroadcast ffmpeg to get `Connection refused` and the
+      // streaming session to fail. The activity monitor will stop the
+      // stream gracefully once consumers detach.
+      const totalConsumers = this.getTotalConsumers();
+
+      if (!wasStreamRunning && totalConsumers === 0) {
+        // LINGER instead of immediate stop. The Home app pattern is a
+        // snapshot request followed within seconds by a stream request.
+        // Tearing the livestream down here forces the follow-up stream
+        // to pay the full cold-start cost (~30s on battery cameras),
+        // which often exceeds HomeKit's session timeout (~30s) and the
+        // stream visibly fails. Lingering briefly bridges the gap.
+        this.logger.info(
+          `⏳ Snapshot complete, no consumers — lingering livestream for ${this.POST_SNAPSHOT_LINGER_MS}ms`,
         );
-        this.livestreamIntendedState = false;
-        // Don't await here to avoid blocking the snapshot return
-        this.ensureLivestreamState().catch((error) => {
-          this.logger.warn(
-            `Failed to stop livestream after snapshot: ${error}`,
+        this.postSnapshotLingerTimer = setTimeout(() => {
+          this.postSnapshotLingerTimer = undefined;
+          const consumersNow = this.getTotalConsumers();
+          if (consumersNow > 0) {
+            this.logger.info(
+              `🔌 Linger expired with ${consumersNow} consumer(s) attached — keeping livestream`,
+            );
+            return;
+          }
+          if (!this.livestreamIntendedState) {
+            // Someone else already cleared intent (e.g. recycle/wedge)
+            return;
+          }
+          this.logger.info(
+            "🕒 Post-snapshot linger expired, no consumers — stopping livestream",
           );
-        });
+          this.livestreamIntendedState = false;
+          this.ensureLivestreamState().catch((error) => {
+            this.logger.warn(
+              `Failed to stop livestream after snapshot linger: ${error}`,
+            );
+          });
+        }, this.POST_SNAPSHOT_LINGER_MS);
+      } else if (!wasStreamRunning && totalConsumers > 0) {
+        this.logger.info(
+          `📌 Snapshot complete but ${totalConsumers} consumer(s) attached — leaving livestream running`,
+        );
       }
     }
   }

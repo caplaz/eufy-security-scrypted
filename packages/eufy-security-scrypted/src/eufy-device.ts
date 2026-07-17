@@ -70,6 +70,7 @@ import {
   EVENT_SOURCES,
   EufyWebSocketClient,
   EventCallbackForType,
+  STATION_EVENTS,
 } from "@caplaz/eufy-security-client";
 
 import { Logger, ILogObj } from "tslog";
@@ -86,6 +87,24 @@ import {
   StateChangeEvent,
 } from "./services/device";
 import { PropertyMapper } from "./utils/property-mapper";
+import {
+  acquireStationSlot,
+  isStationSlotHeldByOther,
+  otherDeviceDeliveringOnStation,
+} from "./utils/station-stream-coordinator";
+import {
+  recycleSuppression,
+  RECYCLE_SUPPRESS_MS,
+} from "./utils/recycle-guard";
+import {
+  shouldRefreshThumbnail,
+  nextRefreshBackoffMs,
+  resolveRefreshChoice,
+  THUMBNAIL_REFRESH_CHOICES,
+  THUMBNAIL_REFRESH_DEFAULT_CHOICE,
+} from "./utils/thumbnail-refresh";
+
+const THUMBNAIL_REFRESH_SETTING_KEY = "thumbnailRefreshInterval";
 import { VideoClipsService } from "./services/video";
 import { PtzControlService, LightControlService } from "./services/control";
 
@@ -139,6 +158,35 @@ export class EufyDevice
   private talkbackProcess?: ChildProcess;
   private talkbackActive = false;
   private intercomStartedLivestream = false;
+
+  // Station P2P recycle bookkeeping. When the stream server reports the
+  // upstream as wedged (startLivestream acked but no LIVESTREAM_VIDEO_DATA
+  // events), we attempt to recycle the bropat-side station P2P session
+  // via station.disconnect()/connect(). Rate-limited to avoid storms — a
+  // wedge that survives recycling means the problem is deeper than the
+  // bropat client (eufy-security-ws process, network, or Eufy's relay).
+  private lastStationRecycleAt = 0;
+  private stationRecycleInFlight = false;
+  private readonly MIN_STATION_RECYCLE_INTERVAL_MS = 5 * 60 * 1000;
+  // Chronic-failure guard: a camera that can't stream (no signal / dead)
+  // shouldn't keep recycling the shared HomeBase and disrupting its healthy
+  // siblings. Count recycles that didn't recover us; once over the cap (or if
+  // we report no signal), suppress recycles until `recycleSuppressedUntil`.
+  // Reset when video actually flows (livestreamActive).
+  private consecutiveFailedRecycles = 0;
+  private recycleSuppressedUntil = 0;
+
+  // Background thumbnail refresh bookkeeping. A timer periodically wakes this
+  // camera (at background priority, gated by the station coordinator) to keep
+  // its cached thumbnail reasonably fresh — but only when the HomeBase slot is
+  // free and the cache is stale, with exponential backoff for cameras that
+  // never deliver video.
+  private thumbnailRefreshInterval?: ReturnType<typeof setInterval>;
+  private thumbnailRefreshKick?: ReturnType<typeof setTimeout>;
+  private consecutiveRefreshFailures = 0;
+  private refreshBackoffUntil = 0;
+  private readonly THUMBNAIL_REFRESH_CHECK_MS = 5 * 60 * 1000; // check every 5 min
+  private readonly THUMBNAIL_REFRESH_CAPTURE_TIMEOUT_MS = 55 * 1000;
 
   // Device info and state
   private latestProperties?: DeviceProperties;
@@ -406,11 +454,30 @@ export class EufyDevice
     await this.propertiesLoaded;
 
     // Delegate to settings service
-    return this.settingsService.getSettings(
+    const settings = this.settingsService.getSettings(
       this.info! as any,
       this.latestProperties!,
       this.name || "Unknown Device",
     );
+
+    // Per-camera background thumbnail refresh interval (battery vs freshness).
+    settings.push({
+      key: THUMBNAIL_REFRESH_SETTING_KEY,
+      title: "Background Thumbnail Refresh",
+      description:
+        "How stale this camera's grid thumbnail may get before it is briefly " +
+        "woken to refresh it. Wakes only when the camera is idle and the " +
+        "HomeBase is free — never interrupts live view or recording. Lower = " +
+        "fresher tiles but more battery; choose Off or a long interval for " +
+        "battery/LTE cameras.",
+      value:
+        (this.storage.getItem(THUMBNAIL_REFRESH_SETTING_KEY) as string) ||
+        THUMBNAIL_REFRESH_DEFAULT_CHOICE,
+      choices: Object.keys(THUMBNAIL_REFRESH_CHOICES),
+      group: "Streaming",
+    });
+
+    return settings;
   }
 
   /**
@@ -418,6 +485,13 @@ export class EufyDevice
    * Delegates to the settings service for property updates and custom settings
    */
   async putSetting(key: string, value: SettingValue): Promise<void> {
+    // Per-camera thumbnail refresh interval — stored locally, not a device prop.
+    if (key === THUMBNAIL_REFRESH_SETTING_KEY) {
+      this.storage.setItem(key, String(value));
+      this.logger.info(`🖼️  Background thumbnail refresh set to: ${value}`);
+      return;
+    }
+
     // Callback to handle successful property updates
     const onSuccess = (settingKey: string, settingValue: SettingValue) => {
       // Update local properties if it's a device property
@@ -822,17 +896,489 @@ export class EufyDevice
    * Stream server lifecycle is now managed by StreamService.
    */
   private createStreamServer(): void {
+    // Load the last-detected codec from Scrypted device storage so the
+    // very first `getVideoStream()` call after a plugin reload advertises
+    // the correct codec. Without this hint, downstream consumers (the
+    // Rebroadcast plugin, in particular) set up sync-frame detection for
+    // H.264 NAL types and never find a keyframe in an H.265 stream —
+    // HomeKit's transcoder then sees "Unable to find sync frame in rtsp
+    // prebuffer" and the session dies at the 30s timeout.
+    const storedCodec = this.storage.getItem(
+      "lastDetectedVideoCodec",
+    ) as "H264" | "H265" | null;
+    const initialVideoCodec =
+      storedCodec === "H264" || storedCodec === "H265"
+        ? storedCodec
+        : undefined;
+    if (initialVideoCodec) {
+      this.logger.info(
+        `🎬 Using stored codec hint for stream server: ${initialVideoCodec}`,
+      );
+    }
+
     this.streamServer = new StreamServer({
       port: 0, // Let the system assign a free port
       host: "127.0.0.1", // Only allow connections from localhost
       logger: this.logger, // Pass tslog Logger directly
       wsClient: this.wsClient,
       serialNumber: this.serialNumber,
+      initialVideoCodec,
+      // Serialize streaming across cameras on the same HomeBase (one P2P
+      // stream at a time). Live always wins (preempting); background
+      // (thumbnail refresh) is denied while the slot is busy.
+      acquireStreamSlot: (priority, onRevoke) =>
+        acquireStationSlot(
+          this.getStationSN(),
+          this.serialNumber,
+          priority,
+          onRevoke,
+        ),
     });
+
+    // Restore the last thumbnail keyframe from storage so the camera's tile
+    // shows its last-seen image immediately after a plugin reload — no wake,
+    // no post-restart refresh stampede.
+    this.restoreThumbnailKeyframe();
+
+    // Persist live-detected codec so the next plugin restart starts with
+    // the right hint. The event fires exactly once per stream-server
+    // instance (on the first video data event).
+    this.streamServer.on("metadataReceived", (metadata: { videoCodec?: string }) => {
+      const codec = metadata?.videoCodec?.toUpperCase();
+      const normalized = codec === "H265" || codec === "HEVC" ? "H265" : "H264";
+      const previous = this.storage.getItem("lastDetectedVideoCodec");
+      if (previous !== normalized) {
+        this.storage.setItem("lastDetectedVideoCodec", normalized);
+        this.logger.info(
+          `💾 Persisted detected video codec: ${normalized} (was: ${previous ?? "unset"})`,
+        );
+      }
+    });
+
+    this.streamServer.on(
+      "upstreamWedged",
+      (info: {
+        serialNumber: string;
+        reason: "cold-start-counter-maxed" | "data-flow-stale";
+        attempts?: number;
+        staleMs?: number;
+        consumers?: number;
+      }) => {
+        this.recycleStationP2P(info).catch((e) =>
+          this.logger.warn(`Station P2P recycle threw: ${e}`),
+        );
+      },
+    );
+
+    this.streamServer.on("livestreamActive", () => {
+      // We're streaming again — recycling (if any) worked. Clear the chronic-
+      // failure guard so a future genuine wedge gets its recovery chance.
+      // (The coordinator tracks "delivering" via the lease for the recycle
+      // guard's sibling check.)
+      this.consecutiveFailedRecycles = 0;
+      this.recycleSuppressedUntil = 0;
+    });
+    this.streamServer.on("livestreamInactive", () => {
+      // The camera just stopped — save its last frame so the tile survives a
+      // reload. (Populated by any stream: live view, motion recording, etc.)
+      this.persistThumbnailKeyframe();
+    });
+
+    this.startThumbnailRefresh();
 
     this.logger.debug(
       "Stream server created with WebSocket client integration",
     );
+  }
+
+  /**
+   * Recycle the upstream bropat-side P2P session for this device's station.
+   *
+   * Triggered when the stream server's circuit breaker concludes that the
+   * upstream is wedged (startLivestream is acked but no LIVESTREAM_VIDEO_DATA
+   * arrives). For 4G LTE cameras the device IS its own station, so this
+   * disconnects/reconnects just the one camera's P2P session. For
+   * HomeBase-attached cameras it affects every camera on that station.
+   *
+   * The recycle is rate-limited and serialized: if a recycle is already
+   * in flight or one ran within MIN_STATION_RECYCLE_INTERVAL_MS, we skip.
+   * The next consumer that attaches will trigger a fresh startLivestream
+   * organically — we deliberately don't auto-retry from here, so the
+   * outcome of the recycle is observable in the next consumer's lifecycle.
+   */
+  /**
+   * Serial of the station (HomeBase) this device belongs to. 4G LTE cameras
+   * are their own station, so this falls back to the device serial.
+   */
+  private getStationSN(): string {
+    return this.latestProperties?.stationSerialNumber || this.serialNumber;
+  }
+
+  private static readonly THUMBNAIL_KEYFRAME_STORAGE_KEY = "lastThumbnailKeyframe";
+  // Keyframes are small (compressed H.264/H.265, typically 10–110 KB). Cap to
+  // avoid bloating Scrypted's storage if a frame is unexpectedly large.
+  private static readonly MAX_PERSISTED_KEYFRAME_BYTES = 220 * 1024;
+
+  /** Save the current cached keyframe to storage so the tile survives reload. */
+  private persistThumbnailKeyframe(): void {
+    try {
+      const cached = this.streamServer?.getCachedKeyframe(
+        Number.POSITIVE_INFINITY,
+      );
+      if (!cached) return;
+      if (cached.data.length > EufyDevice.MAX_PERSISTED_KEYFRAME_BYTES) return;
+      this.storage.setItem(
+        EufyDevice.THUMBNAIL_KEYFRAME_STORAGE_KEY,
+        JSON.stringify({
+          data: cached.data.toString("base64"),
+          codec: cached.codec,
+        }),
+      );
+    } catch (e) {
+      this.logger.debug(`Persisting thumbnail keyframe failed: ${e}`);
+    }
+  }
+
+  /** Restore a persisted keyframe into the stream server's cache (no wake). */
+  private restoreThumbnailKeyframe(): void {
+    try {
+      const raw = this.storage.getItem(
+        EufyDevice.THUMBNAIL_KEYFRAME_STORAGE_KEY,
+      );
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { data?: string; codec?: string };
+      if (
+        parsed?.data &&
+        (parsed.codec === "H264" || parsed.codec === "H265")
+      ) {
+        this.streamServer.setCachedKeyframe(
+          Buffer.from(parsed.data, "base64"),
+          parsed.codec,
+        );
+        this.logger.info(
+          "🖼️  Restored last thumbnail from storage (no camera wake)",
+        );
+      }
+    } catch (e) {
+      this.logger.debug(`Restoring thumbnail keyframe failed: ${e}`);
+    }
+  }
+
+  /**
+   * Start the periodic background thumbnail refresh. Staggered per device so
+   * cameras on the same HomeBase don't all check at once. Each tick wakes the
+   * camera only if its cache is stale AND the HomeBase slot is free AND we're
+   * not in failure backoff — so it never competes with a live view/recording
+   * and never hammers a dead camera.
+   */
+  private startThumbnailRefresh(): void {
+    // Deterministic per-device stagger across the check interval.
+    let hash = 0;
+    for (let i = 0; i < this.serialNumber.length; i++) {
+      hash = (hash * 31 + this.serialNumber.charCodeAt(i)) >>> 0;
+    }
+    const stagger = hash % this.THUMBNAIL_REFRESH_CHECK_MS;
+
+    this.thumbnailRefreshKick = setTimeout(() => {
+      this.runThumbnailRefreshTick().catch(() => {});
+      this.thumbnailRefreshInterval = setInterval(() => {
+        this.runThumbnailRefreshTick().catch(() => {});
+      }, this.THUMBNAIL_REFRESH_CHECK_MS);
+    }, stagger);
+  }
+
+  /** One background-refresh evaluation; wakes the camera only if warranted. */
+  private async runThumbnailRefreshTick(): Promise<void> {
+    if (!this.streamServer) return;
+
+    // Per-camera interval (default 2h). "Off" disables the refresh entirely.
+    const thresholdMs = resolveRefreshChoice(
+      this.storage.getItem(THUMBNAIL_REFRESH_SETTING_KEY) as string | undefined,
+    );
+    if (thresholdMs === null) return;
+
+    const cached = this.streamServer.getCachedKeyframe(Number.POSITIVE_INFINITY);
+    const cacheAgeMs = cached ? cached.ageMs : null;
+    const slotBusy = isStationSlotHeldByOther(
+      this.getStationSN(),
+      this.serialNumber,
+    );
+    const backoffRemainingMs = Math.max(0, this.refreshBackoffUntil - Date.now());
+
+    if (
+      !shouldRefreshThumbnail({
+        cacheAgeMs,
+        slotBusy,
+        backoffRemainingMs,
+        thresholdMs,
+      })
+    ) {
+      return;
+    }
+
+    this.logger.info(
+      `🖼️  Background thumbnail refresh (cache ${cacheAgeMs === null ? "empty" : Math.round(cacheAgeMs / 60000) + "min old"})`,
+    );
+    try {
+      // Background-priority wake (the coordinator denies if the slot is taken).
+      // The captured keyframe is cached by the stream server for snapshots.
+      await this.streamServer.captureSnapshot(
+        this.THUMBNAIL_REFRESH_CAPTURE_TIMEOUT_MS,
+      );
+      this.consecutiveRefreshFailures = 0;
+      this.refreshBackoffUntil = 0;
+      this.logger.info("🖼️  Thumbnail refreshed from background wake");
+    } catch {
+      this.consecutiveRefreshFailures++;
+      const backoff = nextRefreshBackoffMs(this.consecutiveRefreshFailures);
+      this.refreshBackoffUntil = Date.now() + backoff;
+      this.logger.info(
+        `🖼️  Thumbnail refresh did not complete (#${this.consecutiveRefreshFailures}) — backing off ${Math.round(backoff / 60000)}min`,
+      );
+    }
+  }
+
+  private async recycleStationP2P(info: {
+    reason: "cold-start-counter-maxed" | "data-flow-stale";
+    attempts?: number;
+    staleMs?: number;
+    consumers?: number;
+  }): Promise<void> {
+    const now = Date.now();
+
+    // Guard A: recycles suppressed for this camera (chronic failure / no
+    // signal) — protect the healthy cameras on the shared HomeBase.
+    if (now < this.recycleSuppressedUntil) {
+      this.logger.warn(
+        `⏭️  Not recycling HomeBase for ${this.serialNumber} — suppressed ${Math.round((this.recycleSuppressedUntil - now) / 60000)} more min (camera not recovering; protecting siblings). Fix this camera's signal/power.`,
+      );
+      return;
+    }
+
+    if (this.stationRecycleInFlight) {
+      this.logger.info(
+        "⏭️  Skipping station P2P recycle — another recycle is already in flight",
+      );
+      return;
+    }
+    const sinceLast = now - this.lastStationRecycleAt;
+    if (
+      this.lastStationRecycleAt !== 0 &&
+      sinceLast < this.MIN_STATION_RECYCLE_INTERVAL_MS
+    ) {
+      this.logger.warn(
+        `⏭️  Skipping station P2P recycle — last attempt was ${Math.round(
+          sinceLast / 1000,
+        )}s ago (min interval: ${Math.round(
+          this.MIN_STATION_RECYCLE_INTERVAL_MS / 1000,
+        )}s). Upstream wedge appears persistent across recycles — likely needs eufy-security-ws restart.`,
+      );
+      return;
+    }
+
+    const stationSN = this.getStationSN();
+    const isSelfStation = stationSN === this.serialNumber;
+
+    // Guard: a recycle disconnects/reconnects the whole HomeBase, which
+    // interrupts every camera on it. If a sibling on this station is
+    // actively delivering video, don't tear its session down — defer the
+    // recycle. We've already cleared our own livestream intent (in
+    // markUpstreamWedged), so the next consumer that attaches to this
+    // device will retry organically; by then the sibling may be idle.
+    // Self-station 4G cameras have no siblings, so they never defer.
+    if (!isSelfStation) {
+      const busySibling = otherDeviceDeliveringOnStation(
+        stationSN,
+        this.serialNumber,
+      );
+      if (busySibling) {
+        this.logger.warn(
+          `⏭️  Deferring station P2P recycle for ${stationSN} — sibling ${busySibling} is actively streaming on this HomeBase. Will retry on next consumer attach.`,
+        );
+        return;
+      }
+    }
+
+    // Guards B/C: a camera that can't stream (no WiFi signal) or that hasn't
+    // recovered after a recycle shouldn't keep recycling the shared HomeBase
+    // and disrupting healthy siblings. Suppress and fail fast instead.
+    const suppression = recycleSuppression({
+      isSelfStation,
+      signalLevel: this.latestProperties?.wifiSignalLevel,
+      consecutiveFailedRecycles: this.consecutiveFailedRecycles,
+    });
+    if (suppression.suppress) {
+      this.recycleSuppressedUntil = now + RECYCLE_SUPPRESS_MS;
+      const why =
+        suppression.reason === "no-signal"
+          ? `reports no WiFi signal (level 0) — can't stream regardless`
+          : `still wedged after ${this.consecutiveFailedRecycles} recycle(s) without recovering`;
+      this.logger.warn(
+        `🚫 ${this.serialNumber} ${why}. Suppressing HomeBase (${stationSN}) recycles for ${Math.round(RECYCLE_SUPPRESS_MS / 60000)}min to protect sibling cameras. Fix this camera's signal/power.`,
+      );
+      return;
+    }
+    // We're going ahead with a recycle. Count it as a failure until video
+    // actually flows (the livestreamActive handler resets this on recovery).
+    this.consecutiveFailedRecycles++;
+
+    const triggerContext =
+      info.reason === "cold-start-counter-maxed"
+        ? `${info.attempts} no-data starts`
+        : `${info.staleMs}ms data stall (${info.consumers} consumer(s))`;
+
+    this.stationRecycleInFlight = true;
+    this.lastStationRecycleAt = now;
+    // Tell the stream server to defer any startLivestream commands while
+    // the bropat session is recovering. The stream server will re-arm
+    // automatically when this clears in the `finally` block below, so
+    // consumers that arrive during the recycle still get a stream once
+    // P2P is actually re-established.
+    this.streamServer.setRecycleInFlight(true);
+    try {
+      this.logger.warn(
+        `🔄 Upstream wedged (reason: ${info.reason}, ${triggerContext}) — recycling station P2P session for ${stationSN}${
+          isSelfStation ? " (4G camera, self-station)" : ""
+        }`,
+      );
+
+      const stationCmd = this.wsClient.commands.station(stationSN);
+
+      // Diagnostic: what does bropat think the station's connectivity is
+      // before we touch it?
+      try {
+        const status = await stationCmd.isConnected();
+        this.logger.info(
+          `🔎 Pre-recycle station.isConnected → ${JSON.stringify(status)}`,
+        );
+      } catch (e) {
+        this.logger.warn(`Pre-recycle isConnected check failed: ${e}`);
+      }
+
+      try {
+        this.logger.info(`📴 station.disconnect(${stationSN})`);
+        await stationCmd.disconnect();
+        this.logger.info(`✅ station.disconnect ack`);
+      } catch (e) {
+        this.logger.warn(`station.disconnect threw: ${e}`);
+      }
+
+      // Brief pause so the bropat client's teardown can settle before
+      // we ask it to reopen the P2P channel. 2s matches the empirical
+      // settling time before bropat will accept a fresh connect cleanly.
+      await new Promise((r) => setTimeout(r, 2000));
+
+      // Subscribe to CONNECTED / CONNECTION_ERROR for this station BEFORE
+      // issuing connect — `station.connect()` returns when bropat accepts
+      // the command, but the underlying P2P establishment is async (10–25s
+      // for cellular cameras / cold HomeBase sessions). We need to wait
+      // for the real "session ready" signal before declaring success.
+      const connectionOutcome = this.waitForStationConnectionOutcome(
+        stationSN,
+        30000,
+      );
+
+      try {
+        this.logger.info(`📡 station.connect(${stationSN})`);
+        await stationCmd.connect();
+        this.logger.info(`✅ station.connect ack (P2P establishing…)`);
+      } catch (e) {
+        this.logger.warn(`station.connect threw: ${e}`);
+      }
+
+      const outcome = await connectionOutcome;
+      switch (outcome) {
+        case "connected":
+          this.logger.info(
+            `🟢 station.connected event received for ${stationSN} — P2P session is up`,
+          );
+          break;
+        case "connection-error":
+          this.logger.error(
+            `🔴 station.connection_error received for ${stationSN} — recycle did not establish P2P`,
+          );
+          break;
+        case "timeout":
+          this.logger.warn(
+            `⏱️  Timed out (30s) waiting for station.connected event — P2P may still be coming up`,
+          );
+          break;
+      }
+
+      try {
+        const status = await stationCmd.isConnected();
+        this.logger.info(
+          `🔎 Post-recycle station.isConnected → ${JSON.stringify(status)}`,
+        );
+      } catch (e) {
+        this.logger.warn(`Post-recycle isConnected check failed: ${e}`);
+      }
+
+      this.logger.info(
+        `🔄 Station P2P recycle complete (outcome: ${outcome}) — re-arming any waiting consumers`,
+      );
+    } finally {
+      this.stationRecycleInFlight = false;
+      // Clears the stream server's defer-flag. If consumers are still
+      // attached, this kicks off a fresh ensureLivestreamState so the
+      // user gets video without having to manually retry.
+      this.streamServer.setRecycleInFlight(false);
+    }
+  }
+
+  /**
+   * Wait for the next `STATION_EVENTS.CONNECTED` or
+   * `STATION_EVENTS.CONNECTION_ERROR` event for a specific station serial,
+   * or time out. Returns the outcome as a string for logging.
+   *
+   * Listeners are registered eagerly (before `station.connect()` is sent)
+   * by the caller so we don't miss a fast-arriving CONNECTED event.
+   * Both listeners are removed on any resolution path.
+   */
+  private waitForStationConnectionOutcome(
+    stationSerialNumber: string,
+    timeoutMs: number,
+  ): Promise<"connected" | "connection-error" | "timeout"> {
+    return new Promise((resolve) => {
+      let removeConnected: (() => boolean) | undefined;
+      let removeError: (() => boolean) | undefined;
+      const cleanup = () => {
+        removeConnected?.();
+        removeError?.();
+      };
+
+      const timer = setTimeout(() => {
+        cleanup();
+        resolve("timeout");
+      }, timeoutMs);
+      timer.unref?.();
+
+      removeConnected = this.wsClient.addEventListener(
+        STATION_EVENTS.CONNECTED,
+        () => {
+          clearTimeout(timer);
+          cleanup();
+          resolve("connected");
+        },
+        {
+          source: EVENT_SOURCES.STATION,
+          serialNumber: stationSerialNumber,
+        },
+      );
+
+      removeError = this.wsClient.addEventListener(
+        STATION_EVENTS.CONNECTION_ERROR,
+        () => {
+          clearTimeout(timer);
+          cleanup();
+          resolve("connection-error");
+        },
+        {
+          source: EVENT_SOURCES.STATION,
+          serialNumber: stationSerialNumber,
+        },
+      );
+    });
   }
 
   /**
@@ -845,6 +1391,10 @@ export class EufyDevice
     }
     this.talkbackActive = false;
     this.intercomStartedLivestream = false;
+
+    // Stop the background thumbnail refresh timers.
+    if (this.thumbnailRefreshKick) clearTimeout(this.thumbnailRefreshKick);
+    if (this.thumbnailRefreshInterval) clearInterval(this.thumbnailRefreshInterval);
 
     // Dispose stream service (will stop stream server if running)
     this.streamService
