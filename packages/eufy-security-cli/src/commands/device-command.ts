@@ -480,7 +480,6 @@ export class DeviceCommand extends BaseCommand {
       // Create the StreamServer with WebSocket client and device serial
       this.streamServer = new StreamServer({
         port: port,
-        debug: this.context.verbose || false,
         wsClient: (this.client as any).apiManager,
         serialNumber: this.targetDevice.serialNumber,
       });

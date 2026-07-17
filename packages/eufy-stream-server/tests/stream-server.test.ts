@@ -59,7 +59,6 @@ describe("StreamServer", () => {
     server = new StreamServer({
       port: testPort,
       host: "127.0.0.1",
-      debug: false,
       wsClient: mockWsClient,
       serialNumber: "TEST_DEVICE_123",
     });
@@ -258,7 +257,6 @@ describe("StreamServer", () => {
       const serverWithWs = new StreamServer({
         port: testPort,
         host: "127.0.0.1",
-        debug: true,
         wsClient: mockWsClient as any,
         serialNumber: "TEST123",
       });
@@ -310,7 +308,6 @@ describe("StreamServer", () => {
       const serverWithWs = new StreamServer({
         port: testPort,
         host: "127.0.0.1",
-        debug: true,
         wsClient: mockWsClient as any,
         serialNumber: "TEST123",
       });
@@ -339,7 +336,6 @@ describe("StreamServer", () => {
       const serverWithWs = new StreamServer({
         port: testPort,
         host: "127.0.0.1",
-        debug: true,
         wsClient: mockWsClient as any,
         serialNumber: "TEST123",
       });
@@ -397,7 +393,6 @@ describe("StreamServer", () => {
       const serverWithWs = new StreamServer({
         port: testPort,
         host: "127.0.0.1",
-        debug: true,
         wsClient: mockWsClient as any,
         serialNumber: "TEST123",
       });
@@ -426,7 +421,6 @@ describe("StreamServer", () => {
       const serverWithWs = new StreamServer({
         port: testPort,
         host: "127.0.0.1",
-        debug: true,
         wsClient: mockWsClient as any,
         serialNumber: "TEST123",
       });
@@ -490,7 +484,6 @@ describe("StreamServer", () => {
       const serverWithWs = new StreamServer({
         port: testPort,
         host: "127.0.0.1",
-        debug: true,
         wsClient: mockWsClient as any,
         serialNumber: "TEST123",
       });
@@ -555,7 +548,6 @@ describe("StreamServer", () => {
       const serverWithWs = new StreamServer({
         port: testPort,
         host: "127.0.0.1",
-        debug: true,
         wsClient: mockWsClient as any,
         serialNumber: "TEST123",
       });
@@ -585,7 +577,6 @@ describe("StreamServer", () => {
       const serverWithWs = new StreamServer({
         port: testPort,
         host: "127.0.0.1",
-        debug: false,
         wsClient: mockWsClient as any,
         serialNumber: "TEST123",
       });
@@ -856,7 +847,6 @@ describe("StreamServer", () => {
       const s = new StreamServer({
         port: testPort,
         host: "127.0.0.1",
-        debug: true,
         wsClient: mockWsClient as any,
         serialNumber: "TEST123",
         acquireStreamSlot,
@@ -885,7 +875,6 @@ describe("StreamServer", () => {
       const s = new StreamServer({
         port: testPort,
         host: "127.0.0.1",
-        debug: true,
         wsClient: mockWsClient as any,
         serialNumber: "TEST123",
         acquireStreamSlot: acquireStreamSlot as any,
@@ -949,7 +938,6 @@ describe("StreamServer", () => {
       const s = new StreamServer({
         port: testPort,
         host: "127.0.0.1",
-        debug: true,
         wsClient: mockWsClient as any,
         serialNumber: "TEST123",
         acquireStreamSlot: acquireStreamSlot as any,
@@ -982,7 +970,6 @@ describe("StreamServer", () => {
       const s = new StreamServer({
         port: testPort,
         host: "127.0.0.1",
-        debug: true,
         wsClient: mockWsClient as any,
         serialNumber: "TEST123",
         acquireStreamSlot,
@@ -1011,7 +998,6 @@ describe("StreamServer", () => {
       const s = new StreamServer({
         port: testPort,
         host: "127.0.0.1",
-        debug: true,
         wsClient: mockWsClient as any,
         serialNumber: "TEST123",
       });
@@ -1146,7 +1132,6 @@ describe("StreamServer", () => {
       const s = new StreamServer({
         port: testPort,
         host: "127.0.0.1",
-        debug: true,
         wsClient: mockWsClient as any,
         serialNumber: "TEST123",
       });

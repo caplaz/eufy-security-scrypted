@@ -34,7 +34,6 @@ const server = new StreamServer({
   port: 8080,
   wsClient: eufyClient,
   serialNumber: "T8210N20123456789",
-  debug: true,
 });
 
 // Start server
@@ -68,7 +67,6 @@ const server = new StreamServer({
   port: 8080,              // TCP port (default: 8080)
   host: "0.0.0.0",         // Bind address (default: all interfaces)
   maxConnections: 10,      // Max concurrent clients (default: 10)
-  debug: true,             // Enable debug logging
   logger: customLogger,    // Optional tslog logger
   wsClient: eufyClient,    // Required: EufySecurityClient
   serialNumber: "T8210...", // Required: Camera serial
@@ -240,7 +238,6 @@ async function runStreamingServer() {
     port: 8080,
     wsClient: eufy,
     serialNumber: camera.serial_number,
-    debug: true,
   });
   
   // Setup event handlers
@@ -488,7 +485,7 @@ setInterval(() => {
 2. ✅ Try different port: `{ port: 8081 }`
 3. ✅ Check permissions (ports < 1024 need sudo on Linux)
 4. ✅ Verify eufy client is connected: `wsClient.isConnected()`
-5. ✅ Enable debug logging: `{ debug: true }`
+5. ✅ Enable debug logging by passing a logger with a debug-level `minLevel`
 
 ### No Video Data
 
