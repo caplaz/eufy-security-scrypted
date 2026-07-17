@@ -1577,38 +1577,39 @@ export class StreamServer extends EventEmitter {
       this.videoMetadata?.videoCodec.toUpperCase() === "HEVC";
 
     try {
-      // Validate bitstream structure (start-code rules are identical for H.264 and H.265)
-      const isValid = isHevc
-        ? this.h264Parser.validateHevcData(data)
-        : this.h264Parser.validateH264Data(data);
+      // Single NAL scan per frame: extraction doubles as validation (an
+      // empty result means no valid Annex-B structure). This runs for
+      // every video event, so avoid scanning the buffer twice.
+      const nalUnits = isHevc
+        ? this.h264Parser.extractNALUnitsHevc(data)
+        : this.h264Parser.extractNALUnits(data);
 
-      if (!isValid) {
+      if (nalUnits.length === 0) {
         this.logger.warn(
           `Invalid ${isHevc ? "H.265" : "H.264"} data structure`,
         );
         return false;
       }
 
-      // Extract NAL units and detect keyframe using codec-appropriate logic
-      const nalUnits = isHevc
-        ? this.h264Parser.extractNALUnitsHevc(data)
-        : this.h264Parser.extractNALUnits(data);
-
       if (isKeyFrame === undefined) {
         isKeyFrame = nalUnits.some((nal) => nal.isKeyFrame);
       }
 
-      // Log NAL unit information for debugging
-      const nalInfo = nalUnits
-        .map((nal) =>
-          isHevc
-            ? `${this.h264Parser.getNALTypeNameHevc(nal.type)}(${nal.type})`
-            : `${this.h264Parser.getNALTypeName(nal.type)}(${nal.type})`,
-        )
-        .join(", ");
-      this.logger.debug(
-        `Processing ${isHevc ? "H.265" : "H.264"} data: ${data.length} bytes, NALs: [${nalInfo}], keyFrame: ${isKeyFrame}`,
-      );
+      // Log NAL unit information for debugging. Building the NAL-name
+      // string allocates per frame, so only do it when debug logging is
+      // actually enabled (tslog: 0=silly … 2=debug … 3=info).
+      if ((this.logger.settings?.minLevel ?? 3) <= 2) {
+        const nalInfo = nalUnits
+          .map((nal) =>
+            isHevc
+              ? `${this.h264Parser.getNALTypeNameHevc(nal.type)}(${nal.type})`
+              : `${this.h264Parser.getNALTypeName(nal.type)}(${nal.type})`,
+          )
+          .join(", ");
+        this.logger.debug(
+          `Processing ${isHevc ? "H.265" : "H.264"} data: ${data.length} bytes, NALs: [${nalInfo}], keyFrame: ${isKeyFrame}`,
+        );
+      }
 
       // Cache parameter-set NAL units so new clients can decode mid-stream.
       // H.264: SPS=7, PPS=8   H.265: VPS=32, SPS=33, PPS=34

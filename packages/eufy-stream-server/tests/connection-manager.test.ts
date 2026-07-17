@@ -59,4 +59,61 @@ describe("ConnectionManager", () => {
       expect(disconnectListener).toHaveBeenCalledWith(connectionId);
     });
   });
+
+  describe("write backpressure", () => {
+    const setWritableLength = (socket: net.Socket, bytes: number) => {
+      // Unconnected test sockets report writable=false; force them
+      // writable so the backpressure check is what decides the outcome.
+      Object.defineProperty(socket, "writable", {
+        value: true,
+        configurable: true,
+      });
+      Object.defineProperty(socket, "writableLength", {
+        value: bytes,
+        configurable: true,
+      });
+    };
+
+    it("disconnects a client whose socket buffer exceeds the high-water mark", () => {
+      const stalled = makeSocket();
+      const writeSpy = jest.spyOn(stalled, "write").mockReturnValue(true);
+      manager.handleConnection(stalled);
+      // Simulate a consumer that stopped reading: bytes pile up in the
+      // kernel/Node buffer. Without a cap this grows without bound.
+      setWritableLength(stalled, 8 * 1024 * 1024);
+
+      const result = manager.broadcast(Buffer.from("frame"));
+
+      expect(result).toBe(false);
+      expect(writeSpy).not.toHaveBeenCalled();
+      expect(manager.getActiveConnectionCount()).toBe(0);
+    });
+
+    it("keeps writing to clients under the high-water mark", () => {
+      const healthy = makeSocket();
+      const writeSpy = jest.spyOn(healthy, "write").mockReturnValue(true);
+      manager.handleConnection(healthy);
+      setWritableLength(healthy, 1024);
+
+      const result = manager.broadcast(Buffer.from("frame"));
+
+      expect(result).toBe(true);
+      expect(writeSpy).toHaveBeenCalled();
+      expect(manager.getActiveConnectionCount()).toBe(1);
+    });
+
+    it("applies the same cap on sendToClient", () => {
+      const stalled = makeSocket();
+      const writeSpy = jest.spyOn(stalled, "write").mockReturnValue(true);
+      manager.handleConnection(stalled);
+      const connectionId = Object.keys(manager.getConnectionStats())[0];
+      setWritableLength(stalled, 8 * 1024 * 1024);
+
+      const result = manager.sendToClient(connectionId, Buffer.from("hdr"));
+
+      expect(result).toBe(false);
+      expect(writeSpy).not.toHaveBeenCalled();
+      expect(manager.getActiveConnectionCount()).toBe(0);
+    });
+  });
 });
