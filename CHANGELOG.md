@@ -5,6 +5,41 @@ All notable changes to the Eufy Security Scrypted monorepo will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Per-HomeBase stream coordination** (#28): A Eufy HomeBase serves only one camera P2P stream at a time. A new station stream coordinator serializes `startLivestream` across cameras on the same HomeBase — live view preempts with a clean stop-before-start handoff ("newest tap wins"), a warm-up guard absorbs the Home-app grid's burst of simultaneous requests, and background work never interrupts a viewer.
+- **Wedge detection and automatic station recovery** (#28): Cold-start (no first frame within 18s) and mid-session (15s data stall) watchdogs detect a wedged upstream P2P session, recycle the station connection (`station.disconnect`/`connect`), and automatically restart the livestream for waiting consumers — no more plugin restarts to recover a dead stream. Suppression guards (no-signal, chronic-failure, busy-sibling) protect healthy cameras on a shared HomeBase from recycle storms.
+- **Cache-served snapshots and thumbnails** (#28): Camera tiles are served from the last-seen keyframe (persisted across plugin reloads) instead of waking the camera; a placeholder image is returned on a true cache miss rather than throwing, which previously made Scrypted's Snapshot plugin fall back to starting a livestream. Optional per-camera **Background Thumbnail Refresh** setting (Off / 30 min – 4 h) keeps tiles fresh only when the camera is idle and the HomeBase slot is free.
+- **Audio-aware fMP4 muxing** (#28): JMuxer mode (`both` vs `video`) is chosen by whether the camera actually delivers a usable ADTS audio track — mic-off and config-packet-only cameras no longer hang the muxer (which left live view black). A muxer that emits nothing within 4s is rebuilt video-only as a backstop.
+- **Codec persistence** (#28): The detected video codec (H.264/H.265) is persisted per device and used as a hint on the next plugin start, so the first `getVideoStream()` after a reload advertises the correct codec before any frame arrives.
+- **TCP write backpressure** (#34): A stream client whose socket buffer exceeds 4 MB (a consumer that stopped reading, e.g. a wedged FFmpeg) is disconnected instead of accumulating video frames in memory without bound.
+
+### Changed
+
+- **True source codec reported to Scrypted** (#28): The consumer's requested codec no longer overrides the detected one, so an H.265 stream is not relabeled H.264 and `-vcodec copy`'d as-is (fixes black browser preview / HomeKit "Unable to find sync frame").
+- **Streaming lifecycle tuning** (#28): Snapshot default timeout 15s → 60s (battery-camera cold start), post-view idle stop 30s → 12s, post-snapshot 8s livestream linger so a follow-up stream request doesn't pay a second cold start.
+- **Streaming hot-path performance** (#34): NAL units are parsed once per video frame instead of twice; the per-frame debug string is only built when debug logging is enabled; each WebSocket message is classified in a single pass instead of up to four full-payload scans; NAL type-name tables are module constants.
+- **`maxConnections` stream-server option is now actually applied** (#33) — it was previously accepted but ignored (the connection manager hardcoded 10).
+
+### Fixed
+
+- **H.265 cameras produced no decodable stream through the muxed path** (#23, #28): JMuxer was never told the stream was H.265, so HEVC NAL units were written into an `avc1` (H.264) fMP4 container that no downstream consumer could decode — snapshots, prebuffer, and live view all timed out with "no keyframe". The muxer is now constructed with the detected codec (`hvc1` for H.265).
+- **WebSocket rate limiter dropped livestream frames** (#32): A global 100 messages/second cap silently discarded messages beyond it. A single streaming camera produces ~15 video + ~40 audio events per second, so two simultaneous streams exceeded the cap and lost video NAL units (corrupted/black video). Livestream data and command results (dropping one strands its pending promise) are now exempt.
+- **Parameter-set cache held stale keyframes** (#32): The SPS/PPS/VPS cache stored the entire video event instead of the individual NAL. Eufy bundles parameter sets with the IDR frame, so new TCP clients received old keyframes ahead of the live stream and snapshots could decode a stale picture. The cache now stores just the parameter-set NAL, re-framed with a start code.
+- **Plugin reload left the camera streaming** (#32): `stop()` only stopped the upstream livestream when raw TCP clients existed, but the normal HomeKit path uses only muxed-port consumers — so every plugin restart left the camera streaming (battery drain) until the upstream idled it out. Now gated on livestream intent.
+- **Talk button missing on doorbells without microphone/speaker properties** (#25): The `Intercom` interface is now gated on the server-side `hasCommand("deviceStartTalkback")` check (the authoritative upstream `DeviceCommands` table) instead of inferring support from `microphone`/`speaker` property presence — models like the Video Doorbell S220 support talkback but don't expose those properties. Thanks [@retrography](https://github.com/retrography).
+- **Custom Motion Sensor extension was ignored** (#26, #31): The plugin unconditionally overwrote `motionDetected` with Eufy-reported motion on every state sync, defeating Scrypted's Custom Motion Sensor mixin (the documented way to drive HKSV from an external sensor). Motion sync is now skipped while such a mixin is active, failing open if the mixin can't be resolved. Thanks [@jonkdugan-debug](https://github.com/jonkdugan-debug) for the root cause and validated fix.
+
+### Removed
+
+- **"Memory Threshold" plugin setting and the inert MemoryManager machinery** (#33): The 432-line memory-manager singleton (cleanup-callback registry, monitoring interval, tiered cleanup levels) was never wired up — no cleanup callback was ever registered — so the setting configured machinery that could not act. The settings page and README still display live process memory usage.
+- **Deprecated `debug` option on `StreamServerOptions`** (#33): logger `minLevel` has controlled verbosity for a long time.
+- Internal dead module `device-manifest-builder.ts` (#33) — zero imports; manifest building lives in `DeviceUtils`.
+
+*Thanks to [@josha](https://github.com/josha) for the shared-HomeBase reliability work (#28).*
+
 ## [0.3.1] - 2026-04-20
 
 ### Added
