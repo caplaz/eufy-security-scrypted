@@ -38,16 +38,18 @@ export class ConnectionManager extends EventEmitter {
   private connections: Map<string, net.Socket> = new Map();
   private connectionInfo: Map<string, ConnectionInfo> = new Map();
   private connectionCounter = 0;
-  private maxConnections = 10;
+  private maxConnections: number;
 
   /**
    * Creates a new ConnectionManager instance
    *
    * @param logger - Logger instance compatible with tslog's Logger<ILogObj> interface
+   * @param maxConnections - Maximum number of concurrent client connections
    */
-  constructor(logger: Logger<ILogObj>) {
+  constructor(logger: Logger<ILogObj>, maxConnections = 10) {
     super();
     this.logger = logger;
+    this.maxConnections = maxConnections;
   }
 
   /**

@@ -17,7 +17,7 @@
  * - Implements Scrypted's DeviceProvider interface for device management
  * - Implements Settings interface for configuration UI
  * - Implements Refresh interface for connection health monitoring
- * - Uses singleton MemoryManager for system-wide resource coordination
+ * - Reports process memory usage in settings/README for diagnostics
  * - Provides centralized logging and debug control
  *
  * The provider automatically handles the complex authentication flow required
@@ -52,7 +52,7 @@ import {
 import { Logger, ILogObj, ILogObjMeta } from "tslog";
 import { EufyStation } from "./eufy-station";
 import { DeviceUtils } from "./utils/device-utils";
-import { MemoryManager } from "./utils/memory-manager";
+import { getCurrentMemoryUsageMB } from "./utils/memory-manager";
 
 const { deviceManager } = sdk;
 
@@ -136,14 +136,6 @@ export class EufySecurityProvider
       this.wsLogger,
     );
 
-    // Initialize system memory threshold from storage
-    const memoryThreshold = Math.max(
-      50,
-      parseInt(this.storage.getItem("memoryThresholdMB") || "120"),
-    );
-    const memoryLogger = this.logger.getSubLogger({ name: "Memory" });
-    MemoryManager.setMemoryThreshold(memoryThreshold, memoryLogger);
-
     // Initialize authentication manager
     const authLogger = this.logger.getSubLogger({ name: "Auth" });
     this.authManager = new AuthenticationManager(
@@ -178,8 +170,7 @@ export class EufySecurityProvider
     const clientState = this.wsClient.getState();
 
     // Get some additional status information
-    const memoryThreshold = MemoryManager.getMemoryThreshold();
-    const currentMemory = Math.round(process.memoryUsage().rss / 1024 / 1024);
+    const currentMemory = getCurrentMemoryUsageMB().rssMB;
 
     // Check authentication status
     const captchaStatus = this.authManager.getAuthStatusMessage(
@@ -211,19 +202,10 @@ export class EufySecurityProvider
         group: "Memory Management",
         key: "currentMemoryMB",
         title: "Current Memory Usage",
-        description: `Current RSS memory usage vs threshold (${memoryThreshold}MB)`,
-        value: `${currentMemory}MB ${currentMemory > memoryThreshold ? "⚠️" : "✅"}`,
+        description: "Current RSS memory usage of the plugin process",
+        value: `${currentMemory}MB`,
         type: "string",
         readonly: true,
-      },
-      {
-        group: "Memory Management",
-        key: "memoryThresholdMB",
-        title: "Memory Threshold (MB)",
-        description:
-          "System-wide memory threshold for buffer cleanup across all devices (default: 120MB)",
-        type: "number",
-        value: parseInt(this.storage.getItem("memoryThresholdMB") || "120"),
       },
 
       // Eufy Cloud Account Settings
@@ -659,14 +641,6 @@ export class EufySecurityProvider
       );
       // Refresh the settings UI to reflect the immediate change
       this.onDeviceEvent(ScryptedInterface.Settings, undefined);
-    } else if (key === "memoryThresholdMB") {
-      const memMB = Math.max(50, parseInt(value as string) || 120);
-      this.storage.setItem("memoryThresholdMB", memMB.toString());
-      const memoryLogger = this.logger.getSubLogger({ name: "MemoryManager" });
-      memoryLogger.attachTransport(createConsoleTransport(this.console));
-      MemoryManager.setMemoryThreshold(memMB, memoryLogger);
-      this.logger.info(`Memory threshold updated to ${memMB}MB`);
-      this.onDeviceEvent(ScryptedInterface.Settings, undefined);
     }
   }
   async getRefreshFrequency(): Promise<number> {
@@ -1026,9 +1000,7 @@ export class EufySecurityProvider
    * @implements {Readme}
    */
   async getReadmeMarkdown(): Promise<string> {
-    const memoryManager = MemoryManager.getInstance(this.logger);
-    const memoryUsage = memoryManager.getCurrentMemoryUsage();
-    const memoryThreshold = MemoryManager.getMemoryThreshold();
+    const memoryUsage = getCurrentMemoryUsageMB();
 
     return `![Eufy Security Plugin](https://raw.githubusercontent.com/caplaz/eufy-security-scrypted/main/packages/eufy-security-scrypted/public/banner.png)
 
@@ -1119,21 +1091,9 @@ Configure the connection to your eufy-security-ws server:
 - **2FA Problems**: Check email/SMS for verification codes
 - **Connection Errors**: Verify eufy-security-ws server is running
 
-## 🧠 Memory Management
+## 🧠 Memory Usage
 
-**Current Usage**: ${memoryUsage.heapMB} MB (RSS: ${memoryUsage.rssMB} MB)
-**Threshold**: ${memoryThreshold} MB
-**Status**: ${memoryUsage.heapMB < memoryThreshold ? "✅ Normal" : "⚠️ High"}
-
-### Memory Settings
-- **Automatic Cleanup**: Enabled when threshold exceeded
-- **Optimized Buffers**: Memory-conscious video streaming
-- **Crash Prevention**: Monitors and manages memory usage
-
-### Performance Tips
-- **Low Memory Systems** (≤4GB RAM): Set threshold to 80-100MB
-- **Normal Systems** (8GB RAM): Default 120-150MB threshold
-- **High Memory Systems** (≥16GB RAM): Can use 200-300MB threshold
+**Current Usage**: ${memoryUsage.heapMB} MB heap (RSS: ${memoryUsage.rssMB} MB)
 
 ## 📊 System Status
 

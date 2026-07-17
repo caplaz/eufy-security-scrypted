@@ -44,7 +44,6 @@ async function main() {
     port: 8080,
     host: "0.0.0.0",
     maxConnections: 5,
-    debug: true,
   });
 
   // Set up event handlers

@@ -1,10 +1,15 @@
 /**
- * Simple TCP Stream Server - Raw H.264 streaming server
+ * TCP Stream Server — H.264/H.265 streaming from Eufy WebSocket events
  *
- * This is a simplified version of the legacy eufy-stream-server that focuses
- * exclusively on streaming raw H.264 video data over TCP connections.
- * All audio processing, MP4 fragmentation, and complex error recovery
- * have been removed for simplicity.
+ * Receives livestream video/audio events from the eufy-security-ws
+ * WebSocket client and serves them on two local TCP ports:
+ *  - a raw port streaming Annex-B H.264/H.265 NAL units (CLI, snapshots),
+ *  - a muxed port where each client gets its own in-process JMuxer that
+ *    emits fragmented MP4 (video + ADTS AAC audio) for ffmpeg consumers.
+ *
+ * Also manages the upstream livestream lifecycle: consumer-driven
+ * start/stop, cold-start and mid-session wedge detection, the shared
+ * per-HomeBase stream slot, and a cached last keyframe for snapshots.
  */
 
 import * as net from "node:net";
@@ -32,12 +37,6 @@ export interface StreamServerOptions {
   host?: string;
   /** Maximum number of concurrent connections (default: 10) */
   maxConnections?: number;
-  /**
-   * @deprecated No longer used - debug level is controlled by the logger instance.
-   * If you provide a logger, it controls its own debug level.
-   * If no logger is provided, the internal logger defaults to info level.
-   */
-  debug?: boolean;
   /** Optional external logger instance compatible with tslog Logger<ILogObj> (if not provided, uses internal tslog Logger) */
   logger?: Logger<ILogObj>;
   /** WebSocket client for receiving video data events (required for Eufy cameras) */
@@ -102,7 +101,6 @@ export interface StationSlotLease {
  * ```typescript
  * const server = new StreamServer({
  *   port: 8080,
- *   debug: true,
  *   wsClient: eufyWebSocketClient,
  *   serialNumber: 'device123'
  * });
@@ -394,7 +392,6 @@ export class StreamServer extends EventEmitter {
       port: options.port ?? 8080,
       host: options.host ?? "0.0.0.0",
       maxConnections: options.maxConnections ?? 10,
-      debug: options.debug ?? false,
       logger: options.logger,
       wsClient: options.wsClient,
       serialNumber: options.serialNumber,
@@ -413,7 +410,10 @@ export class StreamServer extends EventEmitter {
         minLevel: 3, // info level - external loggers control their own debug level
       });
 
-    this.connectionManager = new ConnectionManager(this.logger);
+    this.connectionManager = new ConnectionManager(
+      this.logger,
+      this.options.maxConnections,
+    );
     this.h264Parser = new H264Parser(this.logger);
 
     this.setupEventHandlers();

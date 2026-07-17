@@ -1017,21 +1017,6 @@ export class EufyDevice
   }
 
   /**
-   * Recycle the upstream bropat-side P2P session for this device's station.
-   *
-   * Triggered when the stream server's circuit breaker concludes that the
-   * upstream is wedged (startLivestream is acked but no LIVESTREAM_VIDEO_DATA
-   * arrives). For 4G LTE cameras the device IS its own station, so this
-   * disconnects/reconnects just the one camera's P2P session. For
-   * HomeBase-attached cameras it affects every camera on that station.
-   *
-   * The recycle is rate-limited and serialized: if a recycle is already
-   * in flight or one ran within MIN_STATION_RECYCLE_INTERVAL_MS, we skip.
-   * The next consumer that attaches will trigger a fresh startLivestream
-   * organically — we deliberately don't auto-retry from here, so the
-   * outcome of the recycle is observable in the next consumer's lifecycle.
-   */
-  /**
    * Serial of the station (HomeBase) this device belongs to. 4G LTE cameras
    * are their own station, so this falls back to the device serial.
    */
@@ -1169,6 +1154,21 @@ export class EufyDevice
     }
   }
 
+  /**
+   * Recycle the upstream bropat-side P2P session for this device's station.
+   *
+   * Triggered when the stream server's circuit breaker concludes that the
+   * upstream is wedged (startLivestream is acked but no LIVESTREAM_VIDEO_DATA
+   * arrives). For 4G LTE cameras the device IS its own station, so this
+   * disconnects/reconnects just the one camera's P2P session. For
+   * HomeBase-attached cameras it affects every camera on that station.
+   *
+   * The recycle is rate-limited and serialized: if a recycle is already
+   * in flight or one ran within MIN_STATION_RECYCLE_INTERVAL_MS, we skip.
+   * The next consumer that attaches will trigger a fresh startLivestream
+   * organically — we deliberately don't auto-retry from here, so the
+   * outcome of the recycle is observable in the next consumer's lifecycle.
+   */
   private async recycleStationP2P(info: {
     reason: "cold-start-counter-maxed" | "data-flow-stale";
     attempts?: number;
