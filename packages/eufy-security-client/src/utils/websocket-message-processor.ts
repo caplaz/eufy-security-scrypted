@@ -125,9 +125,14 @@ export class WebSocketMessageProcessor {
       return { valid: false, error: "Failed to convert message to string" };
     }
 
+    // Classify once — reused by both the rate limiter and the size filter.
+    // These `includes` calls scan the full payload string, so keep them to
+    // a single pass per message (video frames arrive 15-60×/sec/camera).
+    const isExempt = this.isRateLimitExempt(messageStr);
+
     // Rate limiting — stream data and command results are exempt and do not
     // consume the budget; the cap only applies to everything else.
-    if (!this.isRateLimitExempt(messageStr)) {
+    if (!isExempt) {
       if (!this.rateLimiter.canProcess()) {
         this.rateLimitedMessages++;
         this.logger?.warn("Message rate limit exceeded, dropping message");
@@ -135,79 +140,21 @@ export class WebSocketMessageProcessor {
       }
     }
 
-    // Smart message size filtering - allow important message types to be larger
+    // Size filtering — the only large messages accepted are stream data,
+    // command results (both covered by `isExempt`), and generic events.
     if (messageStr.length > this.maxMessageSize) {
-      // Try to extract message type for smart filtering
-      let messageType = "unknown";
-      let allowLargeMessage = false;
-
-      try {
-        // First check for livestream data using string matching (more reliable for large messages)
-        const isLivestreamData =
-          messageStr.includes(`"${DEVICE_EVENTS.LIVESTREAM_VIDEO_DATA}"`) ||
-          messageStr.includes(`"${DEVICE_EVENTS.LIVESTREAM_AUDIO_DATA}"`);
-
-        if (isLivestreamData) {
-          messageType = "livestream-data";
-          allowLargeMessage = true;
-        } else {
-          // Try to parse a preview for other message types
-          const preview = JSON.parse(messageStr.substring(0, 1000)); // Parse first 1KB
-          messageType = preview.type || preview.event?.event || "no-type";
-
-          // Allow large messages for other important types
-          const allowedLargeTypes = [MESSAGE_TYPES.EVENT, MESSAGE_TYPES.RESULT];
-
-          allowLargeMessage = allowedLargeTypes.some(
-            (type) =>
-              messageType.includes(type) ||
-              messageStr.includes(`"type":"${type}"`),
-          );
-        }
-      } catch (_e) {
-        // If we can't parse even the beginning, check if it's livestream data by string matching
-        const isLivestreamData =
-          messageStr.includes(`"${DEVICE_EVENTS.LIVESTREAM_VIDEO_DATA}"`) ||
-          messageStr.includes(`"${DEVICE_EVENTS.LIVESTREAM_AUDIO_DATA}"`);
-
-        if (isLivestreamData) {
-          messageType = "livestream-data";
-          allowLargeMessage = true;
-        } else {
-          // Also check for EVENT and RESULT types using string matching
-          const isEventMessage = messageStr.includes(
-            `"type":"${MESSAGE_TYPES.EVENT}"`,
-          );
-          const isResultMessage = messageStr.includes(
-            `"type":"${MESSAGE_TYPES.RESULT}"`,
-          );
-
-          if (isEventMessage) {
-            messageType = "event";
-            allowLargeMessage = true;
-          } else if (isResultMessage) {
-            messageType = "result";
-            allowLargeMessage = true;
-          } else {
-            messageType = "parse-error";
-            allowLargeMessage = false;
-          }
-        }
-      }
+      const allowLargeMessage =
+        isExempt || messageStr.includes(`"type":"${MESSAGE_TYPES.EVENT}"`);
 
       if (!allowLargeMessage) {
         this.invalidMessages++;
         this.logger?.warn(
           `Message too large and not streaming data: ${messageStr.length} bytes, ` +
-            `type: ${messageType}, preview: ${messageStr.substring(0, 100)}...`,
+            `preview: ${messageStr.substring(0, 100)}...`,
         );
         return { valid: false, error: "Message too large" };
-      } else {
-        // Log but allow the message
-        this.logger?.debug(
-          `Large message allowed for streaming: ${messageStr.length} bytes, type: ${messageType}`,
-        );
       }
+      this.logger?.debug(`Large message allowed: ${messageStr.length} bytes`);
     }
 
     // JSON parsing with validation

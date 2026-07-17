@@ -41,6 +41,20 @@ export class ConnectionManager extends EventEmitter {
   private maxConnections: number;
 
   /**
+   * Max bytes allowed to sit unflushed in a client socket's write buffer.
+   * A consumer that stops reading (e.g. a wedged ffmpeg) would otherwise
+   * accumulate video frames in Node heap without bound; past this mark the
+   * client is considered stalled and is disconnected. Healthy local ffmpeg
+   * consumers drain far below this.
+   */
+  private static readonly MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+
+  /** True when the socket has too much unflushed data queued. */
+  private isStalled(socket: net.Socket): boolean {
+    return socket.writableLength > ConnectionManager.MAX_BUFFERED_BYTES;
+  }
+
+  /**
    * Creates a new ConnectionManager instance
    *
    * @param logger - Logger instance compatible with tslog's Logger<ILogObj> interface
@@ -173,6 +187,13 @@ export class ConnectionManager extends EventEmitter {
     }
 
     try {
+      if (this.isStalled(socket)) {
+        this.logger.warn(
+          `Client ${connectionId} stalled (${socket.writableLength} bytes buffered) — disconnecting`,
+        );
+        this.handleDisconnection(connectionId);
+        return false;
+      }
       if (socket.writable) {
         socket.write(data);
 
@@ -224,7 +245,12 @@ export class ConnectionManager extends EventEmitter {
 
     for (const [connectionId, socket] of this.connections) {
       try {
-        if (socket.writable) {
+        if (this.isStalled(socket)) {
+          this.logger.warn(
+            `Client ${connectionId} stalled (${socket.writableLength} bytes buffered) — disconnecting`,
+          );
+          this.handleDisconnection(connectionId);
+        } else if (socket.writable) {
           socket.write(data);
 
           // Update bytes written

@@ -17,6 +17,46 @@
 import { Logger, ILogObj } from "tslog";
 import { NALUnit } from "./types";
 
+const H264_NAL_TYPE_NAMES: Record<number, string> = {
+  1: "P-slice",
+  2: "B-slice",
+  3: "I-slice",
+  5: "IDR-slice",
+  6: "SEI",
+  7: "SPS",
+  8: "PPS",
+  9: "AUD",
+  14: "Data Partitioning",
+};
+
+const HEVC_NAL_TYPE_NAMES: Record<number, string> = {
+  0: "TRAIL_N",
+  1: "TRAIL_R",
+  2: "TSA_N",
+  3: "TSA_R",
+  4: "STSA_N",
+  5: "STSA_R",
+  6: "RADL_N",
+  7: "RADL_R",
+  8: "RASL_N",
+  9: "RASL_R",
+  16: "BLA_W_LP",
+  17: "BLA_W_RADL",
+  18: "BLA_N_LP",
+  19: "IDR_W_RADL",
+  20: "IDR_N_LP",
+  21: "CRA_NUT",
+  32: "VPS_NUT",
+  33: "SPS_NUT",
+  34: "PPS_NUT",
+  35: "AUD_NUT",
+  36: "EOS_NUT",
+  37: "EOB_NUT",
+  38: "FD_NUT",
+  39: "PREFIX_SEI_NUT",
+  40: "SUFFIX_SEI_NUT",
+};
+
 export class H264Parser {
   private logger: Logger<ILogObj>;
 
@@ -132,18 +172,7 @@ export class H264Parser {
   }
 
   getNALTypeName(type: number): string {
-    const names: Record<number, string> = {
-      1: "P-slice",
-      2: "B-slice",
-      3: "I-slice",
-      5: "IDR-slice",
-      6: "SEI",
-      7: "SPS",
-      8: "PPS",
-      9: "AUD",
-      14: "Data Partitioning",
-    };
-    return names[type] ?? `Unknown(${type})`;
+    return H264_NAL_TYPE_NAMES[type] ?? `Unknown(${type})`;
   }
 
   // ─── H.265 / HEVC ──────────────────────────────────────────────────────────
@@ -206,33 +235,6 @@ export class H264Parser {
   }
 
   getNALTypeNameHevc(type: number): string {
-    const names: Record<number, string> = {
-      0: "TRAIL_N",
-      1: "TRAIL_R",
-      2: "TSA_N",
-      3: "TSA_R",
-      4: "STSA_N",
-      5: "STSA_R",
-      6: "RADL_N",
-      7: "RADL_R",
-      8: "RASL_N",
-      9: "RASL_R",
-      16: "BLA_W_LP",
-      17: "BLA_W_RADL",
-      18: "BLA_N_LP",
-      19: "IDR_W_RADL",
-      20: "IDR_N_LP",
-      21: "CRA_NUT",
-      32: "VPS_NUT",
-      33: "SPS_NUT",
-      34: "PPS_NUT",
-      35: "AUD_NUT",
-      36: "EOS_NUT",
-      37: "EOB_NUT",
-      38: "FD_NUT",
-      39: "PREFIX_SEI_NUT",
-      40: "SUFFIX_SEI_NUT",
-    };
-    return names[type] ?? `Unknown(${type})`;
+    return HEVC_NAL_TYPE_NAMES[type] ?? `Unknown(${type})`;
   }
 }
