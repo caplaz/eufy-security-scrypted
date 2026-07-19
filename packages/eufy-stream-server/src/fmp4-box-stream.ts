@@ -198,7 +198,11 @@ export function moofFirstSampleIsSync(moofData: Buffer, videoTrackId: number): b
 
 /** Incrementally groups fMP4 boxes into init segments and media fragments. */
 export class Fmp4BoxStream extends EventEmitter {
-  private pending = Buffer.alloc(0);
+  private header = Buffer.alloc(EXTENDED_BOX_HEADER_SIZE);
+  private headerLength = 0;
+  private currentBox?: Buffer;
+  private currentBoxLength = 0;
+  private expectedBoxSize?: number;
   private ftyp?: Buffer;
   private moov?: Buffer;
   private initEmitted = false;
@@ -208,28 +212,43 @@ export class Fmp4BoxStream extends EventEmitter {
   private fragmentPrefix: Buffer[] = [];
 
   write(chunk: Uint8Array): void {
-    if (
-      chunk.length > MAX_BUFFER_SIZE ||
-      this.pending.length > MAX_BUFFER_SIZE - chunk.length
-    ) {
-      this.failInvalidSize();
-      return;
-    }
-    this.pending = Buffer.concat([this.pending, Buffer.from(chunk)]);
+    let offset = 0;
+    while (offset < chunk.length) {
+      if (!this.currentBox) {
+        const requiredHeaderLength = this.requiredHeaderLength();
+        const copied = Math.min(requiredHeaderLength - this.headerLength, chunk.length - offset);
+        this.header.set(chunk.subarray(offset, offset + copied), this.headerLength);
+        this.headerLength += copied;
+        offset += copied;
+        if (this.headerLength < this.requiredHeaderLength()) continue;
 
-    while (this.pending.length >= BOX_HEADER_SIZE) {
-      const parsedHeader = this.readPendingHeader();
-      if (parsedHeader === undefined) return;
-      if (parsedHeader === null) {
-        this.failInvalidSize();
-        return;
+        const size = this.readHeaderSize();
+        if (size === undefined) {
+          this.failInvalidSize();
+          return;
+        }
+        this.currentBox = Buffer.allocUnsafe(size);
+        this.header.copy(this.currentBox, 0, 0, this.headerLength);
+        this.currentBoxLength = this.headerLength;
+        this.expectedBoxSize = size;
+        this.headerLength = 0;
       }
-      const { size } = parsedHeader;
-      if (this.pending.length < size) return;
 
-      const box = this.pending.subarray(0, size);
-      this.pending = this.pending.subarray(size);
-      this.handleBox(box);
+      const remaining = this.expectedBoxSize! - this.currentBoxLength;
+      if (remaining > 0) {
+        const copied = Math.min(remaining, chunk.length - offset);
+        this.currentBox!.set(chunk.subarray(offset, offset + copied), this.currentBoxLength);
+        this.currentBoxLength += copied;
+        offset += copied;
+      }
+
+      if (this.currentBoxLength === this.expectedBoxSize) {
+        const box = this.currentBox!;
+        this.currentBox = undefined;
+        this.currentBoxLength = 0;
+        this.expectedBoxSize = undefined;
+        this.handleBox(box);
+      }
     }
   }
 
@@ -238,7 +257,10 @@ export class Fmp4BoxStream extends EventEmitter {
   }
 
   reset(): void {
-    this.pending = Buffer.alloc(0);
+    this.headerLength = 0;
+    this.currentBox = undefined;
+    this.currentBoxLength = 0;
+    this.expectedBoxSize = undefined;
     this.ftyp = undefined;
     this.moov = undefined;
     this.initEmitted = false;
@@ -248,23 +270,26 @@ export class Fmp4BoxStream extends EventEmitter {
     this.fragmentPrefix = [];
   }
 
-  private readPendingHeader(): { size: number } | null | undefined {
-    let size = this.pending.readUInt32BE(0);
+  private requiredHeaderLength(): number {
+    if (this.headerLength < BOX_HEADER_SIZE) return BOX_HEADER_SIZE;
+    return this.header.readUInt32BE(0) === 1
+      ? EXTENDED_BOX_HEADER_SIZE
+      : BOX_HEADER_SIZE;
+  }
+
+  private readHeaderSize(): number | undefined {
+    let size = this.header.readUInt32BE(0);
+    let minimumSize = BOX_HEADER_SIZE;
     if (size === 1) {
-      if (this.pending.length < EXTENDED_BOX_HEADER_SIZE) return undefined;
-      const extendedSize = this.pending.readBigUInt64BE(BOX_HEADER_SIZE);
-      if (
-        extendedSize < BigInt(EXTENDED_BOX_HEADER_SIZE) ||
-        extendedSize > BigInt(Number.MAX_SAFE_INTEGER)
-      ) {
-        return null;
-      }
+      const extendedSize = this.header.readBigUInt64BE(BOX_HEADER_SIZE);
+      if (extendedSize > BigInt(Number.MAX_SAFE_INTEGER)) return undefined;
       size = Number(extendedSize);
-    } else if (size < BOX_HEADER_SIZE) {
-      return null;
+      minimumSize = EXTENDED_BOX_HEADER_SIZE;
     }
-    if (size > MAX_BOX_SIZE) return null;
-    return { size };
+    if (size < minimumSize || size > MAX_BOX_SIZE || size > MAX_BUFFER_SIZE) {
+      return undefined;
+    }
+    return size;
   }
 
   private handleBox(box: Buffer): void {
@@ -314,6 +339,8 @@ export class Fmp4BoxStream extends EventEmitter {
 
   private failInvalidSize(): void {
     this.reset();
-    this.emit("error", new Error("Invalid ISO-BMFF box size"));
+    if (this.listenerCount("error") > 0) {
+      this.emit("error", new Error("Invalid ISO-BMFF box size"));
+    }
   }
 }

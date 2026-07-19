@@ -130,6 +130,16 @@ describe("Fmp4BoxStream", () => {
     expect(fragments).toEqual([]);
   });
 
+  it("resets malformed input without throwing when no error listener is registered", () => {
+    const stream = new Fmp4BoxStream();
+    const invalid = Buffer.alloc(8);
+    invalid.writeUInt32BE(7, 0);
+    invalid.write("free", 4, 4, "ascii");
+
+    expect(() => stream.write(invalid)).not.toThrow();
+    expect(() => stream.write(box("ftyp"))).not.toThrow();
+  });
+
   it("rejects oversized 32-bit and extended-size box declarations before buffering payloads", () => {
     const stream = new Fmp4BoxStream();
     const errors: Error[] = [];
@@ -163,6 +173,21 @@ describe("Fmp4BoxStream", () => {
 
     stream.write(Buffer.concat([box("ftyp"), box("moov")]));
     expect(inits).toEqual([Buffer.concat([box("ftyp"), box("moov")])]);
+  });
+
+  it("assembles fragmented large boxes without repeated Buffer.concat calls", () => {
+    const stream = new Fmp4BoxStream();
+    const free = box("free", Buffer.alloc(512 * 1024, 0xab));
+    const concatSpy = jest.spyOn(Buffer, "concat");
+
+    try {
+      for (let offset = 0; offset < free.length; offset += 4096) {
+        stream.write(free.subarray(offset, offset + 4096));
+      }
+      expect(concatSpy).not.toHaveBeenCalled();
+    } finally {
+      concatSpy.mockRestore();
+    }
   });
 });
 
