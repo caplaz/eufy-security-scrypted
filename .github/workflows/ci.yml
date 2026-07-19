@@ -49,6 +49,36 @@ jobs:
             packages/eufy-security-client/junit.xml
           retention-days: 30
 
+  ffmpeg-integration:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+
+      - name: Require FFmpeg H.264 and H.265 encoders
+        run: |
+          ffmpeg -hide_banner -encoders | grep --quiet 'libx264'
+          ffmpeg -hide_banner -encoders | grep --quiet 'libx265'
+          ffprobe -version
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Run H.264 compatibility relay FFmpeg integration test
+        run: cd packages/eufy-stream-server && npm test -- tests/h264-compatibility-relay.integration.test.ts --runInBand
+
   quality:
     runs-on: ubuntu-latest
     needs: test
