@@ -374,6 +374,8 @@ export class StreamServer extends EventEmitter {
     timer: ReturnType<typeof setTimeout>;
   };
   private nextWarmLeaseId = 0;
+  /** Serializes stop → release → reacquire when a slot changes priority. */
+  private streamSlotTransition?: Promise<void>;
   /**
    * Set when a higher-priority camera on the same HomeBase preempted us. While
    * true we stay down (don't re-start) despite lingering consumers and don't
@@ -527,9 +529,6 @@ export class StreamServer extends EventEmitter {
    */
   holdWarmLease(ms: number = 60000): void {
     if (this.warmLease || this.getRealConsumerCount() > 0) return;
-    // A previous metadata bootstrap may have acquired a live grant. It must
-    // not leak into the warm period: release it before the background retry.
-    if (this.streamLeasePriority === "live") this.releaseStreamSlot();
     const id = ++this.nextWarmLeaseId;
     this.metadataBootstrapConsumers++;
     this.warmLease = {
@@ -537,12 +536,67 @@ export class StreamServer extends EventEmitter {
       timer: setTimeout(() => this.endWarmLease("expired", false, id), ms),
     };
     this.warmLease.timer.unref?.();
-    this.livestreamIntendedState = true;
     this.lastClientActivity = Date.now();
     this.startActivityMonitoring();
-    void this.ensureLivestreamState().catch((error) =>
-      this.logger.warn(`Failed to start warm lease: ${error}`),
-    );
+    void this.activateWarmLease(id);
+  }
+
+  /** Stop our P2P stream before relinquishing a station grant. */
+  private async stopUpstreamBeforeReleasingStreamSlot(): Promise<void> {
+    if (!this.streamLease) return;
+    try {
+      await this.options.wsClient.commands
+        .device(this.options.serialNumber)
+        .stopLivestream();
+    } catch (error: any) {
+      if (
+        !String(error?.message || error).includes(
+          "device_livestream_not_running",
+        )
+      ) {
+        throw error;
+      }
+    }
+    this.setLivestreamActual(false);
+    this.lastVideoDataAt = 0;
+    this.livestreamSessionStartedAt = 0;
+    this.releaseStreamSlot();
+  }
+
+  private async activateWarmLease(id: number): Promise<void> {
+    const warmLease = this.warmLease;
+    if (!warmLease || warmLease.id !== id) return;
+
+    // A live lease may let a sibling's `whenReady` resolve immediately when
+    // released. Stop the upstream first; only then is a background attempt
+    // allowed to yield that station slot.
+    if (this.streamLeasePriority === "live") {
+      this.livestreamIntendedState = false;
+      try {
+        await this.stopUpstreamBeforeReleasingStreamSlot();
+      } catch (error) {
+        this.logger.warn(
+          `Failed to stop upstream before warm handoff; retaining live slot: ${error}`,
+        );
+        return;
+      }
+    }
+
+    if (
+      !this.warmLease ||
+      this.warmLease.id !== id ||
+      this.getRealConsumerCount() > 0 ||
+      this.slotRevoked
+    ) {
+      return;
+    }
+    this.consecutiveNoDataStarts = 0;
+    this.livestreamIntendedState = true;
+    try {
+      await this.ensureLivestreamState();
+    } catch (error) {
+      this.logger.warn(`Failed to start warm lease: ${error}`);
+    }
   }
 
   private endWarmLease(
@@ -562,10 +616,34 @@ export class StreamServer extends EventEmitter {
     this.metadataBootstrapConsumers--;
 
     if (replacedByRealConsumer && this.getRealConsumerCount() > 0) {
-      // Never let a later warm expiry release the new live grant. Reacquire it
-      // at live priority; release the background grant before asking for it.
-      if (this.streamLeasePriority === "background") this.releaseStreamSlot();
-      void this.updateLivestreamStateForMuxerClients();
+      // Never let a later warm expiry release the new live grant. The same
+      // stop-before-release ordering also applies when promoting a background
+      // stream to live: a sibling may otherwise start between the release and
+      // our live reacquisition while our P2P stream still owns the HomeBase.
+      if (this.streamLeasePriority === "background") {
+        this.livestreamIntendedState = false;
+        const transition = this.stopUpstreamBeforeReleasingStreamSlot()
+          .then(async () => {
+            if (this.getRealConsumerCount() > 0 && !this.slotRevoked) {
+              this.consecutiveNoDataStarts = 0;
+              this.livestreamIntendedState = true;
+              await this.ensureLivestreamState();
+            }
+          })
+          .catch((error) => {
+            this.logger.warn(
+              `Failed to promote warm slot to live safely: ${error}`,
+            );
+          });
+        this.streamSlotTransition = transition;
+        void transition.finally(() => {
+          if (this.streamSlotTransition === transition) {
+            this.streamSlotTransition = undefined;
+          }
+        });
+      } else {
+        void this.updateLivestreamStateForMuxerClients();
+      }
       return;
     }
 
@@ -1139,7 +1217,10 @@ export class StreamServer extends EventEmitter {
             this.streamLease?.active &&
             this.streamLeasePriority !== priority
           ) {
-            this.releaseStreamSlot();
+            this.livestreamIntendedState = false;
+            await this.stopUpstreamBeforeReleasingStreamSlot();
+            if (this.slotRevoked) break;
+            this.livestreamIntendedState = true;
           }
           if (!this.streamLease?.active) {
             const lease = this.options.acquireStreamSlot(priority, () =>
@@ -1150,6 +1231,9 @@ export class StreamServer extends EventEmitter {
                 `⛔ HomeBase stream slot busy — deferring ${priority} start`,
               );
               this.livestreamIntendedState = false;
+              if (priority === "background" && this.warmLease) {
+                this.endWarmLease("background slot denied", false);
+              }
               break;
             }
             this.logger.info(`🎟️  Acquired HomeBase stream slot (${priority})`);
@@ -1576,6 +1660,10 @@ export class StreamServer extends EventEmitter {
   }
 
   private async updateLivestreamStateForMuxerClients(): Promise<void> {
+    if (this.streamSlotTransition) {
+      await this.streamSlotTransition;
+      return;
+    }
     const totalConsumers = this.getTotalConsumers();
 
     // A consumer is attaching (or detaching). If we were lingering after a

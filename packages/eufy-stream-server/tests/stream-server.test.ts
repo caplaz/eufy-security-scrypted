@@ -162,6 +162,40 @@ describe("StreamServer", () => {
       client.destroy();
       second.destroy();
     });
+
+    it("notifies once when a muxed client attaches while pending and not again on muxer activation", async () => {
+      await server.start();
+      (server as any).deliversAudio = true;
+      const attached = jest.fn();
+      server.onNextConsumerAttached(attached);
+
+      const socket = net.createConnection({
+        port: server.getMuxedPort()!,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      await wait(20);
+      expect((server as any).pendingMuxerSockets.size).toBe(1);
+      expect(attached).toHaveBeenCalledTimes(1);
+
+      const videoCallback = mockWsClient.addEventListener.mock.calls.find(
+        (call: any[]) => call[0] === "livestream video data",
+      )[1];
+      videoCallback({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: { data: createTestH264Data() },
+        metadata: {
+          videoCodec: "H264",
+          videoFPS: 15,
+          videoWidth: 1280,
+          videoHeight: 720,
+        },
+      });
+      await wait(20);
+      expect((server as any).muxerStreams.size).toBe(1);
+      expect(attached).toHaveBeenCalledTimes(1);
+      socket.destroy();
+    });
   });
 
   describe("video streaming", () => {
@@ -1056,6 +1090,196 @@ describe("StreamServer", () => {
 
       await wait(60);
       expect(order).toEqual(["stop", "release"]);
+      await s.stop();
+    });
+
+    it("stops and releases a live grant before a denied warm background retry", async () => {
+      const order: string[] = [];
+      let streaming = false;
+      const deviceApi = {
+        startLivestream: jest.fn().mockImplementation(async () => {
+          streaming = true;
+        }),
+        stopLivestream: jest.fn().mockImplementation(async () => {
+          streaming = false;
+          order.push("stop");
+        }),
+        isLivestreaming: jest
+          .fn()
+          .mockImplementation(async () => ({ livestreaming: streaming })),
+      };
+      const wsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: { device: jest.fn().mockReturnValue(deviceApi) },
+      };
+      const liveLease = {
+        active: true,
+        whenReady: Promise.resolve(),
+        markDelivering: jest.fn(),
+        release: jest.fn(() => order.push("release")),
+      };
+      const acquireStreamSlot = jest
+        .fn()
+        .mockReturnValueOnce(liveLease)
+        .mockImplementationOnce(() => {
+          order.push("background-denied");
+          return null;
+        });
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        wsClient: wsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot,
+      });
+      await s.start();
+      const bootstrap = s.acquireMetadataWaiter(5000);
+      await wait(20);
+      expect(acquireStreamSlot).toHaveBeenLastCalledWith(
+        "live",
+        expect.any(Function),
+      );
+
+      s.holdWarmLease(500);
+      await wait(30);
+
+      expect(order).toEqual(["stop", "release", "background-denied"]);
+      expect((s as any).livestreamIntendedState).toBe(false);
+      expect((s as any).streamLease).toBeNull();
+      void bootstrap.promise.catch(() => {});
+      bootstrap.release();
+      await s.stop();
+    });
+
+    it("does not create a warm lease for a real consumer and ignores duplicate holds", async () => {
+      const { mockWsClient } = makeWs();
+      const acquireStreamSlot = jest.fn().mockReturnValue({
+        active: true,
+        whenReady: Promise.resolve(),
+        markDelivering: jest.fn(),
+        release: jest.fn(),
+      });
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot,
+      });
+      await s.start();
+      const client = net.createConnection({
+        port: testPort,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => client.on("connect", resolve));
+      await wait(20);
+
+      s.holdWarmLease(500);
+      expect((s as any).warmLease).toBeUndefined();
+      client.destroy();
+
+      const isolated = new StreamServer({
+        port: testPort + 1,
+        host: "127.0.0.1",
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST124",
+        acquireStreamSlot,
+      });
+      await isolated.start();
+      isolated.holdWarmLease(500);
+      isolated.holdWarmLease(500);
+      await wait(20);
+      expect((isolated as any).metadataBootstrapConsumers).toBe(1);
+      await isolated.stop();
+      await s.stop();
+    });
+
+    it("ends a warm lease on its first live frame", async () => {
+      const { mockWsClient } = makeWs();
+      let streaming = false;
+      const deviceApi = mockWsClient.commands.device();
+      deviceApi.startLivestream.mockImplementation(async () => {
+        streaming = true;
+      });
+      deviceApi.stopLivestream.mockImplementation(async () => {
+        streaming = false;
+      });
+      deviceApi.isLivestreaming = jest.fn(async () => ({
+        livestreaming: streaming,
+      }));
+      const acquireStreamSlot = jest.fn().mockReturnValue({
+        active: true,
+        whenReady: Promise.resolve(),
+        markDelivering: jest.fn(),
+        release: jest.fn(),
+      });
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot,
+      });
+      await s.start();
+      s.holdWarmLease(500);
+      await wait(20);
+      const videoCallback = mockWsClient.addEventListener.mock.calls.find(
+        (call: any[]) => call[0] === "livestream video data",
+      )[1];
+      videoCallback({
+        serialNumber: "TEST123",
+        buffer: { data: createTestH264Data() },
+        metadata: {
+          videoCodec: "H264",
+          videoFPS: 15,
+          videoWidth: 1280,
+          videoHeight: 720,
+        },
+      });
+      await wait(20);
+      expect((s as any).warmLease).toBeUndefined();
+      expect(deviceApi.stopLivestream).toHaveBeenCalled();
+      await s.stop();
+    });
+
+    it("ends a warm lease when a sibling preempts its background slot", async () => {
+      const { mockWsClient } = makeWs();
+      let revoke: (() => void) | undefined;
+      let streaming = false;
+      const deviceApi = mockWsClient.commands.device();
+      deviceApi.startLivestream.mockImplementation(async () => {
+        streaming = true;
+      });
+      deviceApi.stopLivestream.mockImplementation(async () => {
+        streaming = false;
+      });
+      deviceApi.isLivestreaming = jest.fn(async () => ({
+        livestreaming: streaming,
+      }));
+      const lease = {
+        active: true,
+        whenReady: Promise.resolve(),
+        markDelivering: jest.fn(),
+        release: jest.fn(),
+      };
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot: jest.fn((_priority, onRevoke) => {
+          revoke = onRevoke;
+          return lease;
+        }),
+      });
+      await s.start();
+      s.holdWarmLease(500);
+      await wait(20);
+      revoke!();
+      await wait(20);
+      expect((s as any).warmLease).toBeUndefined();
+      expect(deviceApi.stopLivestream).toHaveBeenCalled();
+      expect(lease.release).toHaveBeenCalled();
       await s.stop();
     });
 
