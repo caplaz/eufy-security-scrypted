@@ -25,6 +25,7 @@
 export { StreamServer } from "./stream-server";
 export { ConnectionManager } from "./connection-manager";
 export { H264Parser } from "./h264-parser";
+export { H264CompatibilityRelay } from "./h264-compatibility-relay";
 export {
   CompatibilityEncoderCapacityError,
   CompatibilityEncoderPool,
@@ -36,6 +37,7 @@ export {
 } from "./fmp4-box-stream";
 
 export type { StreamServerOptions } from "./stream-server";
+export type { H264CompatibilityRelayOptions } from "./h264-compatibility-relay";
 export type {
   CompatibilityEncoderAcquireRequest,
   CompatibilityEncoderConsumerKind,
