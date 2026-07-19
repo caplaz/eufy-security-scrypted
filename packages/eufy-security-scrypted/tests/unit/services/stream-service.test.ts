@@ -256,6 +256,7 @@ describe("StreamService", () => {
       await service.getVideoStream(undefined, {
         id: "p2p",
         destination: "local-recorder",
+        tool: "ffmpeg",
       } as any);
       expect(
         mockLogger.info.mock.calls.some(
@@ -263,7 +264,8 @@ describe("StreamService", () => {
             typeof c[0] === "string" &&
             c[0].includes("[stream-request]") &&
             c[0].includes("id=p2p") &&
-            c[0].includes("destination=local-recorder"),
+            c[0].includes("destination=local-recorder") &&
+            c[0].includes("tool=ffmpeg"),
         ),
       ).toBe(true);
     });
@@ -274,9 +276,29 @@ describe("StreamService", () => {
         mockLogger.info.mock.calls.some(
           (c: any[]) =>
             typeof c[0] === "string" &&
-            c[0].includes("[stream-request] id=<none> destination=<none>"),
+            c[0].includes(
+              "[stream-request] id=<none> destination=<none> tool=<none>",
+            ),
         ),
       ).toBe(true);
+    });
+
+    it("escapes CR/LF in requested stream fields to keep the log entry on one line", async () => {
+      await service.getVideoStream(undefined, {
+        id: "p2p\nspoofed",
+        destination: "local\r\nrecorder",
+        tool: "ffmpeg\rtool",
+      } as any);
+
+      const streamRequest = mockLogger.info.mock.calls.find(
+        (c: any[]) =>
+          typeof c[0] === "string" && c[0].includes("[stream-request]"),
+      );
+
+      expect(streamRequest?.[0]).toBe(
+        "[stream-request] id=p2p\\nspoofed destination=local\\r\\nrecorder tool=ffmpeg\\rtool",
+      );
+      expect(streamRequest?.[0]).not.toMatch(/[\r\n]/);
     });
   });
 

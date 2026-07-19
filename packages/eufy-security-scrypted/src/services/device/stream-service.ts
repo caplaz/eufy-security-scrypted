@@ -36,6 +36,10 @@ export interface StreamConfig {
   codec?: string;
 }
 
+function escapeStreamRequestLogField(value?: string): string {
+  return (value ?? "<none>").replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+}
+
 /**
  * StreamService handles video streaming operations
  *
@@ -119,7 +123,7 @@ export class StreamService {
     options?: RequestMediaStreamOptions,
   ): Promise<MediaObject> {
     this.logger.info(
-      `[stream-request] id=${options?.id ?? "<none>"} destination=${(options as any)?.destination ?? "<none>"} tool=${(options as any)?.tool ?? "<none>"}`,
+      `[stream-request] id=${escapeStreamRequestLogField(options?.id)} destination=${escapeStreamRequestLogField(options?.destination)} tool=${escapeStreamRequestLogField(options?.tool)}`,
     );
     this.logger.info("Getting video stream, starting stream server if needed");
 
