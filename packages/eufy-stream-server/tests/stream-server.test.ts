@@ -1205,6 +1205,68 @@ describe("StreamServer", () => {
     });
   });
 
+  describe("metadata sessions and wait hygiene", () => {
+    const fireVideoMetadata = (codec: "H264" | "H265") => {
+      const videoListener = mockWsClient.addEventListener.mock.calls.find(
+        (call: any[]) => call[0] === "livestream video data",
+      );
+      videoListener[1]({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: {
+          data: Buffer.from([
+            0x00,
+            0x00,
+            0x00,
+            0x01,
+            0x67,
+            0x42,
+            0x00,
+            0x1e,
+          ]),
+        },
+        metadata: {
+          videoCodec: codec,
+          videoFPS: 15,
+          videoWidth: 1280,
+          videoHeight: 720,
+        },
+      });
+    };
+
+    it("removes a waiter after metadata wait timeout", async () => {
+      await expect(server.waitForVideoMetadata(50)).rejects.toThrow();
+      expect((server as any).metadataWaiters.length).toBe(0);
+    });
+
+    it("removes a waiter after metadata wait cancellation", async () => {
+      const controller = new AbortController();
+      const waitForMetadata = server.waitForVideoMetadata(5000, {
+        signal: controller.signal,
+      });
+
+      controller.abort();
+
+      await expect(waitForMetadata).rejects.toThrow(/cancel/i);
+      expect((server as any).metadataWaiters.length).toBe(0);
+    });
+
+    it("requires metadata confirmation for every livestream session", () => {
+      fireVideoMetadata("H264");
+      expect(server.getVideoMetadata()?.videoCodec).toBe("H264");
+      expect(server.isMetadataVerifiedForCurrentSession()).toBe(true);
+
+      (server as any).beginMetadataSession();
+
+      expect(server.isMetadataVerifiedForCurrentSession()).toBe(false);
+      expect(server.getVideoMetadata()?.videoCodec).toBe("H264");
+
+      fireVideoMetadata("H265");
+
+      expect(server.isMetadataVerifiedForCurrentSession()).toBe(true);
+      expect(server.getVideoMetadata()?.videoCodec).toBe("H265");
+    });
+  });
+
   describe("audio event handler", () => {
     let audioCallback: (event: any) => void;
     let videoCallback: (event: any) => void;
@@ -1221,16 +1283,21 @@ describe("StreamServer", () => {
       const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
       // Minimal H.264 SPS NAL — content irrelevant for metadata capture.
       const nal = Buffer.from([0x67, 0x42, 0x00, 0x1e]);
-      videoCallback({
-        serialNumber: "TEST_DEVICE_123",
-        buffer: { data: Buffer.concat([startCode, nal]) },
-        metadata: {
-          videoCodec: "H264",
-          videoFPS: 30,
-          videoWidth: 1280,
-          videoHeight: 720,
-        },
-      });
+      // A real first frame cannot arrive before the server has handled the
+      // connection and issued its session start. Defer this synthetic frame
+      // one event turn so it verifies that newly-started session.
+      setTimeout(() => {
+        videoCallback({
+          serialNumber: "TEST_DEVICE_123",
+          buffer: { data: Buffer.concat([startCode, nal]) },
+          metadata: {
+            videoCodec: "H264",
+            videoFPS: 30,
+            videoWidth: 1280,
+            videoHeight: 720,
+          },
+        });
+      }, 0);
     };
 
     beforeEach(async () => {
@@ -1395,16 +1462,20 @@ describe("StreamServer", () => {
       const videoCallback = videoCall[1];
       const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
       const nal = Buffer.from([0x67, 0x42, 0x00, 0x1e]);
-      videoCallback({
-        serialNumber: "TEST_DEVICE_123",
-        buffer: { data: Buffer.concat([startCode, nal]) },
-        metadata: {
-          videoCodec: codec,
-          videoFPS: 30,
-          videoWidth: 1280,
-          videoHeight: 720,
-        },
-      });
+      // Keep the synthetic first frame after the connection handler has
+      // established its metadata session, matching real P2P ordering.
+      setTimeout(() => {
+        videoCallback({
+          serialNumber: "TEST_DEVICE_123",
+          buffer: { data: Buffer.concat([startCode, nal]) },
+          metadata: {
+            videoCodec: codec,
+            videoFPS: 30,
+            videoWidth: 1280,
+            videoHeight: 720,
+          },
+        });
+      }, 0);
     };
 
     it("adds muxer to map on connection", async () => {
@@ -1554,6 +1625,10 @@ describe("StreamServer", () => {
       // Known video-only: skip the audio-detection wait. (Without this the
       // muxer would block ~2.5s waiting for an audio frame that never comes.)
       (server as any).deliversAudio = false;
+
+      // Let the connection handler establish its new metadata session before
+      // simulating the first P2P video frame.
+      await wait(0);
 
       // Seed video metadata directly — the helper would force audio=true.
       const videoCallback = (

@@ -90,6 +90,11 @@ export interface StationSlotLease {
   markDelivering(): void;
 }
 
+interface MetadataWaiter {
+  resolve(metadata: VideoMetadata): void;
+  reject(error: Error): void;
+}
+
 /**
  * Simple TCP streaming server for raw H.264 video data
  *
@@ -294,7 +299,14 @@ export class StreamServer extends EventEmitter {
    * replaces this with full real metadata.
    */
   private hintedVideoCodec?: "H264" | "H265";
-  private metadataReceived = false;
+  /**
+   * Metadata is only authoritative for the P2P session that delivered it.
+   * Keep the last record as a compatibility hint, but require every new
+   * session to verify it with a fresh video event before consumers trust it.
+   */
+  private metadataGeneration = 0;
+  private metadataVerifiedGeneration = -1;
+  private metadataWaiters: MetadataWaiter[] = [];
 
   // Audio metadata from first audio frame
   private audioMetadata: AudioMetadata | null = null;
@@ -647,19 +659,26 @@ export class StreamServer extends EventEmitter {
           }
         }
 
-        // Capture video metadata from first frame
-        if (!this.metadataReceived && event.metadata) {
+        // Capture metadata once for each P2P session. The previous session's
+        // record remains available as a hint, but cannot verify this one.
+        if (
+          event.metadata &&
+          !this.isMetadataVerifiedForCurrentSession()
+        ) {
           this.videoMetadata = {
             videoCodec: event.metadata.videoCodec,
             videoFPS: event.metadata.videoFPS,
             videoWidth: event.metadata.videoWidth,
             videoHeight: event.metadata.videoHeight,
           };
-          this.metadataReceived = true;
+          this.metadataVerifiedGeneration = this.metadataGeneration;
           this.logger.info(
             `📐 Captured video metadata: ${this.videoMetadata.videoWidth}x${this.videoMetadata.videoHeight} @ ${this.videoMetadata.videoFPS}fps, codec: ${this.videoMetadata.videoCodec}`,
           );
           this.emit("metadataReceived", this.videoMetadata);
+          for (const waiter of this.metadataWaiters.splice(0)) {
+            waiter.resolve(this.videoMetadata);
+          }
         }
 
         // Mark livestream as actually running when we receive data
@@ -1063,6 +1082,7 @@ export class StreamServer extends EventEmitter {
           this.logger.info(
             `🎥 Starting livestream (attempt ${attempt}/${maxRetries}, consecutive-no-data=${this.consecutiveNoDataStarts}/${this.MAX_NO_DATA_STARTS})`,
           );
+          this.beginMetadataSession();
           await this.options.wsClient.commands
             .device(this.options.serialNumber)
             .startLivestream();
@@ -1091,6 +1111,7 @@ export class StreamServer extends EventEmitter {
           // cold-start counter increment to catch it the other way).
           if (this.livestreamSessionStartedAt === 0) {
             this.livestreamSessionStartedAt = Date.now();
+            this.beginMetadataSession();
             this.logger.info(
               "📡 Bropat reports livestream already active — anchoring session for wedge watchdog",
             );
@@ -1789,15 +1810,30 @@ export class StreamServer extends EventEmitter {
     return null;
   }
 
+  /** Start a new P2P session whose metadata must be freshly confirmed. */
+  private beginMetadataSession(): void {
+    this.metadataGeneration++;
+  }
+
+  /** Whether metadata has been confirmed by video data for this P2P session. */
+  isMetadataVerifiedForCurrentSession(): boolean {
+    return this.metadataVerifiedGeneration === this.metadataGeneration;
+  }
+
   /**
    * Wait for video metadata to be received
    */
   async waitForVideoMetadata(
     timeoutMs: number = 10000,
+    options?: { signal?: AbortSignal },
   ): Promise<VideoMetadata> {
-    if (this.videoMetadata) {
-      this.logger.debug("Video metadata already available");
+    if (this.videoMetadata && this.isMetadataVerifiedForCurrentSession()) {
+      this.logger.debug("Video metadata already verified for this session");
       return this.videoMetadata;
+    }
+
+    if (options?.signal?.aborted) {
+      throw new Error("Video metadata wait cancelled");
     }
 
     this.logger.debug(
@@ -1805,20 +1841,40 @@ export class StreamServer extends EventEmitter {
     );
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const signal = options?.signal;
+      const waiter: MetadataWaiter = {
+        resolve: (metadata) => settle(() => resolve(metadata)),
+        reject: (error) => settle(() => reject(error)),
+      };
+      const removeWaiter = () => {
+        const index = this.metadataWaiters.indexOf(waiter);
+        if (index !== -1) this.metadataWaiters.splice(index, 1);
+        if (timeout) clearTimeout(timeout);
+        signal?.removeEventListener("abort", onAbort);
+      };
+      const settle = (complete: () => void) => {
+        if (settled) return;
+        settled = true;
+        removeWaiter();
+        complete();
+      };
+      const onAbort = () => {
+        waiter.reject(new Error("Video metadata wait cancelled"));
+      };
+
+      this.metadataWaiters.push(waiter);
+      timeout = setTimeout(() => {
         this.logger.warn(
           `Timeout waiting for video metadata (${timeoutMs}ms). Livestream state: ${this.livestreamActualState}, intended: ${this.livestreamIntendedState}`,
         );
-        reject(
+        waiter.reject(
           new Error(`Timeout waiting for video metadata (${timeoutMs}ms)`),
         );
       }, timeoutMs);
-
-      this.once("metadataReceived", (metadata) => {
-        clearTimeout(timeout);
-        this.logger.debug("Video metadata received successfully");
-        resolve(metadata);
-      });
+      timeout.unref?.();
+      signal?.addEventListener("abort", onAbort, { once: true });
     });
   }
 
