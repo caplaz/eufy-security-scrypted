@@ -143,6 +143,10 @@ export class StreamServer extends EventEmitter {
     { muxer: JMuxer; duplex: Duplex }
   >();
   private pendingMuxerSockets = new Set<net.Socket>();
+  private pendingMetadataWaitAbortControllers = new Map<
+    net.Socket,
+    AbortController
+  >();
 
   /**
    * Count every "thing currently waiting on or consuming the livestream":
@@ -1269,6 +1273,10 @@ export class StreamServer extends EventEmitter {
     // socket disappears before the first frame arrives, abort that waiter
     // immediately instead of retaining it until the 60s metadata timeout.
     const metadataWaitAbortController = new AbortController();
+    this.pendingMetadataWaitAbortControllers.set(
+      socket,
+      metadataWaitAbortController,
+    );
     const cancelMetadataWait = () => metadataWaitAbortController.abort();
     socket.once("close", cancelMetadataWait);
     socket.once("error", cancelMetadataWait);
@@ -1304,6 +1312,7 @@ export class StreamServer extends EventEmitter {
     } finally {
       socket.removeListener("close", cancelMetadataWait);
       socket.removeListener("error", cancelMetadataWait);
+      this.pendingMetadataWaitAbortControllers.delete(socket);
     }
 
     // Socket may have given up while we waited.
@@ -1562,6 +1571,13 @@ export class StreamServer extends EventEmitter {
     this.muxerStreams.clear();
 
     // Also close any muxer clients still waiting for first-frame metadata
+    // and synchronously cancel their waits before `stop()` resolves. Socket
+    // close events are asynchronous, so relying on them alone leaks waiters
+    // across the shutdown boundary.
+    for (const controller of this.pendingMetadataWaitAbortControllers.values()) {
+      controller.abort();
+    }
+    this.pendingMetadataWaitAbortControllers.clear();
     for (const socket of this.pendingMuxerSockets) {
       if (!socket.destroyed) socket.destroy();
     }
