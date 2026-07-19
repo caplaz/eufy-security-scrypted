@@ -132,6 +132,31 @@ describe("CompatibilityEncoderPool", () => {
     reAdmitted.release();
   });
 
+  it("does not let a displaced camera evict another prebuffer holder during cooldown", () => {
+    const pool = new CompatibilityEncoderPool({
+      capacity: 1,
+      now: () => 100,
+      preemptionCooldownMs: 1000,
+    });
+    pool.acquire({ serialNumber: "camera-a", consumerKind: "prebuffer" });
+    const cameraBInteractive = pool.acquire({
+      serialNumber: "camera-b",
+      consumerKind: "interactive",
+    });
+
+    // Free the interactive slot, then let B occupy it with a prebuffer. A's
+    // retry is interactive, so this proves cooldown—not consumer kind—blocks
+    // a cascade eviction of B.
+    cameraBInteractive.release();
+    pool.acquire({ serialNumber: "camera-b", consumerKind: "prebuffer" });
+    expect(() =>
+      pool.acquire({ serialNumber: "camera-a", consumerKind: "interactive" }),
+    ).toThrow(CompatibilityEncoderCapacityError);
+    expect(pool.diagnostics).toEqual([
+      expect.objectContaining({ serialNumber: "camera-b", preemptible: true }),
+    ]);
+  });
+
   it("releases leases idempotently and updates consumer composition on detach", () => {
     const pool = new CompatibilityEncoderPool({ capacity: 1 });
     const prebuffer = pool.acquire({ serialNumber: "camera-1", consumerKind: "prebuffer" });
