@@ -251,6 +251,33 @@ describe("StreamService", () => {
       expect(result).toBeDefined();
       expect(result.mimeType).toBe("video/h264");
     });
+
+    it("logs requested stream id and destination for the verification gate", async () => {
+      await service.getVideoStream(undefined, {
+        id: "p2p",
+        destination: "local-recorder",
+      } as any);
+      expect(
+        mockLogger.info.mock.calls.some(
+          (c: any[]) =>
+            typeof c[0] === "string" &&
+            c[0].includes("[stream-request]") &&
+            c[0].includes("id=p2p") &&
+            c[0].includes("destination=local-recorder"),
+        ),
+      ).toBe(true);
+    });
+
+    it("logs absent id and destination as <none>", async () => {
+      await service.getVideoStream(undefined, undefined);
+      expect(
+        mockLogger.info.mock.calls.some(
+          (c: any[]) =>
+            typeof c[0] === "string" &&
+            c[0].includes("[stream-request] id=<none> destination=<none>"),
+        ),
+      ).toBe(true);
+    });
   });
 
   describe("stopStream", () => {
