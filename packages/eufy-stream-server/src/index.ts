@@ -25,7 +25,14 @@
 export { StreamServer } from "./stream-server";
 export { ConnectionManager } from "./connection-manager";
 export { H264Parser } from "./h264-parser";
+export { ThermalGovernor } from "./thermal-governor";
 
 export type { StreamServerOptions } from "./stream-server";
+export type {
+  TemperatureReader,
+  ThermalGovernorOptions,
+  ThermalGovernorReason,
+  ThermalGovernorStatus,
+} from "./thermal-governor";
 
 export type { StreamData, ConnectionInfo, ServerStats, NALUnit } from "./types";
