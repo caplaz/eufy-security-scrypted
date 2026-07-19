@@ -8,6 +8,12 @@
 
 import { VideoMetadata } from "@caplaz/eufy-security-client";
 
+export interface MetadataBootstrapWaiter {
+  promise: Promise<VideoMetadata>;
+  release(): void;
+  cancel(): void;
+}
+
 /**
  * StreamServer interface (from @caplaz/eufy-stream-server)
  *
@@ -60,6 +66,18 @@ export interface IStreamServer {
    * Returns null if no stream has been received yet.
    */
   getVideoMetadata(): VideoMetadata | null;
+
+  /** Whether the metadata was observed from the current P2P session. */
+  isMetadataVerifiedForCurrentSession(): boolean;
+
+  /** Keep the upstream live while waiting for fresh session metadata. */
+  acquireMetadataWaiter(timeoutMs?: number): MetadataBootstrapWaiter;
+
+  /** Runs once when a raw or muxed downstream consumer attaches. */
+  onNextConsumerAttached(callback: () => void): () => void;
+
+  /** Audio observed on the current stream, rather than an assumed capability. */
+  getAudioStatus(): "unknown" | "aac" | "none";
 
   /**
    * Get the TCP port the MPEG-TS muxed server is listening on.

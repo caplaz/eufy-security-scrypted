@@ -31,6 +31,7 @@ jest.mock("@scrypted/sdk", () => ({
     log: any = { a: jest.fn(), clearAlert: jest.fn() };
   },
   ScryptedInterface: {
+    VideoCamera: "VideoCamera",
     MotionSensor: "MotionSensor",
     Brightness: "Brightness",
     OnOff: "OnOff",
@@ -61,6 +62,14 @@ jest.mock("@scrypted/sdk", () => ({
 
 // Mock the StreamServer
 jest.mock("@caplaz/eufy-stream-server", () => ({
+  CompatibilityEncoderPool: class {},
+  ThermalGovernor: class {
+    checkCompatibilityEncoderAdmission = jest.fn().mockResolvedValue(true);
+    getStatus = jest
+      .fn()
+      .mockReturnValue({ throttled: false, reason: "unsupported" });
+  },
+  getSharedH264CompatibilityRelay: jest.fn(),
   StreamServer: jest.fn().mockImplementation(() => ({
     start: jest.fn().mockResolvedValue(undefined),
     stop: jest.fn().mockResolvedValue(undefined),
@@ -136,6 +145,21 @@ describe("EufyDevice PTZ Functionality", () => {
   });
 
   describe("PTZ Capabilities Detection", () => {
+    test("reannounces stream options when live codec metadata replaces a hint", () => {
+      const onDeviceEvent = jest.fn();
+      (device as any).onDeviceEvent = onDeviceEvent;
+      const streamServer = (
+        require("@caplaz/eufy-stream-server").StreamServer as jest.Mock
+      ).mock.results.at(-1)?.value;
+      const metadataListener = streamServer.on.mock.calls.find(
+        ([event]: [string]) => event === "metadataReceived",
+      )?.[1];
+
+      metadataListener({ videoCodec: "H265" });
+
+      expect(onDeviceEvent).toHaveBeenCalledWith("VideoCamera", undefined);
+    });
+
     test("should enable PTZ capabilities for pan/tilt capable devices", () => {
       // Mock device type that supports pan/tilt (e.g., Indoor PT Camera)
       const mockProperties = { type: 31 }; // DeviceType that supports pan/tilt

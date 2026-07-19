@@ -977,6 +977,10 @@ export class EufyDevice
             `💾 Persisted detected video codec: ${normalized} (was: ${previous ?? "unset"})`,
           );
         }
+        // Stream options are codec-bearing. Once a live session replaces a
+        // persisted hint, ask Scrypted to obtain fresh options so consumers
+        // cannot continue to select a stale native codec description.
+        this.onDeviceEvent(ScryptedInterface.VideoCamera, undefined);
       },
     );
 

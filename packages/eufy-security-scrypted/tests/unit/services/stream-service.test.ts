@@ -8,6 +8,14 @@ import { Logger, ILogObj } from "tslog";
 import { VideoQuality } from "@caplaz/eufy-security-client";
 import { MediaObject } from "@scrypted/sdk";
 import sdk from "@scrypted/sdk";
+import { CompatibilityMode } from "../../../src/services/device/stream-selector";
+
+const liveH265Metadata = {
+  videoCodec: "H265" as const,
+  videoWidth: 1920,
+  videoHeight: 1080,
+  videoFPS: 15,
+};
 
 // Mock the SDK
 jest.mock("@scrypted/sdk", () => ({
@@ -43,9 +51,18 @@ describe("StreamService", () => {
       stop: jest.fn().mockResolvedValue(undefined),
       getPort: jest.fn().mockReturnValue(mockPort),
       isRunning: jest.fn().mockReturnValue(false),
-      getVideoMetadata: jest.fn().mockReturnValue(null),
+      getVideoMetadata: jest.fn().mockReturnValue({
+        videoCodec: "H264",
+        videoWidth: 1920,
+        videoHeight: 1080,
+        videoFPS: 15,
+      }),
       getAudioMetadata: jest.fn().mockReturnValue(null),
       getMuxedPort: jest.fn().mockReturnValue(undefined),
+      getAudioStatus: jest.fn().mockReturnValue("aac"),
+      isMetadataVerifiedForCurrentSession: jest.fn().mockReturnValue(true),
+      acquireMetadataWaiter: jest.fn(),
+      onNextConsumerAttached: jest.fn().mockReturnValue(jest.fn()),
       captureSnapshot: jest.fn(),
     } as any;
 
@@ -97,6 +114,41 @@ describe("StreamService", () => {
   });
 
   describe("getVideoStreamOptions", () => {
+    it("does not advertise a stale codec hint as native stream bytes", () => {
+      mockStreamServer.getVideoMetadata.mockReturnValue(liveH265Metadata);
+      mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
+        false,
+      );
+      mockStreamServer.getAudioStatus.mockReturnValue("unknown");
+
+      const [native] = service.getVideoStreamOptions(VideoQuality.HIGH);
+
+      expect(native.video).toEqual({ width: 1920, height: 1080 });
+      expect(native.audio).toBeUndefined();
+    });
+
+    it("advertises verified native fMP4 codec and observed audio truthfully", () => {
+      mockStreamServer.getVideoMetadata.mockReturnValue(liveH265Metadata);
+      mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
+        true,
+      );
+      mockStreamServer.getAudioStatus.mockReturnValue("none");
+
+      expect(service.getVideoStreamOptions(VideoQuality.HIGH)).toEqual([
+        {
+          id: "p2p",
+          name: "P2P Stream",
+          container: "mp4",
+          video: { codec: "h265", width: 1920, height: 1080 },
+        },
+        {
+          id: "p2p-h264",
+          name: "P2P Stream (H.264 Compatibility)",
+          container: "mp4",
+          video: { codec: "h264", width: 1920, height: 1080 },
+        },
+      ]);
+    });
     it("should return stream options with correct dimensions", () => {
       const options = service.getVideoStreamOptions(VideoQuality.HIGH);
 
@@ -135,6 +187,117 @@ describe("StreamService", () => {
   });
 
   describe("getVideoStream", () => {
+    it("waits for current-session metadata and holds bootstrap until a consumer attaches", async () => {
+      let resolveMetadata!: (metadata: typeof liveH265Metadata) => void;
+      const release = jest.fn();
+      let consumerAttached: (() => void) | undefined;
+      mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
+        false,
+      );
+      mockStreamServer.acquireMetadataWaiter.mockReturnValue({
+        promise: new Promise((resolve) => {
+          resolveMetadata = resolve;
+        }),
+        release,
+        cancel: release,
+      });
+      mockStreamServer.onNextConsumerAttached.mockImplementation((callback) => {
+        consumerAttached = callback;
+        return jest.fn();
+      });
+
+      const result = service.getVideoStream(VideoQuality.HIGH, { id: "p2p" });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(mockStreamServer.acquireMetadataWaiter).toHaveBeenCalledTimes(1);
+      mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
+        true,
+      );
+      resolveMetadata(liveH265Metadata);
+      await result;
+
+      expect(release).not.toHaveBeenCalled();
+      consumerAttached?.();
+      expect(release).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps a verified H265 native stream truthful when the consumer requests H264", async () => {
+      mockStreamServer.getVideoMetadata.mockReturnValue(liveH265Metadata);
+      mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
+        true,
+      );
+      mockStreamServer.getMuxedPort.mockReturnValue(55555);
+
+      await service.getVideoStream(VideoQuality.HIGH, {
+        id: "p2p",
+        video: { codec: "h264" },
+      } as any);
+
+      expect(sdk.mediaManager.createFFmpegMediaObject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mediaStreamOptions: expect.objectContaining({
+            video: expect.objectContaining({ codec: "h265" }),
+          }),
+        }),
+      );
+    });
+
+    it("routes an explicit compatibility stream through a shared H264 relay", async () => {
+      const relay = {
+        start: jest.fn().mockResolvedValue(undefined),
+        stop: jest.fn().mockResolvedValue(undefined),
+        getPort: jest.fn().mockReturnValue(45678),
+      };
+      const relayFactory = jest.fn().mockReturnValue(relay);
+      mockStreamServer.getVideoMetadata.mockReturnValue(liveH265Metadata);
+      mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
+        true,
+      );
+      mockStreamServer.getMuxedPort.mockReturnValue(55555);
+      service = new StreamService(serialNumber, mockStreamServer, mockLogger, {
+        compatibilityMode: () => "Auto" as CompatibilityMode,
+        relayFactory,
+      });
+
+      await service.getVideoStream(VideoQuality.HIGH, { id: "p2p-h264" });
+
+      expect(relay.start).toHaveBeenCalledTimes(1);
+      expect(sdk.mediaManager.createFFmpegMediaObject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          inputArguments: expect.arrayContaining(["tcp://127.0.0.1:45678"]),
+          mediaStreamOptions: expect.objectContaining({
+            container: "mp4",
+            video: expect.objectContaining({ codec: "h264" }),
+          }),
+        }),
+      );
+    });
+
+    it("reports a thermal admission denial for an explicit compatibility stream", async () => {
+      mockStreamServer.getVideoMetadata.mockReturnValue(liveH265Metadata);
+      mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
+        true,
+      );
+      service = new StreamService(serialNumber, mockStreamServer, mockLogger, {
+        thermalGovernor: {
+          checkCompatibilityEncoderAdmission: jest
+            .fn()
+            .mockResolvedValue(false),
+          getStatus: jest.fn().mockReturnValue({
+            throttled: true,
+            reason: "critical-temperature",
+            temperatureC: 92,
+          }),
+        },
+      });
+
+      await expect(
+        service.getVideoStream(VideoQuality.HIGH, { id: "p2p-h264" }),
+      ).rejects.toThrow("compatibility-unavailable");
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("thermal admission denied"),
+      );
+    });
     it("should start stream server if not already started", async () => {
       await service.getVideoStream(VideoQuality.HIGH);
 

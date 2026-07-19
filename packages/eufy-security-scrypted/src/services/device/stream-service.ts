@@ -15,9 +15,20 @@ import {
 } from "@scrypted/sdk";
 import sdk from "@scrypted/sdk";
 import { VideoQuality } from "@caplaz/eufy-security-client";
+import {
+  CompatibilityEncoderPool,
+  getSharedH264CompatibilityRelay,
+  H264CompatibilityRelay,
+  ThermalGovernor,
+} from "@caplaz/eufy-stream-server";
 import { FFmpegUtils } from "../../utils/ffmpeg-utils";
 import { Logger, ILogObj } from "tslog";
-import { IStreamServer } from "./types";
+import {
+  selectStream,
+  CompatibilityMode,
+  SourceCodec,
+} from "./stream-selector";
+import { IStreamServer, MetadataBootstrapWaiter } from "./types";
 
 /**
  * Video dimensions based on quality
@@ -36,6 +47,40 @@ export interface StreamConfig {
   codec?: string;
 }
 
+interface CompatibilityRelay {
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  getPort(): number | undefined;
+}
+
+export interface StreamServiceOptions {
+  compatibilityMode?: () => CompatibilityMode;
+  thermalGovernor?: Pick<
+    ThermalGovernor,
+    "checkCompatibilityEncoderAdmission" | "getStatus"
+  >;
+  encoderPool?: CompatibilityEncoderPool;
+  relayFactory?: (options: {
+    serialNumber: string;
+    streamServer: IStreamServer;
+    ffmpegPath: string;
+    pool: CompatibilityEncoderPool;
+  }) => CompatibilityRelay;
+  metadataTimeoutMs?: number;
+}
+
+const METADATA_BOOTSTRAP_TIMEOUT_MS = 15_000;
+let sharedEncoderPool: CompatibilityEncoderPool | undefined;
+let defaultThermalGovernor: ThermalGovernor | undefined;
+
+function getSharedEncoderPool(): CompatibilityEncoderPool {
+  return (sharedEncoderPool ??= new CompatibilityEncoderPool());
+}
+
+function getDefaultThermalGovernor(): ThermalGovernor {
+  return (defaultThermalGovernor ??= new ThermalGovernor());
+}
+
 function escapeStreamRequestLogField(value?: string): string {
   return (value ?? "<none>").replace(/\r/g, "\\r").replace(/\n/g, "\\n");
 }
@@ -51,12 +96,31 @@ function escapeStreamRequestLogField(value?: string): string {
  */
 export class StreamService {
   private streamServerStarted = false;
+  private relay?: CompatibilityRelay;
+  private resolvedFfmpegPath?: string;
+  private readonly bootstrapHandoffs = new Set<() => void>();
+  private readonly compatibilityMode: () => CompatibilityMode;
+  private readonly thermalGovernor?: Pick<
+    ThermalGovernor,
+    "checkCompatibilityEncoderAdmission" | "getStatus"
+  >;
+  private readonly encoderPool?: CompatibilityEncoderPool;
+  private readonly relayFactory?: StreamServiceOptions["relayFactory"];
+  private readonly metadataTimeoutMs: number;
 
   constructor(
     private serialNumber: string,
     private streamServer: IStreamServer,
     private logger: Logger<ILogObj>,
-  ) {}
+    options: StreamServiceOptions = {},
+  ) {
+    this.compatibilityMode = options.compatibilityMode ?? (() => "Auto");
+    this.thermalGovernor = options.thermalGovernor;
+    this.encoderPool = options.encoderPool;
+    this.relayFactory = options.relayFactory;
+    this.metadataTimeoutMs =
+      options.metadataTimeoutMs ?? METADATA_BOOTSTRAP_TIMEOUT_MS;
+  }
 
   /**
    * Get video dimensions based on quality setting
@@ -87,23 +151,28 @@ export class StreamService {
    */
   getVideoStreamOptions(quality?: VideoQuality): ResponseMediaStreamOptions[] {
     const { width, height } = this.getVideoDimensions(quality);
-    const codec = FFmpegUtils.toScryptedCodec(
-      this.streamServer.getVideoMetadata()?.videoCodec ?? "H264",
-    );
+    const source = this.currentVerifiedSource();
+    const audio = this.truthfulAudioOption();
+    const native: ResponseMediaStreamOptions = {
+      id: "p2p",
+      name: "P2P Stream",
+      container: "mp4",
+      video: source.codec
+        ? { codec: FFmpegUtils.toScryptedCodec(source.codec), width, height }
+        : { width, height },
+      ...(audio && { audio }),
+    };
+
+    if (source.codec !== "H265") return [native];
 
     return [
+      native,
       {
-        id: "p2p",
-        name: "P2P Stream",
+        id: "p2p-h264",
+        name: "P2P Stream (H.264 Compatibility)",
         container: "mp4",
-        video: {
-          codec,
-          width,
-          height,
-        },
-        audio: {
-          codec: "aac",
-        },
+        video: { codec: "h264", width, height },
+        ...(audio && { audio }),
       },
     ];
   }
@@ -134,17 +203,43 @@ export class StreamService {
       this.logger.info("Stream server started");
     }
 
-    const port = this.streamServer.getPort();
-    if (!port) {
-      throw new Error("Failed to get stream server port");
+    let bootstrap: MetadataBootstrapWaiter | undefined;
+    try {
+      const resolved = await this.resolveCurrentSource();
+      bootstrap = resolved.bootstrap;
+      const selection = await this.select(resolved.codec, options);
+
+      if (selection.kind === "error") {
+        this.logger.warn(selection.message);
+        throw new Error(selection.message);
+      }
+
+      if (selection.streamId === "p2p-h264") {
+        const relayPort = await this.ensureCompatibilityRelay();
+        const media = await this.createCompatibilityMediaObject(
+          relayPort,
+          quality,
+          options,
+        );
+        this.handoffBootstrapOnConsumerAttach(bootstrap);
+        return media;
+      }
+
+      const port = this.streamServer.getPort();
+      if (!port) throw new Error("Failed to get stream server port");
+      this.logger.info(`Stream server is listening on port ${port}`);
+      const media = await this.createNativeMediaObject(
+        port,
+        resolved.codec,
+        quality,
+        options,
+      );
+      this.handoffBootstrapOnConsumerAttach(bootstrap);
+      return media;
+    } catch (error) {
+      bootstrap?.cancel();
+      throw error;
     }
-
-    this.logger.info(`Stream server is listening on port ${port}`);
-    this.logger.info(
-      "Creating MediaObject with fallback dimensions (metadata will be updated when stream starts)",
-    );
-
-    return await this.createOptimizedMediaObject(port, quality, options);
   }
 
   /**
@@ -153,6 +248,11 @@ export class StreamService {
    * @returns Promise that resolves when stream is stopped
    */
   async stopStream(): Promise<void> {
+    this.releaseBootstrapHandoffs();
+    if (this.relay) {
+      await this.relay.stop();
+      this.relay = undefined;
+    }
     if (this.streamServerStarted) {
       this.logger.info("Stopping stream server");
       await this.streamServer.stop();
@@ -181,17 +281,15 @@ export class StreamService {
    * @param options - Request options from Scrypted
    * @returns MediaObject configured for FFmpeg
    */
-  private async createOptimizedMediaObject(
+  private async createNativeMediaObject(
     port: number,
+    sourceCodec: SourceCodec,
     quality: VideoQuality | undefined,
     options?: RequestMediaStreamOptions,
   ): Promise<MediaObject> {
     const { width, height } = this.getVideoDimensions(quality);
 
-    // Detect codec from last received stream metadata; default to H264
-    const eufyCodec =
-      this.streamServer.getVideoMetadata()?.videoCodec ?? "H264";
-    const scryptedCodec = FFmpegUtils.toScryptedCodec(eufyCodec); // "h264" or "h265"
+    const scryptedCodec = FFmpegUtils.toScryptedCodec(sourceCodec);
 
     // Use the muxed fMP4 port if available. The stream server runs an
     // in-process JMuxer (no ffmpeg subprocess) that consumes raw H.264
@@ -229,7 +327,7 @@ export class StreamService {
           "-probesize",
           "5000000",
           "-f",
-          FFmpegUtils.toFFmpegFormat(eufyCodec),
+          FFmpegUtils.toFFmpegFormat(sourceCodec),
           "-i",
           `tcp://127.0.0.1:${port}`,
           "-an",
@@ -253,11 +351,198 @@ export class StreamService {
           width,
           height,
         },
-        ...(useMuxed && { audio: { codec: "aac" } }),
+        ...(useMuxed &&
+          this.truthfulAudioOption() && {
+            audio: this.truthfulAudioOption(),
+          }),
       },
     };
 
     return await sdk.mediaManager.createFFmpegMediaObject(ffmpegInput);
+  }
+
+  private currentVerifiedSource(): { codec?: SourceCodec; verified: boolean } {
+    if (!this.streamServer.isMetadataVerifiedForCurrentSession()) {
+      return { verified: false };
+    }
+    const codec = this.toSourceCodec(
+      this.streamServer.getVideoMetadata()?.videoCodec,
+    );
+    return { codec, verified: !!codec };
+  }
+
+  private async resolveCurrentSource(): Promise<{
+    codec: SourceCodec;
+    bootstrap?: MetadataBootstrapWaiter;
+  }> {
+    const current = this.currentVerifiedSource();
+    if (current.codec) return { codec: current.codec };
+
+    const bootstrap = this.streamServer.acquireMetadataWaiter(
+      this.metadataTimeoutMs,
+    );
+    try {
+      const metadata = await bootstrap.promise;
+      const codec = this.toSourceCodec(metadata.videoCodec);
+      if (!codec || !this.streamServer.isMetadataVerifiedForCurrentSession()) {
+        throw new Error(
+          "Live video metadata was received without a verified source codec",
+        );
+      }
+      return { codec, bootstrap };
+    } catch (error) {
+      bootstrap.cancel();
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Unable to determine the current live video codec for ${this.serialNumber}. ` +
+          `Wait for the camera to deliver video and retry. (${detail})`,
+      );
+    }
+  }
+
+  private async select(
+    codec: SourceCodec,
+    options?: RequestMediaStreamOptions,
+  ) {
+    const input = {
+      streamId: options?.id,
+      destination: options?.destination,
+      compatibilityMode: this.compatibilityMode(),
+      source: { codec, verified: true },
+    };
+    let selection = selectStream(input);
+    if (selection.kind !== "stream" || selection.streamId !== "p2p-h264") {
+      return selection;
+    }
+
+    const thermalGovernor = this.thermalGovernor ?? getDefaultThermalGovernor();
+    const admitted = await thermalGovernor.checkCompatibilityEncoderAdmission();
+    if (admitted) return selection;
+    const status = thermalGovernor.getStatus();
+    const availabilityError = `thermal admission denied (${status.reason}${
+      status.temperatureC === undefined ? "" : ` at ${status.temperatureC}°C`
+    })`;
+    this.logger.warn(
+      `Cannot start H.264 compatibility stream for ${this.serialNumber}: ${availabilityError}`,
+    );
+    selection = selectStream({ ...input, availabilityError });
+    return selection;
+  }
+
+  private async ensureCompatibilityRelay(): Promise<number> {
+    if (!this.relay) {
+      const encoderPool = this.encoderPool ?? getSharedEncoderPool();
+      const relayFactory =
+        this.relayFactory ??
+        ((relayOptions) =>
+          getSharedH264CompatibilityRelay(
+            relayOptions,
+          ) as H264CompatibilityRelay);
+      this.relay = relayFactory({
+        serialNumber: this.serialNumber,
+        streamServer: this.streamServer,
+        ffmpegPath: await this.resolveFfmpegPath(),
+        pool: encoderPool,
+      });
+    }
+    try {
+      await this.relay.start();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Cannot start H.264 compatibility relay for ${this.serialNumber}: ${detail}`,
+      );
+      throw new Error(
+        `H.264 compatibility stream is unavailable for ${this.serialNumber}: ${detail}`,
+      );
+    }
+    const port = this.relay.getPort();
+    if (!port) {
+      throw new Error(
+        `H.264 compatibility relay started without a listening port for ${this.serialNumber}`,
+      );
+    }
+    return port;
+  }
+
+  private async resolveFfmpegPath(): Promise<string> {
+    if (this.resolvedFfmpegPath) return this.resolvedFfmpegPath;
+    try {
+      this.resolvedFfmpegPath = await sdk.mediaManager.getFFmpegPath();
+    } catch {
+      this.resolvedFfmpegPath = "ffmpeg";
+    }
+    return this.resolvedFfmpegPath;
+  }
+
+  private async createCompatibilityMediaObject(
+    port: number,
+    quality: VideoQuality | undefined,
+    options?: RequestMediaStreamOptions,
+  ): Promise<MediaObject> {
+    const { width, height } = this.getVideoDimensions(quality);
+    return sdk.mediaManager.createFFmpegMediaObject({
+      url: undefined,
+      inputArguments: this.createMuxedInputArguments(port),
+      mediaStreamOptions: {
+        id: options?.id || "p2p-h264",
+        name: options?.name || "Eufy Camera Stream (H.264 Compatibility)",
+        container: "mp4",
+        video: { ...options?.video, codec: "h264", width, height },
+        ...(this.truthfulAudioOption() && {
+          audio: this.truthfulAudioOption(),
+        }),
+      },
+    });
+  }
+
+  private createMuxedInputArguments(port: number): string[] {
+    return [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-fflags",
+      "+genpts+nobuffer",
+      "-analyzeduration",
+      "2000000",
+      "-probesize",
+      "1000000",
+      "-f",
+      "mp4",
+      "-i",
+      `tcp://127.0.0.1:${port}`,
+    ];
+  }
+
+  private truthfulAudioOption(): { codec: "aac" } | undefined {
+    return this.streamServer.getAudioStatus() === "aac"
+      ? { codec: "aac" }
+      : undefined;
+  }
+
+  private toSourceCodec(codec?: string): SourceCodec | undefined {
+    const normalized = codec?.toUpperCase();
+    if (normalized === "H264" || normalized === "AVC") return "H264";
+    if (normalized === "H265" || normalized === "HEVC") return "H265";
+    return undefined;
+  }
+
+  private handoffBootstrapOnConsumerAttach(
+    bootstrap?: MetadataBootstrapWaiter,
+  ): void {
+    if (!bootstrap) return;
+    let removeListener: () => void = () => undefined;
+    const release = () => {
+      removeListener();
+      this.bootstrapHandoffs.delete(release);
+      bootstrap.release();
+    };
+    removeListener = this.streamServer.onNextConsumerAttached(release);
+    this.bootstrapHandoffs.add(release);
+  }
+
+  private releaseBootstrapHandoffs(): void {
+    for (const release of [...this.bootstrapHandoffs]) release();
   }
 
   /**
