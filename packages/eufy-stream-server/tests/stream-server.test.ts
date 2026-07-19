@@ -1703,7 +1703,7 @@ describe("StreamServer", () => {
         );
         socket.destroy();
         await serverSocketClosed;
-        await Promise.resolve();
+        await new Promise<void>((resolve) => setImmediate(resolve));
 
         expect((server as any).metadataWaiters.length).toBe(0);
         expect(unhandledRejections).toEqual([]);
@@ -1733,7 +1733,7 @@ describe("StreamServer", () => {
         expect((server as any).metadataWaiters.length).toBe(1);
 
         await server.stop();
-        await Promise.resolve();
+        await new Promise<void>((resolve) => setImmediate(resolve));
 
         expect((server as any).metadataWaiters.length).toBe(0);
         expect(unhandledRejections).toEqual([]);
