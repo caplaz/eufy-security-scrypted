@@ -20,7 +20,9 @@ import {
   getSharedH264CompatibilityRelay,
   H264CompatibilityRelay,
   ThermalGovernor,
+  TemperatureReader,
 } from "@caplaz/eufy-stream-server";
+import { readdir, readFile } from "node:fs/promises";
 import { FFmpegUtils } from "../../utils/ffmpeg-utils";
 import { Logger, ILogObj } from "tslog";
 import {
@@ -82,6 +84,11 @@ export interface CompatibilityStreamingConfig {
   recoveryTemperatureC: number;
 }
 
+export interface SharedCompatibilityStreamingDependencies {
+  /** Override the host probe for tests or non-standard deployments. */
+  temperatureReader?: TemperatureReader;
+}
+
 let sharedEncoderPool: CompatibilityEncoderPool | undefined;
 let defaultThermalGovernor: ThermalGovernor | undefined;
 
@@ -92,6 +99,7 @@ let defaultThermalGovernor: ThermalGovernor | undefined;
  */
 export function configureSharedCompatibilityStreaming(
   config: CompatibilityStreamingConfig,
+  dependencies: SharedCompatibilityStreamingDependencies = {},
 ): void {
   validateCompatibilityStreamingConfig(config);
   if (sharedEncoderPool) {
@@ -104,6 +112,8 @@ export function configureSharedCompatibilityStreaming(
   defaultThermalGovernor = new ThermalGovernor({
     criticalTemperatureC: config.criticalTemperatureC,
     recoveryTemperatureC: config.recoveryTemperatureC,
+    temperatureReader:
+      dependencies.temperatureReader ?? readLinuxThermalTemperatureC,
   });
 }
 
@@ -111,8 +121,40 @@ export function getSharedCompatibilityEncoderPool(): CompatibilityEncoderPool {
   return (sharedEncoderPool ??= new CompatibilityEncoderPool());
 }
 
-function getDefaultThermalGovernor(): ThermalGovernor {
-  return (defaultThermalGovernor ??= new ThermalGovernor());
+export function getSharedThermalGovernor(): ThermalGovernor {
+  return (defaultThermalGovernor ??= new ThermalGovernor({
+    temperatureReader: readLinuxThermalTemperatureC,
+  }));
+}
+
+/**
+ * Best-effort Linux temperature probe. Unsupported hosts and inaccessible
+ * sensors fail open by returning undefined, which leaves admission unthrottled.
+ */
+export async function readLinuxThermalTemperatureC(): Promise<
+  number | undefined
+> {
+  if (process.platform !== "linux") return undefined;
+
+  try {
+    const entries = await readdir("/sys/class/thermal", {
+      withFileTypes: true,
+    });
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.startsWith("thermal_zone")) {
+        continue;
+      }
+      const raw = Number(
+        (await readFile(`/sys/class/thermal/${entry.name}/temp`, "utf8")).trim(),
+      );
+      if (!Number.isFinite(raw)) continue;
+      return Math.abs(raw) >= 1_000 ? raw / 1_000 : raw;
+    }
+  } catch {
+    // Containers commonly do not expose host thermal zones. This must never
+    // make compatibility streaming unavailable on an otherwise valid host.
+  }
+  return undefined;
 }
 
 function validateCompatibilityStreamingConfig(
@@ -488,7 +530,8 @@ export class StreamService {
       return selection;
     }
 
-    const thermalGovernor = this.thermalGovernor ?? getDefaultThermalGovernor();
+    const thermalGovernor =
+      this.thermalGovernor ?? getSharedThermalGovernor();
     const admitted = await thermalGovernor.checkCompatibilityEncoderAdmission();
     if (admitted) return selection;
     const status = thermalGovernor.getStatus();

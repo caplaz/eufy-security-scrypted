@@ -5,6 +5,7 @@
 import {
   configureSharedCompatibilityStreaming,
   getSharedCompatibilityEncoderPool,
+  getSharedThermalGovernor,
   StreamService,
 } from "../../../src/services/device/stream-service";
 import { CompatibilityEncoderCapacityError } from "@caplaz/eufy-stream-server";
@@ -125,6 +126,34 @@ describe("StreamService", () => {
       consumerKind: "interactive",
     });
     third.release();
+  });
+
+  it("gates compatibility admissions when an injected host temperature is critical", async () => {
+    configureSharedCompatibilityStreaming(
+      {
+        encoderCapacity: 1,
+        criticalTemperatureC: 85,
+        recoveryTemperatureC: 75,
+      },
+      { temperatureReader: async () => 90 },
+    );
+
+    expect(
+      await getSharedThermalGovernor().checkCompatibilityEncoderAdmission(),
+    ).toBe(false);
+    expect(getSharedThermalGovernor().getStatus()).toMatchObject({
+      throttled: true,
+      temperatureC: 90,
+    });
+
+    configureSharedCompatibilityStreaming(
+      {
+        encoderCapacity: 1,
+        criticalTemperatureC: 85,
+        recoveryTemperatureC: 75,
+      },
+      { temperatureReader: async () => undefined },
+    );
   });
 
   describe("getVideoDimensions", () => {
