@@ -627,7 +627,7 @@ export class StreamServer extends EventEmitter {
             if (this.getRealConsumerCount() > 0 && !this.slotRevoked) {
               this.consecutiveNoDataStarts = 0;
               this.livestreamIntendedState = true;
-              await this.ensureLivestreamState();
+              await this.ensureLivestreamState(true);
             }
           })
           .catch((error) => {
@@ -1082,8 +1082,6 @@ export class StreamServer extends EventEmitter {
     }
 
     this.livestreamIntendedState = false;
-    this.setLivestreamActual(false);
-    this.releaseStreamSlot();
     this.consecutiveNoDataStarts = 0;
     this.lastVideoDataAt = 0;
     this.livestreamSessionStartedAt = 0;
@@ -1091,6 +1089,27 @@ export class StreamServer extends EventEmitter {
     if (this.startStopTimeout) {
       clearTimeout(this.startStopTimeout);
       this.startStopTimeout = undefined;
+    }
+
+    // A recycle can begin as soon as this event is emitted. Keep the station
+    // grant until P2P stop completes, and make post-recycle rearming wait for
+    // that ordered teardown so a sibling cannot overlap our stream.
+    if (this.streamLease) {
+      const transition = this.stopUpstreamBeforeReleasingStreamSlot().catch(
+        (error) => {
+          this.logger.warn(
+            `Failed to stop wedged upstream before releasing stream slot: ${error}`,
+          );
+        },
+      );
+      this.streamSlotTransition = transition;
+      void transition.finally(() => {
+        if (this.streamSlotTransition === transition) {
+          this.streamSlotTransition = undefined;
+        }
+      });
+    } else {
+      this.setLivestreamActual(false);
     }
 
     this.emit("upstreamWedged", {
@@ -1173,7 +1192,12 @@ export class StreamServer extends EventEmitter {
   /**
    * Ensure the livestream is in the correct state with retry logic
    */
-  private async ensureLivestreamState(): Promise<void> {
+  private async ensureLivestreamState(
+    skipSlotTransition: boolean = false,
+  ): Promise<void> {
+    if (!skipSlotTransition && this.streamSlotTransition) {
+      await this.streamSlotTransition;
+    }
     // Clear any existing timeout
     if (this.startStopTimeout) {
       clearTimeout(this.startStopTimeout);

@@ -1393,6 +1393,70 @@ describe("StreamServer", () => {
       expect(startLivestream).toHaveBeenCalledTimes(2);
       await s.stop();
     });
+
+    it("stops before releasing a wedged warm slot, then re-arms it after recycle", async () => {
+      const order: string[] = [];
+      let streaming = false;
+      const deviceApi = {
+        startLivestream: jest.fn().mockImplementation(async () => {
+          streaming = true;
+        }),
+        stopLivestream: jest.fn().mockImplementation(async () => {
+          streaming = false;
+          order.push("stop");
+        }),
+        isLivestreaming: jest
+          .fn()
+          .mockImplementation(async () => ({ livestreaming: streaming })),
+      };
+      const wsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: { device: jest.fn().mockReturnValue(deviceApi) },
+      };
+      const leases = [
+        {
+          active: true,
+          whenReady: Promise.resolve(),
+          markDelivering: jest.fn(),
+          release: jest.fn(() => order.push("release")),
+        },
+        {
+          active: true,
+          whenReady: Promise.resolve(),
+          markDelivering: jest.fn(),
+          release: jest.fn(),
+        },
+      ];
+      const acquireStreamSlot = jest
+        .fn()
+        .mockImplementation(() => leases.shift()!);
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        wsClient: wsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot,
+      });
+      await s.start();
+      s.holdWarmLease(500);
+      await wait(20);
+
+      (s as any).markUpstreamWedged("cold-start-counter-maxed", {
+        attempts: 1,
+      });
+      await wait(20);
+      expect(order).toEqual(["stop", "release"]);
+
+      s.setRecycleInFlight(true);
+      s.setRecycleInFlight(false);
+      await wait(20);
+      expect(acquireStreamSlot).toHaveBeenLastCalledWith(
+        "background",
+        expect.any(Function),
+      );
+      expect(deviceApi.startLivestream).toHaveBeenCalledTimes(2);
+      await s.stop();
+    });
   });
 
   describe("keyframe cache (getCachedKeyframe)", () => {
