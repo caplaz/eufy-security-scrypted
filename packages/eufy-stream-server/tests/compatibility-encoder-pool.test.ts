@@ -92,6 +92,36 @@ describe("CompatibilityEncoderPool", () => {
     ]);
   });
 
+  it("reserves the requesting slot before a preemption callback can reenter acquire", () => {
+    const pool = new CompatibilityEncoderPool({ capacity: 1 });
+    let reentrantError: unknown;
+    pool.acquire({
+      serialNumber: "camera-a",
+      consumerKind: "prebuffer",
+      onPreempt: () => {
+        try {
+          pool.acquire({ serialNumber: "camera-a", consumerKind: "interactive" });
+        } catch (error) {
+          reentrantError = error;
+        }
+      },
+    });
+
+    const requester = pool.acquire({
+      serialNumber: "camera-b",
+      consumerKind: "interactive",
+    });
+
+    expect(requester.serialNumber).toBe("camera-b");
+    expect(reentrantError).toBeInstanceOf(CompatibilityEncoderCapacityError);
+    expect(pool.diagnostics).toEqual([
+      expect.objectContaining({
+        serialNumber: "camera-b",
+        consumers: { interactive: 1, prebuffer: 0 },
+      }),
+    ]);
+  });
+
   it("never preempts an interactive holder", () => {
     const pool = new CompatibilityEncoderPool({ capacity: 2 });
     pool.acquire({ serialNumber: "camera-1", consumerKind: "interactive" });

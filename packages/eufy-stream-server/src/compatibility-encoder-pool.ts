@@ -116,7 +116,13 @@ export class CompatibilityEncoderPool {
           ? this.findOldestPreemptibleSlot()
           : undefined;
       if (victim) {
-        this.preempt(victim, now);
+        const slot = this.createSlot(request, now);
+        // Attach the requesting interactive lease before notifying the victim.
+        // A synchronous callback can now reenter acquire, but it sees this
+        // protected slot and cannot take the capacity we just made available.
+        const lease = this.addLease(slot, request);
+        this.preempt(victim, now, slot);
+        return lease;
       }
     }
 
@@ -128,13 +134,7 @@ export class CompatibilityEncoderPool {
       );
     }
 
-    const slot: EncoderSlot = {
-      serialNumber: request.serialNumber,
-      name: request.name,
-      acquiredAt: now,
-      sequence: this.nextSequence++,
-      leases: new Map(),
-    };
+    const slot = this.createSlot(request, now);
     this.slots.set(slot.serialNumber, slot);
     return this.addLease(slot, request);
   }
@@ -190,9 +190,27 @@ export class CompatibilityEncoderPool {
       )[0];
   }
 
-  private preempt(slot: EncoderSlot, now: number): void {
+  private createSlot(
+    request: CompatibilityEncoderAcquireRequest,
+    acquiredAt: number,
+  ): EncoderSlot {
+    return {
+      serialNumber: request.serialNumber,
+      name: request.name,
+      acquiredAt,
+      sequence: this.nextSequence++,
+      leases: new Map(),
+    };
+  }
+
+  private preempt(
+    slot: EncoderSlot,
+    now: number,
+    replacement: EncoderSlot,
+  ): void {
     this.slots.delete(slot.serialNumber);
     this.cooldownUntil.set(slot.serialNumber, now + this.preemptionCooldownMs);
+    this.slots.set(replacement.serialNumber, replacement);
 
     for (const lease of slot.leases.values()) {
       try {
