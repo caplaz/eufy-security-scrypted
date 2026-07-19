@@ -46,7 +46,10 @@ class FakeChild extends EventEmitter {
   public readonly stdin = new PassThrough();
   public readonly stdout = new PassThrough();
   public readonly stderr = new PassThrough();
-  public readonly kill = jest.fn();
+  public readonly kill = jest.fn((signal?: NodeJS.Signals | number) => {
+    setImmediate(() => this.emit("exit", null, signal));
+    return true;
+  });
 }
 
 class PendingSource extends EventEmitter {
@@ -294,6 +297,28 @@ describe("H264CompatibilityRelay", () => {
     await Promise.all([relay.stop(), relay.stop()]);
     expect(child.kill).toHaveBeenCalledTimes(1);
     expect(relay.getPort()).toBeUndefined();
+    await new Promise<void>((resolve) => source.server.close(() => resolve()));
+  });
+
+  it("waits for FFmpeg exit and escalates from TERM to KILL when it does not reap", async () => {
+    const source = await sourceServer();
+    const child = new FakeChild();
+    child.kill.mockImplementation((signal?: NodeJS.Signals | number) => {
+      if (signal === "SIGKILL") setImmediate(() => child.emit("exit", null, "SIGKILL"));
+      return true;
+    });
+    const relay = new H264CompatibilityRelay({
+      serialNumber: "camera-1", getMuxedPort: () => source.port, ffmpegPath: "/fake/ffmpeg",
+      createChildProcess: () => child, childExitTimeoutMs: 5,
+    });
+    await relay.start();
+    let stopped = false;
+    const stopping = relay.stop().then(() => { stopped = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(stopped).toBe(false);
+    await stopping;
+    expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+    expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
     await new Promise<void>((resolve) => source.server.close(() => resolve()));
   });
 

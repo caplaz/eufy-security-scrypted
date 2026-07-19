@@ -10,6 +10,7 @@ import {
 
 const MAX_QUEUED_FRAGMENTS = 2;
 const MAX_QUEUED_BYTES = 1024 * 1024;
+const DEFAULT_CHILD_EXIT_TIMEOUT_MS = 2_000;
 const defaultCompatibilityEncoderPool = new CompatibilityEncoderPool();
 
 type Child = Pick<ChildProcessWithoutNullStreams, "stdin" | "stdout" | "stderr" | "kill"> &
@@ -25,6 +26,8 @@ export interface H264CompatibilityRelayOptions {
   ffmpegPath?: string;
   pool?: CompatibilityEncoderPool;
   lingerMs?: number;
+  /** Bounded wait before escalating a graceful FFmpeg shutdown to SIGKILL. */
+  childExitTimeoutMs?: number;
   classifyConsumer?: (socket: net.Socket) => CompatibilityEncoderConsumerKind;
   createChildProcess?: (
     command: string,
@@ -53,6 +56,7 @@ export class H264CompatibilityRelay extends EventEmitter {
   private readonly netApi: Pick<typeof net, "createServer" | "createConnection">;
   private readonly pool: CompatibilityEncoderPool;
   private readonly lingerMs: number;
+  private readonly childExitTimeoutMs: number;
   private readonly classifyConsumer: (socket: net.Socket) => CompatibilityEncoderConsumerKind;
   private readonly createChild: NonNullable<H264CompatibilityRelayOptions["createChildProcess"]>;
   private server?: net.Server;
@@ -78,6 +82,10 @@ export class H264CompatibilityRelay extends EventEmitter {
     this.netApi = options.net ?? net;
     this.pool = options.pool ?? defaultCompatibilityEncoderPool;
     this.lingerMs = options.lingerMs ?? 10_000;
+    this.childExitTimeoutMs = options.childExitTimeoutMs ?? DEFAULT_CHILD_EXIT_TIMEOUT_MS;
+    if (this.childExitTimeoutMs < 0) {
+      throw new RangeError("H264 compatibility relay child exit timeout must not be negative");
+    }
     this.classifyConsumer = options.classifyConsumer ?? (() => "interactive");
     this.createChild = options.createChildProcess ?? ((command, args, spawnOptions) =>
       spawn(command, args, spawnOptions) as Child);
@@ -468,7 +476,7 @@ export class H264CompatibilityRelay extends EventEmitter {
       child.stdin.on("error", () => undefined);
       child.stdout.on("error", () => undefined);
       child.stderr.on("error", () => undefined);
-      try { child.kill(); } catch { /* already exited */ }
+      await this.terminateChild(child);
     }
     const source = this.source;
     this.source = undefined;
@@ -494,6 +502,42 @@ export class H264CompatibilityRelay extends EventEmitter {
 
   private isCurrent(generation: number): boolean {
     return generation === this.generation && !this.stopping;
+  }
+
+  /**
+   * Reap the owned FFmpeg process before completing relay teardown. Merely
+   * sending SIGTERM leaves its stdio handles alive under Jest (and can keep a
+   * plugin process alive indefinitely), so stop waits for exit/close and only
+   * then releases the relay's remaining resources.
+   */
+  private async terminateChild(child: Child): Promise<void> {
+    if (await this.signalAndWaitForChildExit(child, "SIGTERM")) return;
+    await this.signalAndWaitForChildExit(child, "SIGKILL");
+  }
+
+  private async signalAndWaitForChildExit(
+    child: Child,
+    signal: NodeJS.Signals,
+  ): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const done = (exited: boolean) => {
+        if (timer) clearTimeout(timer);
+        child.off("exit", onExit);
+        child.off("close", onClose);
+        resolve(exited);
+      };
+      const onExit = () => done(true);
+      const onClose = () => done(true);
+      timer = setTimeout(() => done(false), this.childExitTimeoutMs);
+      child.once("exit", onExit);
+      child.once("close", onClose);
+      try {
+        if (child.kill(signal) === false) done(true);
+      } catch {
+        done(true);
+      }
+    });
   }
 
   private ensureCurrent(generation: number): void {
