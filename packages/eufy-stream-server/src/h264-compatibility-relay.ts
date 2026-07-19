@@ -70,6 +70,7 @@ export class H264CompatibilityRelay extends EventEmitter {
   private latestSyncFragment?: Buffer;
   private generation = 0;
   private stopping = false;
+  private disposed = false;
 
   public constructor(private readonly options: H264CompatibilityRelayOptions) {
     super();
@@ -92,7 +93,13 @@ export class H264CompatibilityRelay extends EventEmitter {
   }
 
   public async start(): Promise<void> {
+    if (this.disposed) {
+      throw new Error(`H264 compatibility relay for ${this.serialNumber} has been disposed`);
+    }
     if (this.stopPromise) await this.stopPromise;
+    if (this.disposed) {
+      throw new Error(`H264 compatibility relay for ${this.serialNumber} has been disposed`);
+    }
     if (this.startPromise) return this.startPromise;
     if (this.server && this.child && this.source && !this.stopping) return;
     const generation = ++this.generation;
@@ -158,6 +165,12 @@ export class H264CompatibilityRelay extends EventEmitter {
       this.stopPromise = undefined;
     });
     return this.stopPromise;
+  }
+
+  /** Permanently prevents this relay instance from being restarted. */
+  public async dispose(): Promise<void> {
+    this.disposed = true;
+    await this.stop();
   }
 
   private async listen(generation: number): Promise<void> {
@@ -228,6 +241,9 @@ export class H264CompatibilityRelay extends EventEmitter {
     child.on("exit", (code, signal) => {
       this.handleFailure(generation, "ffmpeg", new Error(`exited (${code ?? signal ?? "unknown"})`));
     });
+    child.stdin.on("error", (error) => this.handleFailure(generation, "ffmpeg stdin", error));
+    child.stdout.on("error", (error) => this.handleFailure(generation, "ffmpeg stdout", error));
+    child.stderr.on("error", (error) => this.handleFailure(generation, "ffmpeg stderr", error));
     child.stderr.on("data", () => undefined);
   }
 
@@ -265,7 +281,12 @@ export class H264CompatibilityRelay extends EventEmitter {
       }
     });
     this.ensureCurrent(generation);
-    source.pipe(this.child!.stdin);
+    try {
+      source.pipe(this.child!.stdin);
+    } catch (error) {
+      this.handleFailure(generation, "muxed source pipe", error);
+      throw error;
+    }
   }
 
   private acceptInit(init: Buffer): void {
@@ -285,6 +306,10 @@ export class H264CompatibilityRelay extends EventEmitter {
   }
 
   private addConsumer(socket: net.Socket): void {
+    if (this.stopping || this.disposed) {
+      socket.destroy();
+      return;
+    }
     this.clearLinger();
     const kind = this.classifyConsumer(socket);
     const consumer: Consumer = { socket, kind, queue: [], queuedBytes: 0, blocked: false, closed: false };
@@ -398,6 +423,18 @@ export class H264CompatibilityRelay extends EventEmitter {
   private async teardownInternal(): Promise<void> {
     this.stopping = true;
     this.clearLinger();
+    const server = this.server;
+    this.server = undefined;
+    // Stop accepting before any asynchronous drain/child/source cleanup.
+    const serverClosed = server
+      ? new Promise<void>((resolve) => {
+          try {
+            server.close(() => resolve());
+          } catch {
+            resolve();
+          }
+        })
+      : Promise.resolve();
     for (const consumer of [...this.consumers.values()]) {
       consumer.socket.destroy();
       this.removeConsumer(consumer);
@@ -409,12 +446,18 @@ export class H264CompatibilityRelay extends EventEmitter {
     parser?.removeAllListeners();
     if (child) {
       child.stdout.removeAllListeners("data");
+      child.stdin.removeAllListeners("error");
+      child.stdout.removeAllListeners("error");
+      child.stderr.removeAllListeners("error");
       child.stderr.removeAllListeners("data");
       child.removeAllListeners("error");
       child.removeAllListeners("exit");
       // A delayed child-process error after teardown must not become an
       // unhandled EventEmitter error while the OS finishes reaping it.
       child.on("error", () => undefined);
+      child.stdin.on("error", () => undefined);
+      child.stdout.on("error", () => undefined);
+      child.stderr.on("error", () => undefined);
       try { child.kill(); } catch { /* already exited */ }
     }
     const source = this.source;
@@ -429,12 +472,9 @@ export class H264CompatibilityRelay extends EventEmitter {
       }
       source.removeAllListeners("error");
       source.removeAllListeners("close");
+      source.on("error", () => undefined);
     }
-    if (this.server) {
-      const server = this.server;
-      this.server = undefined;
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
+    await serverClosed;
     this.baseLease?.release();
     this.baseLease = undefined;
     this.resetCache();
@@ -482,5 +522,5 @@ export async function disposeSharedH264CompatibilityRelay(
   const relay = sharedRelays.get(serialNumber);
   if (!relay) return;
   sharedRelays.delete(serialNumber);
-  await relay.stop();
+  await relay.dispose();
 }

@@ -1,8 +1,10 @@
 import {
+  disposeSharedH264CompatibilityRelay,
   getSharedH264CompatibilityRelay,
   H264CompatibilityRelay,
 } from "../src/h264-compatibility-relay";
 import {
+  disposeSharedH264CompatibilityRelay as exportedDisposeSharedRelay,
   getSharedH264CompatibilityRelay as exportedSharedRelay,
   H264CompatibilityRelay as ExportedRelay,
 } from "../src";
@@ -57,6 +59,17 @@ class PendingSource extends EventEmitter {
   }
 }
 
+class ControlledSource extends PendingSource {
+  public destroy(): this {
+    this.destroyed = true;
+    return this;
+  }
+
+  public finishClose(): void {
+    this.emit("close");
+  }
+}
+
 async function sourceServer(): Promise<{ server: net.Server; port: number }> {
   const server = net.createServer();
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -83,6 +96,7 @@ describe("H264CompatibilityRelay", () => {
   it("is exported by the package entry point", () => {
     expect(ExportedRelay).toBe(H264CompatibilityRelay);
     expect(exportedSharedRelay).toBe(getSharedH264CompatibilityRelay);
+    expect(exportedDisposeSharedRelay).toBe(disposeSharedH264CompatibilityRelay);
   });
 
   it("returns a process-shared relay for the same camera without a manually injected pool", async () => {
@@ -119,6 +133,24 @@ describe("H264CompatibilityRelay", () => {
     await Promise.all([stopping, restarting]);
     expect(options.createChildProcess).toHaveBeenCalledTimes(2);
     await relay.stop();
+    await new Promise<void>((resolve) => source.server.close(() => resolve()));
+  });
+
+  it("permanently disposes an old shared relay before a replacement can be created", async () => {
+    const source = await sourceServer();
+    const options = {
+      serialNumber: "disposed-shared-camera", getMuxedPort: () => source.port, ffmpegPath: "/fake/ffmpeg",
+      createChildProcess: () => new FakeChild(),
+    };
+    const oldRelay = getSharedH264CompatibilityRelay(options);
+    await oldRelay.start();
+    await disposeSharedH264CompatibilityRelay(options.serialNumber);
+    const replacement = getSharedH264CompatibilityRelay(options);
+    expect(replacement).not.toBe(oldRelay);
+    await expect(oldRelay.start()).rejects.toThrow("disposed");
+    await replacement.start();
+    await replacement.stop();
+    await disposeSharedH264CompatibilityRelay(options.serialNumber);
     await new Promise<void>((resolve) => source.server.close(() => resolve()));
   });
 
@@ -260,6 +292,45 @@ describe("H264CompatibilityRelay", () => {
     await expect(starting).rejects.toThrow("cancelled");
     expect(child.kill).toHaveBeenCalledTimes(1);
     expect(relay.getPort()).toBeUndefined();
+  });
+
+  it("closes the listener before awaiting source teardown so a racing client cannot keep stop open", async () => {
+    const child = new FakeChild();
+    const source = new ControlledSource();
+    const relay = new H264CompatibilityRelay({
+      serialNumber: "camera-1", getMuxedPort: () => 12345, ffmpegPath: "/fake/ffmpeg",
+      createChildProcess: () => child,
+      net: {
+        createServer: net.createServer,
+        createConnection: () => {
+          setImmediate(() => source.emit("connect"));
+          return source as unknown as net.Socket;
+        },
+      },
+    });
+    await relay.start();
+    const port = relay.getPort()!;
+    const stopping = relay.stop();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(relay.getPort()).toBeUndefined();
+    const racingClient = net.createConnection({ port, host: "127.0.0.1" });
+    await new Promise<void>((resolve) => racingClient.once("error", () => resolve()));
+    source.finishClose();
+    await stopping;
+  });
+
+  it("contains current-generation stdio EPIPE errors and tears down safely", async () => {
+    const source = await sourceServer();
+    const child = new FakeChild();
+    const relay = new H264CompatibilityRelay({
+      serialNumber: "camera-1", getMuxedPort: () => source.port, ffmpegPath: "/fake/ffmpeg",
+      createChildProcess: () => child,
+    });
+    await relay.start();
+    const stopped = new Promise<void>((resolve) => relay.once("stopped", () => resolve()));
+    expect(() => child.stdin.emit("error", Object.assign(new Error("broken pipe"), { code: "EPIPE" }))).not.toThrow();
+    await stopped;
+    await new Promise<void>((resolve) => source.server.close(() => resolve()));
   });
 
   it("ignores delayed stdout and process failures from a prior generation", async () => {
