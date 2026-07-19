@@ -25,7 +25,10 @@
 export { StreamServer } from "./stream-server";
 export { ConnectionManager } from "./connection-manager";
 export { H264Parser } from "./h264-parser";
-export { H264CompatibilityRelay } from "./h264-compatibility-relay";
+export {
+  getSharedH264CompatibilityRelay,
+  H264CompatibilityRelay,
+} from "./h264-compatibility-relay";
 export {
   CompatibilityEncoderCapacityError,
   CompatibilityEncoderPool,

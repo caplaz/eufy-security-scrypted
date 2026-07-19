@@ -10,6 +10,7 @@ import {
 
 const MAX_QUEUED_FRAGMENTS = 2;
 const MAX_QUEUED_BYTES = 1024 * 1024;
+const defaultCompatibilityEncoderPool = new CompatibilityEncoderPool();
 
 type Child = Pick<ChildProcessWithoutNullStreams, "stdin" | "stdout" | "stderr" | "kill"> &
   EventEmitter;
@@ -60,6 +61,7 @@ export class H264CompatibilityRelay extends EventEmitter {
   private parser?: Fmp4BoxStream;
   private startPromise?: Promise<void>;
   private stopPromise?: Promise<void>;
+  private teardownPromise?: Promise<void>;
   private baseLease?: CompatibilityEncoderLease;
   private consumers = new Map<net.Socket, Consumer>();
   private lingerTimer?: ReturnType<typeof setTimeout>;
@@ -73,7 +75,7 @@ export class H264CompatibilityRelay extends EventEmitter {
     super();
     this.serialNumber = options.serialNumber ?? options.cameraId ?? "";
     this.netApi = options.net ?? net;
-    this.pool = options.pool ?? new CompatibilityEncoderPool();
+    this.pool = options.pool ?? defaultCompatibilityEncoderPool;
     this.lingerMs = options.lingerMs ?? 10_000;
     this.classifyConsumer = options.classifyConsumer ?? (() => "interactive");
     this.createChild = options.createChildProcess ?? ((command, args, spawnOptions) =>
@@ -90,15 +92,17 @@ export class H264CompatibilityRelay extends EventEmitter {
   }
 
   public async start(): Promise<void> {
+    if (this.stopPromise) await this.stopPromise;
     if (this.startPromise) return this.startPromise;
     if (this.server && this.child && this.source && !this.stopping) return;
-    this.startPromise = this.startInternal().finally(() => {
+    const generation = ++this.generation;
+    this.startPromise = this.startInternal(generation).finally(() => {
       this.startPromise = undefined;
     });
     return this.startPromise;
   }
 
-  private async startInternal(): Promise<void> {
+  private async startInternal(generation: number): Promise<void> {
     if (!this.serialNumber) {
       throw new Error("Cannot start H264 compatibility relay: camera serial number is required");
     }
@@ -114,10 +118,9 @@ export class H264CompatibilityRelay extends EventEmitter {
       );
     }
 
-    this.stopping = false;
+    this.ensureCurrent(generation);
     this.clearLinger();
     this.resetCache();
-    this.generation += 1;
     try {
       this.baseLease = this.pool.acquire({
         serialNumber: this.serialNumber,
@@ -125,12 +128,17 @@ export class H264CompatibilityRelay extends EventEmitter {
         consumerKind: "prebuffer",
         onPreempt: () => this.handlePreempt(),
       });
-      await this.listen();
-      this.spawnChild();
-      await this.connectSource(sourcePort);
-      this.emit("started", this.generation);
+      await this.listen(generation);
+      this.ensureCurrent(generation);
+      this.spawnChild(generation);
+      await this.connectSource(sourcePort, generation);
+      this.ensureCurrent(generation);
+      this.emit("started", generation);
     } catch (error) {
-      await this.teardown();
+      if (generation === this.generation && !this.stopping) await this.teardown();
+      if (generation !== this.generation || this.stopping) {
+        throw new Error(`H264 compatibility relay start was cancelled for ${this.serialNumber}`);
+      }
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`Cannot start H264 compatibility relay for ${this.serialNumber}: ${detail}`);
     }
@@ -140,31 +148,48 @@ export class H264CompatibilityRelay extends EventEmitter {
     this.clearLinger();
     if (this.stopPromise) return this.stopPromise;
     if (!this.server && !this.source && !this.child && !this.baseLease) return;
-    this.stopPromise = this.teardown().finally(() => {
+    const starting = this.startPromise;
+    this.generation += 1;
+    this.stopping = true;
+    this.stopPromise = (async () => {
+      await this.teardown();
+      await starting?.catch(() => undefined);
+    })().finally(() => {
       this.stopPromise = undefined;
     });
     return this.stopPromise;
   }
 
-  private async listen(): Promise<void> {
+  private async listen(generation: number): Promise<void> {
     this.server = this.netApi.createServer((socket) => this.addConsumer(socket));
     await new Promise<void>((resolve, reject) => {
       const server = this.server!;
-      const onError = (error: Error) => {
+      const cleanup = () => {
+        server.off("error", onError);
         server.off("listening", onListening);
+        server.off("close", onClose);
+      };
+      const onError = (error: Error) => {
+        cleanup();
         reject(error);
       };
       const onListening = () => {
-        server.off("error", onError);
+        cleanup();
         resolve();
+      };
+      const onClose = () => {
+        cleanup();
+        reject(new Error("relay stopped while loopback listener was starting"));
       };
       server.once("error", onError);
       server.once("listening", onListening);
+      server.once("close", onClose);
       server.listen(0, "127.0.0.1");
     });
+    this.ensureCurrent(generation);
   }
 
-  private spawnChild(): void {
+  private spawnChild(generation: number): void {
     let child: Child;
     try {
       child = this.createChild(
@@ -181,41 +206,65 @@ export class H264CompatibilityRelay extends EventEmitter {
     }
     if (!child?.stdin || !child.stdout) throw new Error("ffmpeg did not provide stdio pipes");
     this.child = child;
-    this.parser = new Fmp4BoxStream();
-    this.parser.on("init", (init: Buffer) => this.acceptInit(init));
-    this.parser.on("fragment", (fragment: Buffer) => this.acceptFragment(fragment));
-    this.parser.on("error", (error) => this.handleFailure("fMP4 output", error));
-    child.stdout.on("data", (chunk: Buffer) => this.parser?.write(chunk));
-    child.on("error", (error) => this.handleFailure("ffmpeg", error));
+    const parser = new Fmp4BoxStream();
+    this.parser = parser;
+    parser.on("init", (init: Buffer) => {
+      if (this.isCurrent(generation) && this.parser === parser && this.child === child) {
+        this.acceptInit(init);
+      }
+    });
+    parser.on("fragment", (fragment: Buffer) => {
+      if (this.isCurrent(generation) && this.parser === parser && this.child === child) {
+        this.acceptFragment(fragment);
+      }
+    });
+    parser.on("error", (error) => this.handleFailure(generation, "fMP4 output", error));
+    child.stdout.on("data", (chunk: Buffer) => {
+      if (this.isCurrent(generation) && this.parser === parser && this.child === child) {
+        parser.write(chunk);
+      }
+    });
+    child.on("error", (error) => this.handleFailure(generation, "ffmpeg", error));
     child.on("exit", (code, signal) => {
-      if (!this.stopping) this.handleFailure("ffmpeg", new Error(`exited (${code ?? signal ?? "unknown"})`));
+      this.handleFailure(generation, "ffmpeg", new Error(`exited (${code ?? signal ?? "unknown"})`));
     });
     child.stderr.on("data", () => undefined);
   }
 
-  private async connectSource(port: number): Promise<void> {
+  private async connectSource(port: number, generation: number): Promise<void> {
     const source = this.netApi.createConnection({ port, host: "127.0.0.1" });
     this.source = source;
     await new Promise<void>((resolve, reject) => {
-      const onError = (error: Error) => {
+      const cleanup = () => {
+        source.off("error", onError);
         source.off("connect", onConnect);
+        source.off("close", onClose);
+      };
+      const onError = (error: Error) => {
+        cleanup();
         reject(new Error(`muxed source unavailable on port ${port}: ${error.message}`));
       };
       const onConnect = () => {
-        source.off("error", onError);
+        cleanup();
         resolve();
+      };
+      const onClose = () => {
+        cleanup();
+        reject(new Error(`muxed source unavailable on port ${port}: disconnected`));
       };
       source.once("error", onError);
       source.once("connect", onConnect);
+      source.once("close", onClose);
     });
     source.on("error", (error) => {
-      if (this.source === source) this.handleFailure("muxed source", error);
+      if (this.source === source) this.handleFailure(generation, "muxed source", error);
     });
     source.on("close", () => {
-      if (this.source === source && !this.stopping) {
-        this.handleFailure("muxed source", new Error("disconnected"));
+      if (this.source === source) {
+        this.handleFailure(generation, "muxed source", new Error("disconnected"));
       }
     });
+    this.ensureCurrent(generation);
     source.pipe(this.child!.stdin);
   }
 
@@ -315,8 +364,8 @@ export class H264CompatibilityRelay extends EventEmitter {
     void this.stop();
   }
 
-  private handleFailure(component: string, error: unknown): void {
-    if (this.stopping) return;
+  private handleFailure(generation: number, component: string, error: unknown): void {
+    if (!this.isCurrent(generation)) return;
     this.resetCache();
     const failure = new Error(
       `H264 compatibility relay ${component} failure: ${error instanceof Error ? error.message : error}`,
@@ -339,18 +388,48 @@ export class H264CompatibilityRelay extends EventEmitter {
   }
 
   private async teardown(): Promise<void> {
+    if (this.teardownPromise) return this.teardownPromise;
+    this.teardownPromise = this.teardownInternal().finally(() => {
+      this.teardownPromise = undefined;
+    });
+    return this.teardownPromise;
+  }
+
+  private async teardownInternal(): Promise<void> {
     this.stopping = true;
     this.clearLinger();
     for (const consumer of [...this.consumers.values()]) {
       consumer.socket.destroy();
       this.removeConsumer(consumer);
     }
-    try { this.child?.kill(); } catch { /* already exited */ }
+    const child = this.child;
     this.child = undefined;
+    const parser = this.parser;
     this.parser = undefined;
+    parser?.removeAllListeners();
+    if (child) {
+      child.stdout.removeAllListeners("data");
+      child.stderr.removeAllListeners("data");
+      child.removeAllListeners("error");
+      child.removeAllListeners("exit");
+      // A delayed child-process error after teardown must not become an
+      // unhandled EventEmitter error while the OS finishes reaping it.
+      child.on("error", () => undefined);
+      try { child.kill(); } catch { /* already exited */ }
+    }
     const source = this.source;
     this.source = undefined;
-    if (source) source.destroy();
+    if (source) {
+      (source as unknown as { unpipe?: (destination?: unknown) => void }).unpipe?.(child?.stdin);
+      if (!source.destroyed) {
+        await new Promise<void>((resolve) => {
+          source.once("close", resolve);
+          source.destroy();
+        });
+      }
+      source.removeAllListeners("error");
+      source.removeAllListeners("close");
+    }
     if (this.server) {
       const server = this.server;
       this.server = undefined;
@@ -362,4 +441,39 @@ export class H264CompatibilityRelay extends EventEmitter {
     this.stopping = false;
     this.emit("stopped");
   }
+
+  private isCurrent(generation: number): boolean {
+    return generation === this.generation && !this.stopping;
+  }
+
+  private ensureCurrent(generation: number): void {
+    if (!this.isCurrent(generation)) {
+      throw new Error(`H264 compatibility relay start was cancelled for ${this.serialNumber}`);
+    }
+  }
+}
+
+const sharedRelays = new Map<string, H264CompatibilityRelay>();
+
+/**
+ * Returns the process-wide relay for a camera. This is the default entry
+ * point for consumers so independently-created downstream sessions cannot
+ * accidentally launch a second encoder for the same camera.
+ */
+export function getSharedH264CompatibilityRelay(
+  options: H264CompatibilityRelayOptions,
+): H264CompatibilityRelay {
+  const serialNumber = options.serialNumber ?? options.cameraId;
+  if (!serialNumber) {
+    throw new Error("Cannot create shared H264 compatibility relay: camera serial number is required");
+  }
+  const existing = sharedRelays.get(serialNumber);
+  if (existing) return existing;
+
+  const relay = new H264CompatibilityRelay(options);
+  sharedRelays.set(serialNumber, relay);
+  relay.on("stopped", () => {
+    if (sharedRelays.get(serialNumber) === relay) sharedRelays.delete(serialNumber);
+  });
+  return relay;
 }

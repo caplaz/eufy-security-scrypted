@@ -1,5 +1,11 @@
-import { H264CompatibilityRelay } from "../src/h264-compatibility-relay";
-import { H264CompatibilityRelay as ExportedRelay } from "../src";
+import {
+  getSharedH264CompatibilityRelay,
+  H264CompatibilityRelay,
+} from "../src/h264-compatibility-relay";
+import {
+  getSharedH264CompatibilityRelay as exportedSharedRelay,
+  H264CompatibilityRelay as ExportedRelay,
+} from "../src";
 import { CompatibilityEncoderPool } from "../src/compatibility-encoder-pool";
 import { EventEmitter } from "node:events";
 import * as net from "node:net";
@@ -41,6 +47,16 @@ class FakeChild extends EventEmitter {
   public readonly kill = jest.fn();
 }
 
+class PendingSource extends EventEmitter {
+  public destroyed = false;
+  public readonly pipe = jest.fn();
+  public destroy(): this {
+    this.destroyed = true;
+    this.emit("close");
+    return this;
+  }
+}
+
 async function sourceServer(): Promise<{ server: net.Server; port: number }> {
   const server = net.createServer();
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -66,6 +82,23 @@ async function readLength(socket: net.Socket, length: number): Promise<Buffer> {
 describe("H264CompatibilityRelay", () => {
   it("is exported by the package entry point", () => {
     expect(ExportedRelay).toBe(H264CompatibilityRelay);
+    expect(exportedSharedRelay).toBe(getSharedH264CompatibilityRelay);
+  });
+
+  it("returns a process-shared relay for the same camera without a manually injected pool", async () => {
+    const source = await sourceServer();
+    const child = new FakeChild();
+    const options = {
+      serialNumber: "shared-camera", getMuxedPort: () => source.port, ffmpegPath: "/fake/ffmpeg",
+      createChildProcess: () => child,
+    };
+    const first = getSharedH264CompatibilityRelay(options);
+    const second = getSharedH264CompatibilityRelay(options);
+    expect(second).toBe(first);
+    await Promise.all([first.start(), second.start()]);
+    await first.stop();
+    expect(getSharedH264CompatibilityRelay(options)).not.toBe(first);
+    await new Promise<void>((resolve) => source.server.close(() => resolve()));
   });
 
   it("fails with an actionable error when no ffmpeg path is configured", async () => {
@@ -190,6 +223,45 @@ describe("H264CompatibilityRelay", () => {
     await Promise.all([relay.stop(), relay.stop()]);
     expect(child.kill).toHaveBeenCalledTimes(1);
     expect(relay.getPort()).toBeUndefined();
+    await new Promise<void>((resolve) => source.server.close(() => resolve()));
+  });
+
+  it("cancels an in-flight source connection when stop races start", async () => {
+    const child = new FakeChild();
+    const pendingSource = new PendingSource();
+    const relay = new H264CompatibilityRelay({
+      serialNumber: "camera-1", getMuxedPort: () => 12345, ffmpegPath: "/fake/ffmpeg",
+      createChildProcess: () => child,
+      net: { createServer: net.createServer, createConnection: () => pendingSource as unknown as net.Socket },
+    });
+    const starting = relay.start();
+    await new Promise((resolve) => setImmediate(resolve));
+    await relay.stop();
+    await expect(starting).rejects.toThrow("cancelled");
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(relay.getPort()).toBeUndefined();
+  });
+
+  it("ignores delayed stdout and process failures from a prior generation", async () => {
+    const source = await sourceServer();
+    const firstChild = new FakeChild();
+    const secondChild = new FakeChild();
+    const spawn = jest.fn().mockReturnValueOnce(firstChild).mockReturnValueOnce(secondChild);
+    const relay = new H264CompatibilityRelay({
+      serialNumber: "camera-1", getMuxedPort: () => source.port, ffmpegPath: "/fake/ffmpeg", createChildProcess: spawn,
+    });
+    await relay.start();
+    await relay.stop();
+    await relay.start();
+    const generation = relay.generationId;
+    firstChild.stdout.write(Buffer.concat([initSegment(), fragment(1, true)]));
+    firstChild.emit("error", new Error("late failure"));
+    firstChild.emit("exit", 1, null);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(relay.generationId).toBe(generation);
+    expect((relay as any).init).toBeUndefined();
+    expect(secondChild.kill).not.toHaveBeenCalled();
+    await relay.stop();
     await new Promise<void>((resolve) => source.server.close(() => resolve()));
   });
 
