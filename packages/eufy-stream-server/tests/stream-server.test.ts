@@ -1683,15 +1683,34 @@ describe("StreamServer", () => {
         port: server.getMuxedPort()!,
         host: "127.0.0.1",
       });
-      await new Promise((resolve) => socket.on("connect", resolve));
-      await wait(20);
+      const unhandledRejections: unknown[] = [];
+      const onUnhandledRejection = (reason: unknown) => {
+        unhandledRejections.push(reason);
+      };
+      process.on("unhandledRejection", onUnhandledRejection);
 
-      expect((server as any).metadataWaiters.length).toBe(1);
+      try {
+        await new Promise((resolve) => socket.on("connect", resolve));
+        await wait(20);
 
-      socket.destroy();
-      await wait(20);
+        expect((server as any).metadataWaiters.length).toBe(1);
 
-      expect((server as any).metadataWaiters.length).toBe(0);
+        const pendingServerSocket = Array.from(
+          (server as any).pendingMuxerSockets,
+        )[0] as net.Socket;
+        const serverSocketClosed = new Promise<void>((resolve) =>
+          pendingServerSocket.once("close", resolve),
+        );
+        socket.destroy();
+        await serverSocketClosed;
+        await Promise.resolve();
+
+        expect((server as any).metadataWaiters.length).toBe(0);
+        expect(unhandledRejections).toEqual([]);
+      } finally {
+        process.removeListener("unhandledRejection", onUnhandledRejection);
+        socket.destroy();
+      }
     });
 
     it("cancels pending metadata waits before server stop resolves", async () => {
@@ -1701,15 +1720,27 @@ describe("StreamServer", () => {
         port: server.getMuxedPort()!,
         host: "127.0.0.1",
       });
-      await new Promise((resolve) => socket.on("connect", resolve));
-      await wait(20);
+      const unhandledRejections: unknown[] = [];
+      const onUnhandledRejection = (reason: unknown) => {
+        unhandledRejections.push(reason);
+      };
+      process.on("unhandledRejection", onUnhandledRejection);
 
-      expect((server as any).metadataWaiters.length).toBe(1);
+      try {
+        await new Promise((resolve) => socket.on("connect", resolve));
+        await wait(20);
 
-      await server.stop();
+        expect((server as any).metadataWaiters.length).toBe(1);
 
-      expect((server as any).metadataWaiters.length).toBe(0);
-      socket.destroy();
+        await server.stop();
+        await Promise.resolve();
+
+        expect((server as any).metadataWaiters.length).toBe(0);
+        expect(unhandledRejections).toEqual([]);
+      } finally {
+        process.removeListener("unhandledRejection", onUnhandledRejection);
+        socket.destroy();
+      }
     });
 
     it("JMuxer duplex data is written to socket", async () => {
