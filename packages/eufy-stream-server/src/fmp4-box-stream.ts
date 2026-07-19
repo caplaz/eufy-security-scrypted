@@ -14,6 +14,8 @@ interface TfhdInfo {
 const BOX_HEADER_SIZE = 8;
 const EXTENDED_BOX_HEADER_SIZE = 16;
 const SAMPLE_IS_NON_SYNC = 0x00010000;
+const MAX_BOX_SIZE = 16 * 1024 * 1024;
+const MAX_BUFFER_SIZE = MAX_BOX_SIZE;
 
 /**
  * Parse a complete sequence of ISO-BMFF boxes. Incomplete or malformed input
@@ -43,7 +45,7 @@ function parseBoxes(data: Buffer): IsoBox[] | undefined {
       return undefined;
     }
 
-    if (size > data.length - offset) return undefined;
+    if (size > MAX_BOX_SIZE || size > data.length - offset) return undefined;
 
     boxes.push({
       type: data.toString("ascii", offset + 4, offset + 8),
@@ -138,19 +140,31 @@ function readTrunSync(trun: IsoBox, defaultSampleFlags?: number): boolean | unde
   };
 
   if (flags & 0x000001 && !skip(4)) return undefined;
+  let firstSampleFlags: number | undefined;
   if (flags & 0x000004) {
     if (offset + 4 > trun.data.length) return undefined;
-    return sampleFlagsAreSync(trun.data.readUInt32BE(offset));
+    firstSampleFlags = trun.data.readUInt32BE(offset);
+    offset += 4;
   }
-  if (flags & 0x000100 && !skip(4)) return undefined;
-  if (flags & 0x000200 && !skip(4)) return undefined;
-  if (flags & 0x000400) {
-    if (offset + 4 > trun.data.length) return undefined;
-    return sampleFlagsAreSync(trun.data.readUInt32BE(offset));
+
+  const sampleDurationSize = flags & 0x000100 ? 4 : 0;
+  const sampleSizeSize = flags & 0x000200 ? 4 : 0;
+  const sampleFlagsSize = flags & 0x000400 ? 4 : 0;
+  const compositionOffsetSize = flags & 0x000800 ? 4 : 0;
+  const sampleRecordSize =
+    sampleDurationSize + sampleSizeSize + sampleFlagsSize + compositionOffsetSize;
+  if (
+    sampleRecordSize > 0 &&
+    sampleCount > Math.floor((trun.data.length - offset) / sampleRecordSize)
+  ) {
+    return undefined;
   }
-  return defaultSampleFlags === undefined
-    ? undefined
-    : sampleFlagsAreSync(defaultSampleFlags);
+
+  const perSampleFlags = sampleFlagsSize
+    ? trun.data.readUInt32BE(offset + sampleDurationSize + sampleSizeSize)
+    : undefined;
+  const sampleFlags = firstSampleFlags ?? perSampleFlags ?? defaultSampleFlags;
+  return sampleFlags === undefined ? undefined : sampleFlagsAreSync(sampleFlags);
 }
 
 /**
@@ -194,6 +208,13 @@ export class Fmp4BoxStream extends EventEmitter {
   private fragmentPrefix: Buffer[] = [];
 
   write(chunk: Uint8Array): void {
+    if (
+      chunk.length > MAX_BUFFER_SIZE ||
+      this.pending.length > MAX_BUFFER_SIZE - chunk.length
+    ) {
+      this.failInvalidSize();
+      return;
+    }
     this.pending = Buffer.concat([this.pending, Buffer.from(chunk)]);
 
     while (this.pending.length >= BOX_HEADER_SIZE) {
@@ -242,6 +263,7 @@ export class Fmp4BoxStream extends EventEmitter {
     } else if (size < BOX_HEADER_SIZE) {
       return null;
     }
+    if (size > MAX_BOX_SIZE) return null;
     return { size };
   }
 

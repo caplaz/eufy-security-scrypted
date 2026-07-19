@@ -130,6 +130,26 @@ describe("Fmp4BoxStream", () => {
     expect(fragments).toEqual([]);
   });
 
+  it("rejects oversized 32-bit and extended-size box declarations before buffering payloads", () => {
+    const stream = new Fmp4BoxStream();
+    const errors: Error[] = [];
+    stream.on("error", (error: Error) => errors.push(error));
+
+    const oversized = Buffer.alloc(8);
+    oversized.writeUInt32BE(0xffffffff, 0);
+    oversized.write("free", 4, 4, "ascii");
+    stream.write(oversized);
+
+    const extended = Buffer.alloc(16);
+    extended.writeUInt32BE(1, 0);
+    extended.write("free", 4, 4, "ascii");
+    extended.writeBigUInt64BE(0x100000000n, 8);
+    stream.write(extended);
+
+    expect(errors).toHaveLength(2);
+    expect(errors.every((error) => /invalid.*size/i.test(error.message))).toBe(true);
+  });
+
   it("reset discards buffered bytes and incomplete boxes", () => {
     const stream = new Fmp4BoxStream();
     const inits: Buffer[] = [];
@@ -183,5 +203,15 @@ describe("moofFirstSampleIsSync", () => {
 
     expect(moofFirstSampleIsSync(noVideo, 2)).toBe(false);
     expect(moofFirstSampleIsSync(noFlags, 2)).toBe(false);
+  });
+
+  it("returns false when a multi-sample trun omits later declared sample records", () => {
+    const payload = Buffer.alloc(8);
+    payload.writeUInt32BE(2, 0);
+    payload.writeUInt32BE(0, 4);
+    const truncatedFlags = fullBox("trun", 0x400, payload);
+    const moof = box("moof", traf(2, truncatedFlags));
+
+    expect(moofFirstSampleIsSync(moof, 2)).toBe(false);
   });
 });
