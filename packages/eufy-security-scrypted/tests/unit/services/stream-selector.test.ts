@@ -45,6 +45,26 @@ describe("selectStream", () => {
     });
   });
 
+  it("returns a complete H264-source error for an explicit compatibility stream", () => {
+    expect(
+      select({
+        streamId: "p2p-h264",
+        source: { codec: "H264", verified: true },
+      }),
+    ).toEqual({
+      kind: "error",
+      name: "CompatibilityStreamSelectionError",
+      mode: "Auto",
+      reason: "source-codec-not-h265",
+      source: { codec: "H264", verified: true },
+      availability: "available",
+      message:
+        "Cannot select the compatibility H.264 stream: mode=Auto; " +
+        "reason=source-codec-not-h265; source=H264 (verified); " +
+        "availability=available.",
+    });
+  });
+
   it("does not fall an explicit compatibility stream back to native when admission is unavailable", () => {
     expect(
       select({
