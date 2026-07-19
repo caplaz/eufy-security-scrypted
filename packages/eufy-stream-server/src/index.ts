@@ -25,6 +25,11 @@
 export { StreamServer } from "./stream-server";
 export { ConnectionManager } from "./connection-manager";
 export { H264Parser } from "./h264-parser";
+export {
+  Fmp4BoxStream,
+  findVideoTrackId,
+  moofFirstSampleIsSync,
+} from "./fmp4-box-stream";
 
 export type { StreamServerOptions } from "./stream-server";
 
