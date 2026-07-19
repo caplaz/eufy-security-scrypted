@@ -177,6 +177,23 @@ describe("EufySecurityProvider.registerDevicesFromServerState", () => {
     expect(configuration).toHaveBeenCalledTimes(configuredBefore);
   });
 
+  it("rejects nullish encoder updates instead of falling back to stored values", async () => {
+    const storage = (provider as any).storage;
+    storage.getItem.mockImplementation((key: string) =>
+      key === "compatibilityEncoderCapacity" ? "2" : null,
+    );
+    const persistedBefore = storage.setItem.mock.calls.length;
+
+    await expect(
+      provider.putSetting("compatibilityEncoderCapacity", null),
+    ).rejects.toThrow("finite number");
+    await expect(
+      provider.putSetting("compatibilityEncoderCapacity", undefined as any),
+    ).rejects.toThrow("finite number");
+
+    expect(storage.setItem).toHaveBeenCalledTimes(persistedBefore);
+  });
+
   it("groups 3 devices across 2 stations into exactly 2 onDevicesChanged calls", async () => {
     // Two devices on station A, one device on station B
     const manifests = [

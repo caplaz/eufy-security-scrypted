@@ -714,7 +714,9 @@ export class EufySecurityProvider
     const hasOverride = (key: string) =>
       Object.prototype.hasOwnProperty.call(overrides, key);
     const read = (key: string, fallback: number): number => {
-      const value = overrides[key] ?? this.storage.getItem(key);
+      const value = hasOverride(key)
+        ? overrides[key]
+        : this.storage.getItem(key);
       const parsed =
         typeof value === "number"
           ? value
