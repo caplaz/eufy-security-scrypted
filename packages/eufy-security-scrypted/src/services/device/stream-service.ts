@@ -94,16 +94,20 @@ export function configureSharedCompatibilityStreaming(
   config: CompatibilityStreamingConfig,
 ): void {
   validateCompatibilityStreamingConfig(config);
-  sharedEncoderPool = new CompatibilityEncoderPool({
-    capacity: config.encoderCapacity,
-  });
+  if (sharedEncoderPool) {
+    sharedEncoderPool.setCapacity(config.encoderCapacity);
+  } else {
+    sharedEncoderPool = new CompatibilityEncoderPool({
+      capacity: config.encoderCapacity,
+    });
+  }
   defaultThermalGovernor = new ThermalGovernor({
     criticalTemperatureC: config.criticalTemperatureC,
     recoveryTemperatureC: config.recoveryTemperatureC,
   });
 }
 
-function getSharedEncoderPool(): CompatibilityEncoderPool {
+export function getSharedCompatibilityEncoderPool(): CompatibilityEncoderPool {
   return (sharedEncoderPool ??= new CompatibilityEncoderPool());
 }
 
@@ -122,6 +126,14 @@ function validateCompatibilityStreamingConfig(
   }
   if (!Number.isFinite(config.recoveryTemperatureC)) {
     throw new RangeError("recoveryTemperatureC must be a finite number");
+  }
+  if (
+    config.criticalTemperatureC < 0 ||
+    config.criticalTemperatureC > 125 ||
+    config.recoveryTemperatureC < 0 ||
+    config.recoveryTemperatureC > 125
+  ) {
+    throw new RangeError("temperatures must be between 0 and 125");
   }
   if (config.recoveryTemperatureC >= config.criticalTemperatureC) {
     throw new RangeError(
@@ -495,7 +507,8 @@ export class StreamService {
     startedExclusively: boolean;
   }> {
     if (!this.relay) {
-      const encoderPool = this.encoderPool ?? getSharedEncoderPool();
+      const encoderPool =
+        this.encoderPool ?? getSharedCompatibilityEncoderPool();
       const relayFactory =
         this.relayFactory ??
         ((relayOptions) =>

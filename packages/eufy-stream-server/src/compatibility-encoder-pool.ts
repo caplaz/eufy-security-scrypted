@@ -71,7 +71,7 @@ export class CompatibilityEncoderCapacityError extends Error {
  * A camera owns at most one encoder slot, even when several consumers share it.
  */
 export class CompatibilityEncoderPool {
-  public readonly capacity: number;
+  private _capacity: number;
 
   private readonly slots = new Map<string, EncoderSlot>();
   private readonly cooldownUntil = new Map<string, number>();
@@ -82,10 +82,8 @@ export class CompatibilityEncoderPool {
 
   public constructor(options: CompatibilityEncoderPoolOptions = {}) {
     const cpuCount = options.cpuCount ?? cpus().length;
-    this.capacity = options.capacity ?? defaultCapacity(cpuCount);
-    if (!Number.isInteger(this.capacity) || this.capacity < 1) {
-      throw new RangeError("Compatibility encoder pool capacity must be a positive integer");
-    }
+    this._capacity = options.capacity ?? defaultCapacity(cpuCount);
+    this.assertCapacity(this._capacity);
 
     this.preemptionCooldownMs =
       options.preemptionCooldownMs ?? DEFAULT_PREEMPTION_COOLDOWN_MS;
@@ -93,6 +91,20 @@ export class CompatibilityEncoderPool {
       throw new RangeError("Compatibility encoder pool cooldown must not be negative");
     }
     this.now = options.now ?? Date.now;
+  }
+
+  public get capacity(): number {
+    return this._capacity;
+  }
+
+  /**
+   * Update the admission limit without dropping existing leases. Lowering the
+   * limit below the active holder count blocks all new admissions until enough
+   * existing relays release themselves.
+   */
+  public setCapacity(capacity: number): void {
+    this.assertCapacity(capacity);
+    this._capacity = capacity;
   }
 
   public acquire(request: CompatibilityEncoderAcquireRequest): CompatibilityEncoderLease {
@@ -108,6 +120,17 @@ export class CompatibilityEncoderPool {
     const inCooldown = (this.cooldownUntil.get(request.serialNumber) ?? 0) > now;
     if (!inCooldown) {
       this.cooldownUntil.delete(request.serialNumber);
+    }
+
+    // Never replace a holder while the pool is already over a newly lowered
+    // capacity. Existing relays are allowed to drain, but new callers cannot
+    // use preemption to slip into the over-capacity set.
+    if (this.slots.size > this.capacity) {
+      throw new CompatibilityEncoderCapacityError(
+        request.serialNumber,
+        this.getDiagnostics(),
+        this.capacity,
+      );
     }
 
     if (this.slots.size >= this.capacity) {
@@ -246,6 +269,14 @@ export class CompatibilityEncoderPool {
       preemptible: this.isPreemptible(slot),
       acquiredAt: slot.acquiredAt,
     };
+  }
+
+  private assertCapacity(capacity: number): void {
+    if (!Number.isInteger(capacity) || capacity < 1) {
+      throw new RangeError(
+        "Compatibility encoder pool capacity must be a positive integer",
+      );
+    }
   }
 }
 

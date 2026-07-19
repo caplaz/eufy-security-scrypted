@@ -2,7 +2,12 @@
  * Stream Service Tests
  */
 
-import { StreamService } from "../../../src/services/device/stream-service";
+import {
+  configureSharedCompatibilityStreaming,
+  getSharedCompatibilityEncoderPool,
+  StreamService,
+} from "../../../src/services/device/stream-service";
+import { CompatibilityEncoderCapacityError } from "@caplaz/eufy-stream-server";
 import { IStreamServer } from "../../../src/services/device/types";
 import { Logger, ILogObj } from "tslog";
 import { VideoQuality } from "@caplaz/eufy-security-client";
@@ -79,6 +84,47 @@ describe("StreamService", () => {
 
   afterEach(async () => {
     await service.dispose();
+  });
+
+  it("lowers the shared pool capacity in place without discarding active leases", () => {
+    configureSharedCompatibilityStreaming({
+      encoderCapacity: 2,
+      criticalTemperatureC: 85,
+      recoveryTemperatureC: 75,
+    });
+    const pool = getSharedCompatibilityEncoderPool();
+    const first = pool.acquire({
+      serialNumber: "CAM-1",
+      consumerKind: "interactive",
+    });
+    const second = pool.acquire({
+      serialNumber: "CAM-2",
+      consumerKind: "interactive",
+    });
+
+    configureSharedCompatibilityStreaming({
+      encoderCapacity: 1,
+      criticalTemperatureC: 85,
+      recoveryTemperatureC: 75,
+    });
+
+    expect(getSharedCompatibilityEncoderPool()).toBe(pool);
+    expect(pool.capacity).toBe(1);
+    expect(() =>
+      pool.acquire({ serialNumber: "CAM-3", consumerKind: "interactive" }),
+    ).toThrow(CompatibilityEncoderCapacityError);
+
+    first.release();
+    expect(() =>
+      pool.acquire({ serialNumber: "CAM-3", consumerKind: "interactive" }),
+    ).toThrow(CompatibilityEncoderCapacityError);
+
+    second.release();
+    const third = pool.acquire({
+      serialNumber: "CAM-3",
+      consumerKind: "interactive",
+    });
+    third.release();
   });
 
   describe("getVideoDimensions", () => {

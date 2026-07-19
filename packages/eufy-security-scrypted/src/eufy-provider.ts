@@ -711,6 +711,8 @@ export class EufySecurityProvider
   private getCompatibilityStreamingConfiguration(
     overrides: Record<string, SettingValue> = {},
   ): CompatibilityStreamingConfig {
+    const hasOverride = (key: string) =>
+      Object.prototype.hasOwnProperty.call(overrides, key);
     const read = (key: string, fallback: number): number => {
       const value = overrides[key] ?? this.storage.getItem(key);
       const parsed =
@@ -719,7 +721,11 @@ export class EufySecurityProvider
           : typeof value === "string" && value.trim() !== ""
             ? Number(value)
             : undefined;
-      return parsed !== undefined && Number.isFinite(parsed) ? parsed : fallback;
+      if (parsed !== undefined && Number.isFinite(parsed)) return parsed;
+      if (hasOverride(key)) {
+        throw new Error(`${key} must be a finite number.`);
+      }
+      return fallback;
     };
     const configuration = {
       encoderCapacity: read(
@@ -738,9 +744,21 @@ export class EufySecurityProvider
     if (
       !Number.isInteger(configuration.encoderCapacity) ||
       configuration.encoderCapacity < 1 ||
+      configuration.criticalTemperatureC < 0 ||
+      configuration.criticalTemperatureC > 125 ||
+      configuration.recoveryTemperatureC < 0 ||
+      configuration.recoveryTemperatureC > 125 ||
       configuration.recoveryTemperatureC >= configuration.criticalTemperatureC
     ) {
       if (Object.keys(overrides).length) {
+        if (
+          configuration.criticalTemperatureC < 0 ||
+          configuration.criticalTemperatureC > 125 ||
+          configuration.recoveryTemperatureC < 0 ||
+          configuration.recoveryTemperatureC > 125
+        ) {
+          throw new Error("Encoder temperatures must be between 0 and 125.");
+        }
         throw new Error(
           "Encoder capacity must be a positive integer and recovery temperature must be lower than critical temperature.",
         );

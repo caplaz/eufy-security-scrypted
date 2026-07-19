@@ -160,6 +160,23 @@ describe("EufySecurityProvider.registerDevicesFromServerState", () => {
     ).rejects.toThrow("recovery temperature must be lower");
   });
 
+  it("rejects invalid encoder inputs without persisting their raw values", async () => {
+    const setItem = (provider as any).storage.setItem as jest.Mock;
+    const configuration = configureSharedCompatibilityStreaming as jest.Mock;
+    const persistedBefore = setItem.mock.calls.length;
+    const configuredBefore = configuration.mock.calls.length;
+
+    await expect(
+      provider.putSetting("compatibilityEncoderCapacity", "not-a-number"),
+    ).rejects.toThrow("finite number");
+    await expect(
+      provider.putSetting("compatibilityEncoderCriticalTemperatureC", 200),
+    ).rejects.toThrow("between 0 and 125");
+
+    expect(setItem).toHaveBeenCalledTimes(persistedBefore);
+    expect(configuration).toHaveBeenCalledTimes(configuredBefore);
+  });
+
   it("groups 3 devices across 2 stations into exactly 2 onDevicesChanged calls", async () => {
     // Two devices on station A, one device on station B
     const manifests = [
