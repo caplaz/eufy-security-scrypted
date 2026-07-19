@@ -472,8 +472,15 @@ export function getSharedH264CompatibilityRelay(
 
   const relay = new H264CompatibilityRelay(options);
   sharedRelays.set(serialNumber, relay);
-  relay.on("stopped", () => {
-    if (sharedRelays.get(serialNumber) === relay) sharedRelays.delete(serialNumber);
-  });
   return relay;
+}
+
+/** Removes the factory entry only when the camera is permanently discarded. */
+export async function disposeSharedH264CompatibilityRelay(
+  serialNumber: string,
+): Promise<void> {
+  const relay = sharedRelays.get(serialNumber);
+  if (!relay) return;
+  sharedRelays.delete(serialNumber);
+  await relay.stop();
 }

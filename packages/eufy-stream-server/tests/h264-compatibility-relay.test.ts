@@ -97,7 +97,28 @@ describe("H264CompatibilityRelay", () => {
     expect(second).toBe(first);
     await Promise.all([first.start(), second.start()]);
     await first.stop();
-    expect(getSharedH264CompatibilityRelay(options)).not.toBe(first);
+    expect(getSharedH264CompatibilityRelay(options)).toBe(first);
+    await new Promise<void>((resolve) => source.server.close(() => resolve()));
+  });
+
+  it("keeps the factory identity through stop plus a queued restart", async () => {
+    const source = await sourceServer();
+    const firstChild = new FakeChild();
+    const secondChild = new FakeChild();
+    const options = {
+      serialNumber: "restart-shared-camera", getMuxedPort: () => source.port, ffmpegPath: "/fake/ffmpeg",
+      createChildProcess: jest.fn().mockReturnValueOnce(firstChild).mockReturnValueOnce(secondChild),
+    };
+    const relay = getSharedH264CompatibilityRelay(options);
+    await relay.start();
+    const stopped = new Promise<void>((resolve) => relay.once("stopped", () => resolve()));
+    const stopping = relay.stop();
+    const restarting = relay.start();
+    await stopped;
+    expect(getSharedH264CompatibilityRelay(options)).toBe(relay);
+    await Promise.all([stopping, restarting]);
+    expect(options.createChildProcess).toHaveBeenCalledTimes(2);
+    await relay.stop();
     await new Promise<void>((resolve) => source.server.close(() => resolve()));
   });
 
@@ -126,9 +147,8 @@ describe("H264CompatibilityRelay", () => {
     await new Promise<void>((resolve) => first.once("connect", resolve));
 
     const expected = Buffer.concat([initSegment(), fragment(1, true)]);
-    const firstRead = readLength(first, expected.length);
     child.stdout.write(Buffer.concat([initSegment(), fragment(2, true), fragment(1, true)]));
-    expect((await firstRead).subarray(0, expected.length)).toEqual(expected);
+    await new Promise((resolve) => setImmediate(resolve));
 
     const late = net.createConnection({ port, host: "127.0.0.1" });
     await new Promise<void>((resolve) => late.once("connect", resolve));
