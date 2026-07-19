@@ -134,6 +134,34 @@ describe("StreamServer", () => {
       expect(clientDisconnectedSpy).toHaveBeenCalledTimes(1);
       expect(server.getActiveConnectionCount()).toBe(0);
     });
+
+    it("notifies one next-consumer callback once and supports unsubscribe", async () => {
+      await server.start();
+      const attached = jest.fn();
+      const unsubscribe = server.onNextConsumerAttached(attached);
+
+      const client = net.createConnection({
+        port: testPort,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => client.on("connect", resolve));
+      await wait(20);
+      expect(attached).toHaveBeenCalledTimes(1);
+
+      const ignored = jest.fn();
+      const removeIgnored = server.onNextConsumerAttached(ignored);
+      removeIgnored();
+      const second = net.createConnection({
+        port: testPort,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => second.on("connect", resolve));
+      await wait(20);
+      expect(ignored).not.toHaveBeenCalled();
+      unsubscribe();
+      client.destroy();
+      second.destroy();
+    });
   });
 
   describe("video streaming", () => {
@@ -982,6 +1010,165 @@ describe("StreamServer", () => {
       expect(startLivestream).toHaveBeenCalled();
       await s.stop();
     });
+
+    it("holds a background slot briefly, then stops upstream before releasing it", async () => {
+      const order: string[] = [];
+      let streaming = false;
+      const deviceApi = {
+        startLivestream: jest.fn().mockImplementation(async () => {
+          streaming = true;
+        }),
+        stopLivestream: jest.fn().mockImplementation(async () => {
+          streaming = false;
+          order.push("stop");
+        }),
+        isLivestreaming: jest
+          .fn()
+          .mockImplementation(async () => ({ livestreaming: streaming })),
+      };
+      const wsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: { device: jest.fn().mockReturnValue(deviceApi) },
+      };
+      const lease = {
+        active: true,
+        whenReady: Promise.resolve(),
+        markDelivering: jest.fn(),
+        release: jest.fn(() => order.push("release")),
+      };
+      const acquireStreamSlot = jest.fn().mockReturnValue(lease);
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        wsClient: wsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot,
+      });
+      await s.start();
+
+      s.holdWarmLease(30);
+      await wait(20);
+      expect(acquireStreamSlot).toHaveBeenCalledWith(
+        "background",
+        expect.any(Function),
+      );
+      expect(deviceApi.startLivestream).toHaveBeenCalled();
+
+      await wait(60);
+      expect(order).toEqual(["stop", "release"]);
+      await s.stop();
+    });
+
+    it("replaces an expiring background warm slot with a live consumer lease", async () => {
+      let streaming = false;
+      const deviceApi = {
+        startLivestream: jest.fn().mockImplementation(async () => {
+          streaming = true;
+        }),
+        stopLivestream: jest.fn().mockImplementation(async () => {
+          streaming = false;
+        }),
+        isLivestreaming: jest
+          .fn()
+          .mockImplementation(async () => ({ livestreaming: streaming })),
+      };
+      const wsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: { device: jest.fn().mockReturnValue(deviceApi) },
+      };
+      const backgroundLease = {
+        active: true,
+        whenReady: Promise.resolve(),
+        markDelivering: jest.fn(),
+        release: jest.fn(),
+      };
+      const liveLease = {
+        active: true,
+        whenReady: Promise.resolve(),
+        markDelivering: jest.fn(),
+        release: jest.fn(),
+      };
+      const acquireStreamSlot = jest
+        .fn()
+        .mockReturnValueOnce(backgroundLease)
+        .mockReturnValueOnce(liveLease);
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        wsClient: wsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot,
+      });
+      await s.start();
+      s.holdWarmLease(80);
+      await wait(20);
+
+      const client = net.createConnection({
+        port: testPort,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => client.on("connect", resolve));
+      await wait(20);
+      expect(backgroundLease.release).toHaveBeenCalled();
+      expect(acquireStreamSlot).toHaveBeenLastCalledWith(
+        "live",
+        expect.any(Function),
+      );
+
+      await wait(100);
+      expect(liveLease.release).not.toHaveBeenCalled();
+      client.destroy();
+      await s.stop();
+    });
+
+    it("keeps a warm background consumer through wedge recycle and re-arms it", async () => {
+      const { mockWsClient, startLivestream } = makeWs();
+      const leases = [
+        {
+          active: true,
+          whenReady: Promise.resolve(),
+          markDelivering: jest.fn(),
+          release: jest.fn(),
+        },
+        {
+          active: true,
+          whenReady: Promise.resolve(),
+          markDelivering: jest.fn(),
+          release: jest.fn(),
+        },
+      ];
+      const acquireStreamSlot = jest
+        .fn()
+        .mockImplementation(() => leases.shift()!);
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot,
+      });
+      await s.start();
+      s.holdWarmLease(500);
+      await wait(20);
+      expect(acquireStreamSlot).toHaveBeenLastCalledWith(
+        "background",
+        expect.any(Function),
+      );
+
+      (s as any).markUpstreamWedged("cold-start-counter-maxed", {
+        attempts: 1,
+      });
+      s.setRecycleInFlight(true);
+      s.setRecycleInFlight(false);
+      await wait(20);
+
+      expect(acquireStreamSlot).toHaveBeenLastCalledWith(
+        "background",
+        expect.any(Function),
+      );
+      expect(startLivestream).toHaveBeenCalledTimes(2);
+      await s.stop();
+    });
   });
 
   describe("keyframe cache (getCachedKeyframe)", () => {
@@ -1213,16 +1400,7 @@ describe("StreamServer", () => {
       videoListener[1]({
         serialNumber: "TEST_DEVICE_123",
         buffer: {
-          data: Buffer.from([
-            0x00,
-            0x00,
-            0x00,
-            0x01,
-            0x67,
-            0x42,
-            0x00,
-            0x1e,
-          ]),
+          data: Buffer.from([0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1e]),
         },
         metadata: {
           videoCodec: codec,
@@ -1264,6 +1442,56 @@ describe("StreamServer", () => {
 
       expect(server.isMetadataVerifiedForCurrentSession()).toBe(true);
       expect(server.getVideoMetadata()?.videoCodec).toBe("H265");
+    });
+
+    it("boots upstream for a metadata waiter and holds its consumer until release", async () => {
+      await server.start();
+
+      const waiter = server.acquireMetadataWaiter(5000);
+      await wait(20);
+
+      expect((server as any).getTotalConsumers()).toBe(1);
+      expect(mockWsClient.commands.device().startLivestream).toHaveBeenCalled();
+
+      fireVideoMetadata("H265");
+      await expect(waiter.promise).resolves.toEqual(
+        expect.objectContaining({ videoCodec: "H265" }),
+      );
+      expect((server as any).getTotalConsumers()).toBe(1);
+
+      waiter.release();
+      expect((server as any).getTotalConsumers()).toBe(0);
+    });
+
+    it("cancels a metadata bootstrap cleanly and turns its timeout into a background warm lease", async () => {
+      const acquireStreamSlot = jest.fn().mockImplementation(() => ({
+        active: true,
+        whenReady: Promise.resolve(),
+        markDelivering: jest.fn(),
+        release: jest.fn(),
+      }));
+      const s = new StreamServer({
+        port: testPort + 1,
+        host: "127.0.0.1",
+        wsClient: mockWsClient,
+        serialNumber: "TEST_DEVICE_123",
+        acquireStreamSlot,
+      });
+      await s.start();
+      const cancelled = s.acquireMetadataWaiter(5000);
+      cancelled.cancel();
+      await expect(cancelled.promise).rejects.toThrow(/cancel/i);
+      expect((s as any).getTotalConsumers()).toBe(0);
+
+      const timedOut = s.acquireMetadataWaiter(20);
+      await expect(timedOut.promise).rejects.toThrow(/timeout/i);
+      await wait(20);
+      expect(acquireStreamSlot.mock.calls.map((call) => call[0])).toEqual([
+        "live",
+        "live",
+        "background",
+      ]);
+      await s.stop();
     });
   });
 
@@ -1409,6 +1637,22 @@ describe("StreamServer", () => {
         metadata: { audioCodec: "AAC" },
       });
       expect((server as any).deliversAudio).toBe(true);
+    });
+
+    it("reports unknown, aac, and video-only audio detection states", () => {
+      expect(server.getAudioStatus()).toBe("unknown");
+
+      audioCallback({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: {
+          data: Buffer.from([0xff, 0xf1, 0x50, 0x80, 0x00, 0x1f, 0xfc]),
+        },
+        metadata: { audioCodec: "AAC" },
+      });
+      expect(server.getAudioStatus()).toBe("aac");
+
+      (server as any).deliversAudio = false;
+      expect(server.getAudioStatus()).toBe("none");
     });
 
     it("feeds valid ADTS frames to all muxers", async () => {

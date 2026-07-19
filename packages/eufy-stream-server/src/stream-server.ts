@@ -95,6 +95,12 @@ interface MetadataWaiter {
   reject(error: Error): void;
 }
 
+export interface MetadataBootstrapWaiter {
+  promise: Promise<VideoMetadata>;
+  release(): void;
+  cancel(): void;
+}
+
 /**
  * Simple TCP streaming server for raw H.264 video data
  *
@@ -147,6 +153,9 @@ export class StreamServer extends EventEmitter {
     net.Socket,
     AbortController
   >();
+  /** Consumers which need the first frame's metadata, but have no TCP socket. */
+  private metadataBootstrapConsumers = 0;
+  private nextConsumerAttachedCallbacks = new Set<() => void>();
 
   /**
    * Count every "thing currently waiting on or consuming the livestream":
@@ -169,8 +178,24 @@ export class StreamServer extends EventEmitter {
       this.connectionManager.getActiveConnectionCount() +
       this.muxerStreams.size +
       this.pendingMuxerSockets.size +
-      this.snapshotResolvers.length
+      this.snapshotResolvers.length +
+      this.metadataBootstrapConsumers
     );
+  }
+
+  /** TCP/muxer/snapshot consumers, excluding metadata and warm bootstrap holds. */
+  private getRealConsumerCount(): number {
+    return this.getTotalConsumers() - this.metadataBootstrapConsumers;
+  }
+
+  private getDesiredStreamSlotPriority(): "live" | "background" {
+    if (this.warmLease) return "background";
+    const liveConsumers =
+      this.connectionManager.getActiveConnectionCount() +
+      this.muxerStreams.size +
+      this.pendingMuxerSockets.size +
+      this.metadataBootstrapConsumers;
+    return liveConsumers > 0 ? "live" : "background";
   }
   private connectionManager: ConnectionManager;
   private h264Parser: H264Parser;
@@ -342,6 +367,13 @@ export class StreamServer extends EventEmitter {
    * one streaming on its station; released when the stream stops.
    */
   private streamLease: StationSlotLease | null = null;
+  private streamLeasePriority: "live" | "background" | null = null;
+  /** A preemptible, no-viewer window retained after a cold metadata attempt. */
+  private warmLease?: {
+    id: number;
+    timer: ReturnType<typeof setTimeout>;
+  };
+  private nextWarmLeaseId = 0;
   /**
    * Set when a higher-priority camera on the same HomeBase preempted us. While
    * true we stay down (don't re-start) despite lingering consumers and don't
@@ -443,6 +475,7 @@ export class StreamServer extends EventEmitter {
     this.connectionManager.on(
       "clientConnected",
       async (connectionId, connectionInfo) => {
+        this.notifyNextConsumerAttached();
         this.logger.info(
           `Client connected: ${connectionId} from ${connectionInfo.remoteAddress}:${connectionInfo.remotePort}`,
         );
@@ -467,6 +500,81 @@ export class StreamServer extends EventEmitter {
       // Stop livestream only if no consumers remain.
       await this.updateLivestreamStateForMuxerClients();
     });
+  }
+
+  /** Invoke callbacks waiting to hand a bootstrap stream to its first viewer. */
+  private notifyNextConsumerAttached(): void {
+    // A real viewer replaces a preemptible warm bootstrap. Drop its background
+    // grant so the normal live path reacquires the station slot at live
+    // priority; the timer is generation guarded and can no longer tear down
+    // the viewer's replacement lease.
+    if (this.warmLease) this.endWarmLease("consumer attached", true);
+    const callbacks = Array.from(this.nextConsumerAttachedCallbacks);
+    this.nextConsumerAttachedCallbacks.clear();
+    for (const callback of callbacks) callback();
+  }
+
+  /** Register a one-shot notification for the next raw or muxed consumer. */
+  onNextConsumerAttached(callback: () => void): () => void {
+    this.nextConsumerAttachedCallbacks.add(callback);
+    return () => this.nextConsumerAttachedCallbacks.delete(callback);
+  }
+
+  /**
+   * Retain one preemptible background consumer after an unsuccessful cold
+   * start. It belongs to the ordinary consumer accounting so recycle recovery
+   * can re-arm it, but never competes with a real viewer for a live slot.
+   */
+  holdWarmLease(ms: number = 60000): void {
+    if (this.warmLease || this.getRealConsumerCount() > 0) return;
+    // A previous metadata bootstrap may have acquired a live grant. It must
+    // not leak into the warm period: release it before the background retry.
+    if (this.streamLeasePriority === "live") this.releaseStreamSlot();
+    const id = ++this.nextWarmLeaseId;
+    this.metadataBootstrapConsumers++;
+    this.warmLease = {
+      id,
+      timer: setTimeout(() => this.endWarmLease("expired", false, id), ms),
+    };
+    this.warmLease.timer.unref?.();
+    this.livestreamIntendedState = true;
+    this.lastClientActivity = Date.now();
+    this.startActivityMonitoring();
+    void this.ensureLivestreamState().catch((error) =>
+      this.logger.warn(`Failed to start warm lease: ${error}`),
+    );
+  }
+
+  private endWarmLease(
+    reason: string,
+    replacedByRealConsumer: boolean,
+    expectedId?: number,
+  ): void {
+    const warmLease = this.warmLease;
+    if (
+      !warmLease ||
+      (expectedId !== undefined && warmLease.id !== expectedId)
+    ) {
+      return;
+    }
+    clearTimeout(warmLease.timer);
+    this.warmLease = undefined;
+    this.metadataBootstrapConsumers--;
+
+    if (replacedByRealConsumer && this.getRealConsumerCount() > 0) {
+      // Never let a later warm expiry release the new live grant. Reacquire it
+      // at live priority; release the background grant before asking for it.
+      if (this.streamLeasePriority === "background") this.releaseStreamSlot();
+      void this.updateLivestreamStateForMuxerClients();
+      return;
+    }
+
+    // Safety ordering matters to station handoff: stop the P2P session before
+    // freeing its background slot, so a sibling's whenReady cannot overlap it.
+    this.livestreamIntendedState = false;
+    void this.ensureLivestreamState().catch((error) =>
+      this.logger.warn(`Failed to end warm lease (${reason}): ${error}`),
+    );
   }
 
   /**
@@ -665,10 +773,7 @@ export class StreamServer extends EventEmitter {
 
         // Capture metadata once for each P2P session. The previous session's
         // record remains available as a hint, but cannot verify this one.
-        if (
-          event.metadata &&
-          !this.isMetadataVerifiedForCurrentSession()
-        ) {
+        if (event.metadata && !this.isMetadataVerifiedForCurrentSession()) {
           this.videoMetadata = {
             videoCodec: event.metadata.videoCodec,
             videoFPS: event.metadata.videoFPS,
@@ -686,6 +791,7 @@ export class StreamServer extends EventEmitter {
         }
 
         // Mark livestream as actually running when we receive data
+        if (this.warmLease) this.endWarmLease("first live frame", false);
         if (!this.livestreamActualState) {
           this.setLivestreamActual(true);
           this.consecutiveNoDataStarts = 0;
@@ -930,6 +1036,7 @@ export class StreamServer extends EventEmitter {
       this.streamLease.release();
       this.streamLease = null;
     }
+    this.streamLeasePriority = null;
   }
 
   /**
@@ -944,6 +1051,7 @@ export class StreamServer extends EventEmitter {
       "↩️  HomeBase stream slot revoked by another camera — yielding",
     );
     this.slotRevoked = true;
+    if (this.warmLease) this.endWarmLease("slot revoked", false);
     this.livestreamIntendedState = false;
     // Stop our P2P livestream FIRST, then release the slot — do NOT release
     // synchronously here. The preemptor's `whenReady` is gated on our release,
@@ -1016,6 +1124,42 @@ export class StreamServer extends EventEmitter {
           );
         }
 
+        // Maintain the station grant independently of bropat's status. A
+        // real consumer can take over a background warm stream while bropat
+        // still reports it running; it nevertheless needs a live-priority
+        // lease before that stream is allowed to continue.
+        if (
+          this.livestreamIntendedState &&
+          !this.slotRevoked &&
+          !this.recycleInFlight &&
+          this.options.acquireStreamSlot
+        ) {
+          const priority = this.getDesiredStreamSlotPriority();
+          if (
+            this.streamLease?.active &&
+            this.streamLeasePriority !== priority
+          ) {
+            this.releaseStreamSlot();
+          }
+          if (!this.streamLease?.active) {
+            const lease = this.options.acquireStreamSlot(priority, () =>
+              this.handleSlotRevoked(),
+            );
+            if (!lease) {
+              this.logger.info(
+                `⛔ HomeBase stream slot busy — deferring ${priority} start`,
+              );
+              this.livestreamIntendedState = false;
+              break;
+            }
+            this.logger.info(`🎟️  Acquired HomeBase stream slot (${priority})`);
+            this.streamLease = lease;
+            this.streamLeasePriority = priority;
+            await lease.whenReady;
+            if (!this.livestreamIntendedState || this.slotRevoked) break;
+          }
+        }
+
         if (this.livestreamIntendedState && !actualStreamingStatus) {
           // Defer if a station P2P recycle is in flight — startLivestream
           // sent during the recovery window typically lands on a station
@@ -1047,37 +1191,6 @@ export class StreamServer extends EventEmitter {
               "⏸️  Slot revoked by another camera on this HomeBase — not starting until consumers drain",
             );
             break;
-          }
-
-          // Acquire the shared HomeBase stream slot before starting. Only the
-          // slot holder ever issues startLivestream, so cameras never stampede
-          // the one-stream-at-a-time HomeBase.
-          if (this.options.acquireStreamSlot && !this.streamLease?.active) {
-            const priority =
-              this.getTotalConsumers() > 0 ? "live" : "background";
-            const lease = this.options.acquireStreamSlot(priority, () =>
-              this.handleSlotRevoked(),
-            );
-            if (!lease) {
-              // Background (thumbnail refresh) denied — the slot is busy with a
-              // viewer/recorder. Don't wake; abandon this attempt quietly.
-              this.logger.info(
-                `⛔ HomeBase stream slot busy — deferring ${priority} start`,
-              );
-              this.livestreamIntendedState = false;
-              break;
-            }
-            this.logger.info(`🎟️  Acquired HomeBase stream slot (${priority})`);
-            this.streamLease = lease;
-            // If we preempted another camera, wait for it to step off the
-            // shared HomeBase slot before starting, so the two don't overlap
-            // (which causes mutual P2P starvation and audio bleeding into the
-            // wrong muxer). Resolves immediately when nothing was preempted.
-            await lease.whenReady;
-            // Bail if we were ourselves preempted/torn down while waiting.
-            if (!this.livestreamIntendedState || this.slotRevoked) {
-              break;
-            }
           }
 
           // Need to start livestream
@@ -1145,6 +1258,7 @@ export class StreamServer extends EventEmitter {
           // leaving `livestreamActualState` stuck true would leak a stale
           // "active" entry into the cross-camera station registry.
           this.setLivestreamActual(false);
+          this.releaseStreamSlot();
           this.logger.debug("Livestream already stopped as desired");
         }
 
@@ -1262,6 +1376,7 @@ export class StreamServer extends EventEmitter {
     // `updateLivestreamStateForMuxerClients` counts both pending and active
     // muxers as consumers.
     this.pendingMuxerSockets.add(socket);
+    this.notifyNextConsumerAttached();
 
     const pendingCleanup = () => {
       this.pendingMuxerSockets.delete(socket);
@@ -1486,6 +1601,14 @@ export class StreamServer extends EventEmitter {
       this.lastClientActivity = Date.now();
       this.startActivityMonitoring();
       await this.ensureLivestreamState();
+    } else if (
+      totalConsumers > 0 &&
+      this.livestreamIntendedState &&
+      !this.slotRevoked &&
+      (!this.streamLease?.active ||
+        this.streamLeasePriority !== this.getDesiredStreamSlotPriority())
+    ) {
+      await this.ensureLivestreamState();
     }
     // Intentionally *not* stopping the livestream the moment consumer
     // count drops to 0. Scrypted's Rebroadcast plugin cycles its muxer
@@ -1527,6 +1650,11 @@ export class StreamServer extends EventEmitter {
       this.startStopTimeout = undefined;
     }
     this.cancelPostSnapshotLinger("server stopping");
+    if (this.warmLease) {
+      clearTimeout(this.warmLease.timer);
+      this.warmLease = undefined;
+      this.metadataBootstrapConsumers--;
+    }
 
     // Stop activity monitoring
     this.stopActivityMonitoring();
@@ -1841,6 +1969,13 @@ export class StreamServer extends EventEmitter {
     return null;
   }
 
+  /** Audio capability as observed by the live stream. */
+  getAudioStatus(): "unknown" | "aac" | "none" {
+    if (this.deliversAudio === true) return "aac";
+    if (this.deliversAudio === false) return "none";
+    return "unknown";
+  }
+
   /** Start a new P2P session whose metadata must be freshly confirmed. */
   private beginMetadataSession(): void {
     this.metadataGeneration++;
@@ -1907,6 +2042,53 @@ export class StreamServer extends EventEmitter {
       timeout.unref?.();
       signal?.addEventListener("abort", onAbort, { once: true });
     });
+  }
+
+  /**
+   * Reserve an upstream consumer while a caller waits for freshly-confirmed
+   * video metadata. This is intentionally independent of TCP clients: codec
+   * selection has to wake the camera before Rebroadcast attaches its socket.
+   */
+  acquireMetadataWaiter(timeoutMs: number = 10000): MetadataBootstrapWaiter {
+    const controller = new AbortController();
+    let held = true;
+    let settled = false;
+    this.metadataBootstrapConsumers++;
+    void this.updateLivestreamStateForMuxerClients();
+
+    const release = () => {
+      if (!held) return;
+      held = false;
+      this.metadataBootstrapConsumers--;
+      if (!settled) controller.abort();
+      if (this.getTotalConsumers() === 0 && !this.warmLease) {
+        // A cancelled bootstrap must reclaim its live station lease rather
+        // than leaving a P2P session held until the activity watchdog fires.
+        this.livestreamIntendedState = false;
+        void this.ensureLivestreamState();
+      } else {
+        void this.updateLivestreamStateForMuxerClients();
+      }
+    };
+
+    const promise = this.waitForVideoMetadata(timeoutMs, {
+      signal: controller.signal,
+    }).then(
+      (metadata) => {
+        settled = true;
+        return metadata;
+      },
+      (error) => {
+        settled = true;
+        if (/timeout/i.test(String(error?.message || error))) {
+          this.holdWarmLease();
+        }
+        release();
+        throw error;
+      },
+    );
+
+    return { promise, release, cancel: release };
   }
 
   /**
