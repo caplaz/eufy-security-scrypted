@@ -100,6 +100,60 @@ describe("StreamServer", () => {
 
       await expect(server.start()).rejects.toThrow("Server is already running");
     });
+
+    it("reinstalls WebSocket listeners after a normal stop/start", async () => {
+      const listeners: Array<{
+        event: string;
+        callback: (event: any) => void;
+      }> = [];
+      mockWsClient.addEventListener.mockImplementation(
+        (event: string, callback: (payload: any) => void) => {
+          const listener = { event, callback };
+          listeners.push(listener);
+          return () => {
+            const index = listeners.indexOf(listener);
+            if (index !== -1) listeners.splice(index, 1);
+            return index !== -1;
+          };
+        },
+      );
+
+      const restarted = new StreamServer({
+        port: testPort + 1,
+        host: "127.0.0.1",
+        wsClient: mockWsClient,
+        serialNumber: "TEST_DEVICE_123",
+      });
+      await restarted.start();
+      await restarted.stop();
+      await restarted.start();
+
+      const video = listeners.find(
+        ({ event }) => event === "livestream video data",
+      );
+      const audio = listeners.find(
+        ({ event }) => event === "livestream audio data",
+      );
+      video?.callback({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: { data: createTestH264Data() },
+        metadata: {
+          videoCodec: "H264",
+          videoFPS: 15,
+          videoWidth: 1280,
+          videoHeight: 720,
+        },
+      });
+      audio?.callback({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: { data: Buffer.from([0xff, 0xf1, 0x50, 0x80, 0, 0x1f, 0xfc]) },
+        metadata: { audioCodec: "AAC" },
+      });
+
+      expect(restarted.getVideoMetadata()?.videoCodec).toBe("H264");
+      expect(restarted.getAudioStatus()).toBe("aac");
+      await restarted.stop();
+    });
   });
 
   describe("client connections", () => {
@@ -165,7 +219,6 @@ describe("StreamServer", () => {
 
     it("notifies once when a muxed client attaches while pending and not again on muxer activation", async () => {
       await server.start();
-      (server as any).deliversAudio = true;
       const attached = jest.fn();
       server.onNextConsumerAttached(attached);
 
@@ -181,6 +234,7 @@ describe("StreamServer", () => {
       const videoCallback = mockWsClient.addEventListener.mock.calls.find(
         (call: any[]) => call[0] === "livestream video data",
       )[1];
+      (server as any).deliversAudio = true;
       videoCallback({
         serialNumber: "TEST_DEVICE_123",
         buffer: { data: createTestH264Data() },
@@ -1732,6 +1786,15 @@ describe("StreamServer", () => {
       expect(server.getVideoMetadata()?.videoCodec).toBe("H265");
     });
 
+    it("does not carry audio detection into a new metadata session", () => {
+      (server as any).audioMetadata = { audioCodec: "AAC" };
+
+      (server as any).beginMetadataSession();
+
+      expect(server.getAudioStatus()).toBe("unknown");
+      expect((server as any).audioMetadata).toBeNull();
+    });
+
     it("boots upstream for a metadata waiter and holds its consumer until release", async () => {
       await server.start();
 
@@ -1795,7 +1858,6 @@ describe("StreamServer", () => {
       // These tests exercise audio, so mark the device as audio-capable to
       // skip the muxer's audio-detection wait and create it immediately
       // (in "both" mode), matching the assumption these tests were written under.
-      (server as any).deliversAudio = true;
       const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
       // Minimal H.264 SPS NAL — content irrelevant for metadata capture.
       const nal = Buffer.from([0x67, 0x42, 0x00, 0x1e]);
@@ -1803,6 +1865,7 @@ describe("StreamServer", () => {
       // connection and issued its session start. Defer this synthetic frame
       // one event turn so it verifies that newly-started session.
       setTimeout(() => {
+        (server as any).deliversAudio = true;
         videoCallback({
           serialNumber: "TEST_DEVICE_123",
           buffer: { data: Buffer.concat([startCode, nal]) },
@@ -1985,7 +2048,6 @@ describe("StreamServer", () => {
       // Default these tests to audio-capable so the muxer is built
       // immediately (mode "both"), as they were written before audio-aware
       // mode existed. The video-only path has its own dedicated tests.
-      (s as any).deliversAudio = true;
       const videoCall = (
         (s as any).options.wsClient as any
       ).addEventListener.mock.calls.find(
@@ -1997,6 +2059,7 @@ describe("StreamServer", () => {
       // Keep the synthetic first frame after the connection handler has
       // established its metadata session, matching real P2P ordering.
       setTimeout(() => {
+        (s as any).deliversAudio = true;
         videoCallback({
           serialNumber: "TEST_DEVICE_123",
           buffer: { data: Buffer.concat([startCode, nal]) },
@@ -2154,10 +2217,6 @@ describe("StreamServer", () => {
       });
       await new Promise((resolve) => socket.on("connect", resolve));
 
-      // Known video-only: skip the audio-detection wait. (Without this the
-      // muxer would block ~2.5s waiting for an audio frame that never comes.)
-      (server as any).deliversAudio = false;
-
       // Let the connection handler establish its new metadata session before
       // simulating the first P2P video frame.
       await wait(0);
@@ -2168,6 +2227,9 @@ describe("StreamServer", () => {
       ).addEventListener.mock.calls.find(
         (call: any[]) => call[0] === "livestream video data",
       )[1];
+      // Known video-only: set this after the new session clears stale audio
+      // detection, so the muxer does not wait for a track that will not arrive.
+      (server as any).deliversAudio = false;
       videoCallback({
         serialNumber: "TEST_DEVICE_123",
         buffer: {

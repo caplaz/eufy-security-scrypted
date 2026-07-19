@@ -1417,6 +1417,12 @@ export class StreamServer extends EventEmitter {
       throw new Error("Server is already running");
     }
 
+    // stop() removes the protocol listeners so a disposed server does not
+    // retain the WebSocket client. Reinstall them for an intentional restart.
+    if (!this.eventRemover || !this.audioEventRemover) {
+      this.setupWebSocketListener();
+    }
+
     await new Promise<void>((resolve, reject) => {
       this.server = net.createServer();
 
@@ -2091,6 +2097,11 @@ export class StreamServer extends EventEmitter {
   /** Start a new P2P session whose metadata must be freshly confirmed. */
   private beginMetadataSession(): void {
     this.metadataGeneration++;
+    // Audio is session-scoped just like codec metadata. A camera may deliver
+    // AAC in one P2P session and no audio in the next, so carrying this flag
+    // forward would advertise and configure a non-existent track.
+    this.deliversAudio = undefined;
+    this.audioMetadata = null;
   }
 
   /** Whether metadata has been confirmed by video data for this P2P session. */

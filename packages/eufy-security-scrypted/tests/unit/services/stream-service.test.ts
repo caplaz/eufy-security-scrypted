@@ -273,6 +273,70 @@ describe("StreamService", () => {
       );
     });
 
+    it("registers bootstrap handoff before the relay attaches its muxed source", async () => {
+      const release = jest.fn();
+      const callbacks = new Set<() => void>();
+      const relay = {
+        start: jest.fn().mockImplementation(async () => {
+          for (const callback of callbacks) callback();
+        }),
+        stop: jest.fn().mockResolvedValue(undefined),
+        getPort: jest.fn().mockReturnValue(45678),
+      };
+      mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
+        false,
+      );
+      mockStreamServer.acquireMetadataWaiter.mockReturnValue({
+        promise: Promise.resolve(liveH265Metadata),
+        release,
+        cancel: release,
+      });
+      mockStreamServer.onNextConsumerAttached.mockImplementation((callback) => {
+        callbacks.add(callback);
+        return () => callbacks.delete(callback);
+      });
+      mockStreamServer.getMuxedPort.mockReturnValue(55555);
+      service = new StreamService(serialNumber, mockStreamServer, mockLogger, {
+        relayFactory: jest.fn().mockReturnValue(relay),
+      });
+
+      await Promise.resolve();
+      const stream = service.getVideoStream(VideoQuality.HIGH, {
+        id: "p2p-h264",
+      });
+      await Promise.resolve();
+      mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
+        true,
+      );
+      await stream;
+
+      expect(release).toHaveBeenCalledTimes(1);
+    });
+
+    it("stops a started relay when compatibility media-object creation fails", async () => {
+      const relay = {
+        start: jest.fn().mockResolvedValue(undefined),
+        stop: jest.fn().mockResolvedValue(undefined),
+        getPort: jest.fn().mockReturnValue(45678),
+      };
+      mockStreamServer.getVideoMetadata.mockReturnValue(liveH265Metadata);
+      mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
+        true,
+      );
+      (
+        sdk.mediaManager.createFFmpegMediaObject as jest.Mock
+      ).mockRejectedValueOnce(new Error("media object failed"));
+      service = new StreamService(serialNumber, mockStreamServer, mockLogger, {
+        relayFactory: jest.fn().mockReturnValue(relay),
+      });
+
+      await expect(
+        service.getVideoStream(VideoQuality.HIGH, { id: "p2p-h264" }),
+      ).rejects.toThrow("media object failed");
+
+      expect(relay.stop).toHaveBeenCalledTimes(1);
+    });
+
     it("reports a thermal admission denial for an explicit compatibility stream", async () => {
       mockStreamServer.getVideoMetadata.mockReturnValue(liveH265Metadata);
       mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(

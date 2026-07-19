@@ -204,6 +204,8 @@ export class StreamService {
     }
 
     let bootstrap: MetadataBootstrapWaiter | undefined;
+    let handoff: (() => void) | undefined;
+    let relayStarted = false;
     try {
       const resolved = await this.resolveCurrentSource();
       bootstrap = resolved.bootstrap;
@@ -215,13 +217,16 @@ export class StreamService {
       }
 
       if (selection.streamId === "p2p-h264") {
+        // The relay attaches to the muxed source during start(). Register the
+        // handoff first so that real attach cannot race past the bootstrap.
+        handoff = this.handoffBootstrapOnConsumerAttach(bootstrap);
         const relayPort = await this.ensureCompatibilityRelay();
+        relayStarted = true;
         const media = await this.createCompatibilityMediaObject(
           relayPort,
           quality,
           options,
         );
-        this.handoffBootstrapOnConsumerAttach(bootstrap);
         return media;
       }
 
@@ -234,10 +239,20 @@ export class StreamService {
         quality,
         options,
       );
-      this.handoffBootstrapOnConsumerAttach(bootstrap);
+      handoff = this.handoffBootstrapOnConsumerAttach(bootstrap);
       return media;
     } catch (error) {
-      bootstrap?.cancel();
+      if (relayStarted) {
+        try {
+          await this.stopCompatibilityRelay();
+        } catch (stopError) {
+          this.logger.warn(
+            `Failed to clean up H.264 compatibility relay for ${this.serialNumber}: ${stopError}`,
+          );
+        }
+      }
+      if (handoff) handoff();
+      else bootstrap?.cancel();
       throw error;
     }
   }
@@ -249,10 +264,7 @@ export class StreamService {
    */
   async stopStream(): Promise<void> {
     this.releaseBootstrapHandoffs();
-    if (this.relay) {
-      await this.relay.stop();
-      this.relay = undefined;
-    }
+    await this.stopCompatibilityRelay();
     if (this.streamServerStarted) {
       this.logger.info("Stopping stream server");
       await this.streamServer.stop();
@@ -529,20 +541,31 @@ export class StreamService {
 
   private handoffBootstrapOnConsumerAttach(
     bootstrap?: MetadataBootstrapWaiter,
-  ): void {
-    if (!bootstrap) return;
+  ): (() => void) | undefined {
+    if (!bootstrap) return undefined;
     let removeListener: () => void = () => undefined;
+    let released = false;
     const release = () => {
+      if (released) return;
+      released = true;
       removeListener();
       this.bootstrapHandoffs.delete(release);
       bootstrap.release();
     };
     removeListener = this.streamServer.onNextConsumerAttached(release);
     this.bootstrapHandoffs.add(release);
+    return release;
   }
 
   private releaseBootstrapHandoffs(): void {
     for (const release of [...this.bootstrapHandoffs]) release();
+  }
+
+  private async stopCompatibilityRelay(): Promise<void> {
+    if (!this.relay) return;
+    const relay = this.relay;
+    this.relay = undefined;
+    await relay.stop();
   }
 
   /**

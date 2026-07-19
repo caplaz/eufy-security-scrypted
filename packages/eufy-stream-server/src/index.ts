@@ -51,7 +51,6 @@ export type {
 } from "./compatibility-encoder-pool";
 export { ThermalGovernor } from "./thermal-governor";
 
-export type { StreamServerOptions } from "./stream-server";
 export type {
   TemperatureReader,
   ThermalGovernorOptions,
