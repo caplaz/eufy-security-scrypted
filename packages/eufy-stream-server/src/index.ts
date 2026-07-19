@@ -49,5 +49,14 @@ export type {
   CompatibilityEncoderLease,
   CompatibilityEncoderPoolOptions,
 } from "./compatibility-encoder-pool";
+export { ThermalGovernor } from "./thermal-governor";
+
+export type { StreamServerOptions } from "./stream-server";
+export type {
+  TemperatureReader,
+  ThermalGovernorOptions,
+  ThermalGovernorReason,
+  ThermalGovernorStatus,
+} from "./thermal-governor";
 
 export type { StreamData, ConnectionInfo, ServerStats, NALUnit } from "./types";
