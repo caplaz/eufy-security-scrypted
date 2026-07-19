@@ -1787,7 +1787,17 @@ describe("StreamServer", () => {
     });
 
     it("does not carry audio detection into a new metadata session", () => {
-      (server as any).audioMetadata = { audioCodec: "AAC" };
+      const audioListener = mockWsClient.addEventListener.mock.calls.find(
+        (call: any[]) => call[0] === "livestream audio data",
+      )[1];
+      audioListener({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: {
+          data: Buffer.from([0xff, 0xf1, 0x50, 0x80, 0x00, 0x1f, 0xfc]),
+        },
+        metadata: { audioCodec: "AAC" },
+      });
+      expect(server.getAudioStatus()).toBe("aac");
 
       (server as any).beginMetadataSession();
 

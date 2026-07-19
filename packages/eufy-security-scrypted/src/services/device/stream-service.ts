@@ -205,7 +205,7 @@ export class StreamService {
 
     let bootstrap: MetadataBootstrapWaiter | undefined;
     let handoff: (() => void) | undefined;
-    let relayStarted = false;
+    let relayStartedExclusively = false;
     try {
       const resolved = await this.resolveCurrentSource();
       bootstrap = resolved.bootstrap;
@@ -220,10 +220,10 @@ export class StreamService {
         // The relay attaches to the muxed source during start(). Register the
         // handoff first so that real attach cannot race past the bootstrap.
         handoff = this.handoffBootstrapOnConsumerAttach(bootstrap);
-        const relayPort = await this.ensureCompatibilityRelay();
-        relayStarted = true;
+        const relay = await this.ensureCompatibilityRelay();
+        relayStartedExclusively = relay.startedExclusively;
         const media = await this.createCompatibilityMediaObject(
-          relayPort,
+          relay.port,
           quality,
           options,
         );
@@ -242,7 +242,7 @@ export class StreamService {
       handoff = this.handoffBootstrapOnConsumerAttach(bootstrap);
       return media;
     } catch (error) {
-      if (relayStarted) {
+      if (relayStartedExclusively) {
         try {
           await this.stopCompatibilityRelay();
         } catch (stopError) {
@@ -441,7 +441,10 @@ export class StreamService {
     return selection;
   }
 
-  private async ensureCompatibilityRelay(): Promise<number> {
+  private async ensureCompatibilityRelay(): Promise<{
+    port: number;
+    startedExclusively: boolean;
+  }> {
     if (!this.relay) {
       const encoderPool = this.encoderPool ?? getSharedEncoderPool();
       const relayFactory =
@@ -457,6 +460,10 @@ export class StreamService {
         pool: encoderPool,
       });
     }
+    // A shared relay with a listening port is already serving its camera.
+    // A failed request may not tear it down: other consumers use the same
+    // process-wide encoder and TCP endpoint.
+    const alreadyServingConsumers = this.relay.getPort() !== undefined;
     try {
       await this.relay.start();
     } catch (error) {
@@ -474,7 +481,7 @@ export class StreamService {
         `H.264 compatibility relay started without a listening port for ${this.serialNumber}`,
       );
     }
-    return port;
+    return { port, startedExclusively: !alreadyServingConsumers };
   }
 
   private async resolveFfmpegPath(): Promise<string> {

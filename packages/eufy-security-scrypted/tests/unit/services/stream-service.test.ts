@@ -281,7 +281,10 @@ describe("StreamService", () => {
           for (const callback of callbacks) callback();
         }),
         stop: jest.fn().mockResolvedValue(undefined),
-        getPort: jest.fn().mockReturnValue(45678),
+        getPort: jest
+          .fn()
+          .mockReturnValueOnce(undefined)
+          .mockReturnValue(45678),
       };
       mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
         false,
@@ -317,7 +320,10 @@ describe("StreamService", () => {
       const relay = {
         start: jest.fn().mockResolvedValue(undefined),
         stop: jest.fn().mockResolvedValue(undefined),
-        getPort: jest.fn().mockReturnValue(45678),
+        getPort: jest
+          .fn()
+          .mockReturnValueOnce(undefined)
+          .mockReturnValue(45678),
       };
       mockStreamServer.getVideoMetadata.mockReturnValue(liveH265Metadata);
       mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
@@ -335,6 +341,31 @@ describe("StreamService", () => {
       ).rejects.toThrow("media object failed");
 
       expect(relay.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not stop a shared relay already serving another compatibility consumer", async () => {
+      const relay = {
+        start: jest.fn().mockResolvedValue(undefined),
+        stop: jest.fn().mockResolvedValue(undefined),
+        getPort: jest.fn().mockReturnValue(45678),
+      };
+      mockStreamServer.getVideoMetadata.mockReturnValue(liveH265Metadata);
+      mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
+        true,
+      );
+      (
+        sdk.mediaManager.createFFmpegMediaObject as jest.Mock
+      ).mockRejectedValueOnce(new Error("second media object failed"));
+      service = new StreamService(serialNumber, mockStreamServer, mockLogger, {
+        relayFactory: jest.fn().mockReturnValue(relay),
+      });
+
+      await expect(
+        service.getVideoStream(VideoQuality.HIGH, { id: "p2p-h264" }),
+      ).rejects.toThrow("second media object failed");
+
+      expect(relay.start).toHaveBeenCalledTimes(1);
+      expect(relay.stop).not.toHaveBeenCalled();
     });
 
     it("reports a thermal admission denial for an explicit compatibility stream", async () => {
