@@ -86,6 +86,7 @@ import {
   StreamService,
   StateChangeEvent,
 } from "./services/device";
+import { CompatibilityMode } from "./services/device/stream-selector";
 import { PropertyMapper } from "./utils/property-mapper";
 import {
   acquireStationSlot,
@@ -102,6 +103,12 @@ import {
 } from "./utils/thumbnail-refresh";
 
 const THUMBNAIL_REFRESH_SETTING_KEY = "thumbnailRefreshInterval";
+const COMPATIBILITY_MODE_SETTING_KEY = "compatibilityMode";
+const COMPATIBILITY_MODE_CHOICES: CompatibilityMode[] = [
+  "Auto",
+  "Force",
+  "Native",
+];
 import { VideoClipsService } from "./services/video";
 import { PtzControlService, LightControlService } from "./services/control";
 
@@ -309,6 +316,7 @@ export class EufyDevice
       this.serialNumber,
       this.streamServer,
       this.logger,
+      { compatibilityMode: () => this.getCompatibilityMode() },
     );
     this.ptzControlService = new PtzControlService(
       deviceApi,
@@ -497,6 +505,20 @@ export class EufyDevice
       group: "Streaming",
     });
 
+    settings.push({
+      key: COMPATIBILITY_MODE_SETTING_KEY,
+      title: "H.264 Compatibility Mode",
+      description:
+        "Auto uses the H.264 relay only for a live, verified H.265 source " +
+        "when a compatibility stream is requested. Force requires that relay " +
+        "for verified H.265 sources; Native always keeps the camera's native " +
+        "codec. The relay consumes host CPU and can increase prebuffer startup " +
+        "time, so Auto is the recommended default.",
+      value: this.getCompatibilityMode(),
+      choices: COMPATIBILITY_MODE_CHOICES,
+      group: "Streaming",
+    });
+
     return settings;
   }
 
@@ -509,6 +531,22 @@ export class EufyDevice
     if (key === THUMBNAIL_REFRESH_SETTING_KEY) {
       this.storage.setItem(key, String(value));
       this.logger.info(`🖼️  Background thumbnail refresh set to: ${value}`);
+      return;
+    }
+
+    if (key === COMPATIBILITY_MODE_SETTING_KEY) {
+      if (
+        typeof value !== "string" ||
+        !COMPATIBILITY_MODE_CHOICES.includes(value as CompatibilityMode)
+      ) {
+        throw new Error(
+          `Invalid H.264 compatibility mode: ${String(value)}`,
+        );
+      }
+      this.storage.setItem(key, value);
+      this.logger.info(`🎬 H.264 compatibility mode set to: ${value}`);
+      this.onDeviceEvent(ScryptedInterface.VideoCamera, undefined);
+      this.onDeviceEvent(ScryptedInterface.Settings, undefined);
       return;
     }
 
@@ -976,11 +1014,10 @@ export class EufyDevice
           this.logger.info(
             `💾 Persisted detected video codec: ${normalized} (was: ${previous ?? "unset"})`,
           );
+          // Stream options carry the source codec. A live session may replace
+          // a persisted startup hint, so ask Scrypted to fetch fresh options.
+          this.onDeviceEvent(ScryptedInterface.VideoCamera, undefined);
         }
-        // Stream options are codec-bearing. Once a live session replaces a
-        // persisted hint, ask Scrypted to obtain fresh options so consumers
-        // cannot continue to select a stale native codec description.
-        this.onDeviceEvent(ScryptedInterface.VideoCamera, undefined);
       },
     );
 
@@ -1018,6 +1055,15 @@ export class EufyDevice
     this.logger.debug(
       "Stream server created with WebSocket client integration",
     );
+  }
+
+  private getCompatibilityMode(): CompatibilityMode {
+    const stored = this.storage.getItem(
+      COMPATIBILITY_MODE_SETTING_KEY,
+    ) as CompatibilityMode | null;
+    return stored === "Auto" || stored === "Force" || stored === "Native"
+      ? stored
+      : "Auto";
   }
 
   /**

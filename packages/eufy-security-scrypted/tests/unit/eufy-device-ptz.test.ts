@@ -145,7 +145,7 @@ describe("EufyDevice PTZ Functionality", () => {
   });
 
   describe("PTZ Capabilities Detection", () => {
-    test("reannounces stream options when live codec metadata replaces a hint", () => {
+    test("persists a changed live codec hint and reannounces stream options", () => {
       const onDeviceEvent = jest.fn();
       (device as any).onDeviceEvent = onDeviceEvent;
       const streamServer = (
@@ -158,6 +158,50 @@ describe("EufyDevice PTZ Functionality", () => {
       metadataListener({ videoCodec: "H265" });
 
       expect(onDeviceEvent).toHaveBeenCalledWith("VideoCamera", undefined);
+      expect((device as any).storage.getItem("lastDetectedVideoCodec")).toBe(
+        "H265",
+      );
+
+      onDeviceEvent.mockClear();
+      metadataListener({ videoCodec: "HEVC" });
+
+      expect(onDeviceEvent).not.toHaveBeenCalled();
+    });
+
+    test("exposes Auto compatibility mode and reannounces options when changed", async () => {
+      await (device as any).propertiesLoaded;
+      (device as any).info = { serialNumber: "TEST123", metadata: {} };
+
+      const setting = (await device.getSettings()).find(
+        (candidate) => candidate.key === "compatibilityMode",
+      );
+
+      expect(setting).toEqual(
+        expect.objectContaining({
+          key: "compatibilityMode",
+          value: "Auto",
+          choices: ["Auto", "Force", "Native"],
+        }),
+      );
+      expect(setting?.description).toContain("CPU");
+      expect(setting?.description).toContain("prebuffer");
+
+      const onDeviceEvent = jest.fn();
+      (device as any).onDeviceEvent = onDeviceEvent;
+      await device.putSetting("compatibilityMode", "Native");
+
+      expect((device as any).storage.getItem("compatibilityMode")).toBe(
+        "Native",
+      );
+      expect(onDeviceEvent).toHaveBeenCalledWith("VideoCamera", undefined);
+    });
+
+    test("rejects an unknown compatibility mode without changing the default", async () => {
+      await expect(
+        device.putSetting("compatibilityMode", "Always"),
+      ).rejects.toThrow("Invalid H.264 compatibility mode");
+
+      expect((device as any).storage.getItem("compatibilityMode")).toBeNull();
     });
 
     test("should enable PTZ capabilities for pan/tilt capable devices", () => {

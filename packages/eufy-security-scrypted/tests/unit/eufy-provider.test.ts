@@ -6,12 +6,23 @@ import { EufySecurityProvider } from "../../src/eufy-provider";
 import { DeviceUtils } from "../../src/utils/device-utils";
 import sdk from "@scrypted/sdk";
 import { StartListeningResponse } from "@caplaz/eufy-security-client";
+import { configureSharedCompatibilityStreaming } from "../../src/services/device/stream-service";
+
+jest.mock("../../src/services/device/stream-service", () => ({
+  configureSharedCompatibilityStreaming: jest.fn(),
+  DEFAULT_COMPATIBILITY_STREAMING_CONFIG: {
+    encoderCapacity: 1,
+    criticalTemperatureC: 85,
+    recoveryTemperatureC: 75,
+  },
+}));
 
 jest.mock("@scrypted/sdk", () => ({
   ScryptedDeviceBase: class {
     storage = { getItem: jest.fn().mockReturnValue(null), setItem: jest.fn() };
     console = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
     nativeId = undefined;
+    onDeviceEvent = jest.fn();
   },
   ScryptedInterface: {
     Camera: "Camera",
@@ -66,12 +77,15 @@ jest.mock("@caplaz/eufy-security-client", () => {
     ...actual,
     EufyWebSocketClient: jest.fn().mockImplementation(() => ({
       isConnected: jest.fn().mockReturnValue(false),
+      getState: jest.fn().mockReturnValue({}),
       on: jest.fn(),
       off: jest.fn(),
     })),
     AuthenticationManager: jest.fn().mockImplementation(() => ({
       on: jest.fn(),
       off: jest.fn(),
+      getAuthStatusMessage: jest.fn().mockReturnValue("Ready"),
+      getAuthState: jest.fn().mockReturnValue("none"),
     })),
   };
 });
@@ -80,6 +94,7 @@ jest.mock("../../src/utils/memory-manager", () => ({
   MemoryManager: {
     setMemoryThreshold: jest.fn(),
   },
+  getCurrentMemoryUsageMB: jest.fn().mockReturnValue({ rssMB: 100 }),
 }));
 
 describe("EufySecurityProvider.registerDevicesFromServerState", () => {
@@ -88,6 +103,7 @@ describe("EufySecurityProvider.registerDevicesFromServerState", () => {
   let mockCreateDeviceManifest: jest.Mock;
 
   beforeEach(() => {
+    (configureSharedCompatibilityStreaming as jest.Mock).mockClear();
     mockOnDevicesChanged = sdk.deviceManager.onDevicesChanged as jest.Mock;
     mockOnDevicesChanged.mockClear();
 
@@ -95,6 +111,53 @@ describe("EufySecurityProvider.registerDevicesFromServerState", () => {
     mockCreateDeviceManifest.mockClear();
 
     provider = new EufySecurityProvider("test-provider");
+  });
+
+  it("applies conservative shared compatibility encoder defaults", () => {
+    expect(configureSharedCompatibilityStreaming).toHaveBeenCalledWith({
+      encoderCapacity: 1,
+      criticalTemperatureC: 85,
+      recoveryTemperatureC: 75,
+    });
+  });
+
+  it("shows advanced encoder and thermal settings with conservative defaults", async () => {
+    const settings = await provider.getSettings();
+
+    expect(settings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "compatibilityEncoderCapacity",
+          value: 1,
+        }),
+        expect.objectContaining({
+          key: "compatibilityEncoderCriticalTemperatureC",
+          value: 85,
+        }),
+        expect.objectContaining({
+          key: "compatibilityEncoderRecoveryTemperatureC",
+          value: 75,
+        }),
+      ]),
+    );
+  });
+
+  it("applies a validated capacity update to the shared compatibility pool", async () => {
+    await provider.putSetting("compatibilityEncoderCapacity", 2);
+
+    expect(configureSharedCompatibilityStreaming).toHaveBeenLastCalledWith({
+      encoderCapacity: 2,
+      criticalTemperatureC: 85,
+      recoveryTemperatureC: 75,
+    });
+    expect((provider as any).storage.setItem).toHaveBeenCalledWith(
+      "compatibilityEncoderCapacity",
+      "2",
+    );
+
+    await expect(
+      provider.putSetting("compatibilityEncoderRecoveryTemperatureC", 90),
+    ).rejects.toThrow("recovery temperature must be lower");
   });
 
   it("groups 3 devices across 2 stations into exactly 2 onDevicesChanged calls", async () => {

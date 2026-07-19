@@ -70,8 +70,38 @@ export interface StreamServiceOptions {
 }
 
 const METADATA_BOOTSTRAP_TIMEOUT_MS = 15_000;
+export const DEFAULT_COMPATIBILITY_STREAMING_CONFIG = {
+  encoderCapacity: 1,
+  criticalTemperatureC: 85,
+  recoveryTemperatureC: 75,
+} as const;
+
+export interface CompatibilityStreamingConfig {
+  encoderCapacity: number;
+  criticalTemperatureC: number;
+  recoveryTemperatureC: number;
+}
+
 let sharedEncoderPool: CompatibilityEncoderPool | undefined;
 let defaultThermalGovernor: ThermalGovernor | undefined;
+
+/**
+ * Replace the process-wide admission controls used by compatibility relays.
+ * Existing relays retain their acquired lease; the new limits apply to relays
+ * started after this call.
+ */
+export function configureSharedCompatibilityStreaming(
+  config: CompatibilityStreamingConfig,
+): void {
+  validateCompatibilityStreamingConfig(config);
+  sharedEncoderPool = new CompatibilityEncoderPool({
+    capacity: config.encoderCapacity,
+  });
+  defaultThermalGovernor = new ThermalGovernor({
+    criticalTemperatureC: config.criticalTemperatureC,
+    recoveryTemperatureC: config.recoveryTemperatureC,
+  });
+}
 
 function getSharedEncoderPool(): CompatibilityEncoderPool {
   return (sharedEncoderPool ??= new CompatibilityEncoderPool());
@@ -79,6 +109,25 @@ function getSharedEncoderPool(): CompatibilityEncoderPool {
 
 function getDefaultThermalGovernor(): ThermalGovernor {
   return (defaultThermalGovernor ??= new ThermalGovernor());
+}
+
+function validateCompatibilityStreamingConfig(
+  config: CompatibilityStreamingConfig,
+): void {
+  if (!Number.isInteger(config.encoderCapacity) || config.encoderCapacity < 1) {
+    throw new RangeError("encoderCapacity must be a positive integer");
+  }
+  if (!Number.isFinite(config.criticalTemperatureC)) {
+    throw new RangeError("criticalTemperatureC must be a finite number");
+  }
+  if (!Number.isFinite(config.recoveryTemperatureC)) {
+    throw new RangeError("recoveryTemperatureC must be a finite number");
+  }
+  if (config.recoveryTemperatureC >= config.criticalTemperatureC) {
+    throw new RangeError(
+      "recoveryTemperatureC must be lower than criticalTemperatureC",
+    );
+  }
 }
 
 function escapeStreamRequestLogField(value?: string): string {

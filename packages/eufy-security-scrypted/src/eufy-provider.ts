@@ -53,8 +53,24 @@ import { Logger, ILogObj, ILogObjMeta } from "tslog";
 import { EufyStation } from "./eufy-station";
 import { DeviceUtils } from "./utils/device-utils";
 import { getCurrentMemoryUsageMB } from "./utils/memory-manager";
+import {
+  CompatibilityStreamingConfig,
+  configureSharedCompatibilityStreaming,
+  DEFAULT_COMPATIBILITY_STREAMING_CONFIG,
+} from "./services/device/stream-service";
 
 const { deviceManager } = sdk;
+
+const COMPATIBILITY_ENCODER_CAPACITY_SETTING = "compatibilityEncoderCapacity";
+const COMPATIBILITY_ENCODER_CRITICAL_TEMPERATURE_SETTING =
+  "compatibilityEncoderCriticalTemperatureC";
+const COMPATIBILITY_ENCODER_RECOVERY_TEMPERATURE_SETTING =
+  "compatibilityEncoderRecoveryTemperatureC";
+const COMPATIBILITY_ENCODER_SETTING_KEYS = new Set([
+  COMPATIBILITY_ENCODER_CAPACITY_SETTING,
+  COMPATIBILITY_ENCODER_CRITICAL_TEMPERATURE_SETTING,
+  COMPATIBILITY_ENCODER_RECOVERY_TEMPERATURE_SETTING,
+]);
 
 /**
  * Create a transport function for routing tslog output to a Scrypted console
@@ -127,6 +143,7 @@ export class EufySecurityProvider
       type: "hidden",
     });
     this.logger.attachTransport(createConsoleTransport(this.console));
+    this.applyCompatibilityStreamingConfiguration();
 
     // Create a logger for the WebSocket client using the same console
     // (WebSocket events are part of the provider's responsibility)
@@ -206,6 +223,37 @@ export class EufySecurityProvider
         value: `${currentMemory}MB`,
         type: "string",
         readonly: true,
+      },
+
+      {
+        group: "Advanced H.264 Compatibility",
+        key: COMPATIBILITY_ENCODER_CAPACITY_SETTING,
+        title: "Maximum Compatibility Encoders",
+        description:
+          "Maximum simultaneous H.265-to-H.264 relay encoders shared by all cameras. " +
+          "Higher values use more CPU; the conservative default is 1.",
+        value: this.getCompatibilityStreamingConfiguration().encoderCapacity,
+        type: "number",
+      },
+      {
+        group: "Advanced H.264 Compatibility",
+        key: COMPATIBILITY_ENCODER_CRITICAL_TEMPERATURE_SETTING,
+        title: "Encoder Critical Temperature (°C)",
+        description:
+          "Deny new compatibility encoders at or above this temperature. Existing streams are not stopped.",
+        value:
+          this.getCompatibilityStreamingConfiguration().criticalTemperatureC,
+        type: "number",
+      },
+      {
+        group: "Advanced H.264 Compatibility",
+        key: COMPATIBILITY_ENCODER_RECOVERY_TEMPERATURE_SETTING,
+        title: "Encoder Recovery Temperature (°C)",
+        description:
+          "Allow new compatibility encoders again once the host cools to this temperature. It must be lower than the critical temperature.",
+        value:
+          this.getCompatibilityStreamingConfiguration().recoveryTemperatureC,
+        type: "number",
       },
 
       // Eufy Cloud Account Settings
@@ -417,6 +465,16 @@ export class EufySecurityProvider
    * @returns {Promise<void>}
    */
   async putSetting(key: string, value: SettingValue): Promise<void> {
+    if (COMPATIBILITY_ENCODER_SETTING_KEYS.has(key)) {
+      const configuration = this.getCompatibilityStreamingConfiguration({
+        [key]: value,
+      });
+      configureSharedCompatibilityStreaming(configuration);
+      this.storage.setItem(key, String(value));
+      this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+      return;
+    }
+
     // Handle button clicks (they can have null values)
     if (key === "connectDriver") {
       this.logger.info("🔗 Button clicked: Connect to Eufy cloud");
@@ -642,6 +700,54 @@ export class EufySecurityProvider
       // Refresh the settings UI to reflect the immediate change
       this.onDeviceEvent(ScryptedInterface.Settings, undefined);
     }
+  }
+
+  private applyCompatibilityStreamingConfiguration(): void {
+    configureSharedCompatibilityStreaming(
+      this.getCompatibilityStreamingConfiguration(),
+    );
+  }
+
+  private getCompatibilityStreamingConfiguration(
+    overrides: Record<string, SettingValue> = {},
+  ): CompatibilityStreamingConfig {
+    const read = (key: string, fallback: number): number => {
+      const value = overrides[key] ?? this.storage.getItem(key);
+      const parsed =
+        typeof value === "number"
+          ? value
+          : typeof value === "string" && value.trim() !== ""
+            ? Number(value)
+            : undefined;
+      return parsed !== undefined && Number.isFinite(parsed) ? parsed : fallback;
+    };
+    const configuration = {
+      encoderCapacity: read(
+        COMPATIBILITY_ENCODER_CAPACITY_SETTING,
+        DEFAULT_COMPATIBILITY_STREAMING_CONFIG.encoderCapacity,
+      ),
+      criticalTemperatureC: read(
+        COMPATIBILITY_ENCODER_CRITICAL_TEMPERATURE_SETTING,
+        DEFAULT_COMPATIBILITY_STREAMING_CONFIG.criticalTemperatureC,
+      ),
+      recoveryTemperatureC: read(
+        COMPATIBILITY_ENCODER_RECOVERY_TEMPERATURE_SETTING,
+        DEFAULT_COMPATIBILITY_STREAMING_CONFIG.recoveryTemperatureC,
+      ),
+    };
+    if (
+      !Number.isInteger(configuration.encoderCapacity) ||
+      configuration.encoderCapacity < 1 ||
+      configuration.recoveryTemperatureC >= configuration.criticalTemperatureC
+    ) {
+      if (Object.keys(overrides).length) {
+        throw new Error(
+          "Encoder capacity must be a positive integer and recovery temperature must be lower than critical temperature.",
+        );
+      }
+      return { ...DEFAULT_COMPATIBILITY_STREAMING_CONFIG };
+    }
+    return configuration;
   }
   async getRefreshFrequency(): Promise<number> {
     return 300; // 5 minutes
