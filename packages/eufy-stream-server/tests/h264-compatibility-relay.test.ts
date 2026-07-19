@@ -163,6 +163,25 @@ describe("H264CompatibilityRelay", () => {
     await expect(relay.start()).rejects.toThrow("ffmpeg path");
   });
 
+  it("configures FFmpeg for live fragmented output before upstream EOF", async () => {
+    const source = await sourceServer();
+    const child = new FakeChild();
+    const spawn = jest.fn((..._args: unknown[]) => child);
+    const relay = new H264CompatibilityRelay({
+      serialNumber: "camera-1", getMuxedPort: () => source.port, ffmpegPath: "/fake/ffmpeg",
+      createChildProcess: spawn,
+    });
+    await relay.start();
+    const args = spawn.mock.calls[0][1];
+    expect(args).toEqual(expect.arrayContaining([
+      "-threads", "1", "-blocksize", "4096", "-probesize", "4096", "-analyzeduration", "0",
+      "-preset", "ultrafast", "-tune", "zerolatency", "-movflags",
+      "frag_every_frame+empty_moov+default_base_moof", "-flush_packets", "1",
+    ]));
+    await relay.stop();
+    await new Promise<void>((resolve) => source.server.close(() => resolve()));
+  });
+
   it("shares one encoder and replays init plus the latest video sync fragment to late clients", async () => {
     const source = await sourceServer();
     const child = new FakeChild();

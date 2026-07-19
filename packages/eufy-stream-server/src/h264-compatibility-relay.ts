@@ -208,9 +208,19 @@ export class H264CompatibilityRelay extends EventEmitter {
       child = this.createChild(
         this.options.ffmpegPath!,
         [
-          "-hide_banner", "-loglevel", "error", "-f", "mp4", "-i", "pipe:0",
-          "-map", "0:v:0", "-map", "0:a?", "-c:v", "libx264", "-c:a", "aac",
-          "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1",
+          "-hide_banner", "-loglevel", "error",
+          // A persistent fMP4 pipe does not get an EOF to flush the MOV
+          // demuxer. Restrict probing/decoder reordering so complete moof
+          // fragments are processed as they arrive instead of on close.
+          "-threads", "1", "-blocksize", "4096", "-probesize", "4096", "-analyzeduration", "0",
+          "-f", "mp4", "-i", "pipe:0",
+          "-map", "0:v:0", "-map", "0:a?", "-c:v", "libx264",
+          "-preset", "ultrafast", "-tune", "zerolatency", "-g", "30", "-keyint_min", "30",
+          "-sc_threshold", "0", "-c:a", "aac",
+          // Fragment each output frame and flush the AVIO layer: fMP4 output
+          // then reaches relay consumers while the upstream remains connected.
+          "-movflags", "frag_every_frame+empty_moov+default_base_moof", "-flush_packets", "1",
+          "-f", "mp4", "pipe:1",
         ],
         { stdio: ["pipe", "pipe", "pipe"] },
       );
