@@ -1676,6 +1676,24 @@ describe("StreamServer", () => {
       socket.destroy();
     });
 
+    it("cancels a pending metadata wait when its muxed socket closes", async () => {
+      await server.start();
+
+      const socket = net.createConnection({
+        port: server.getMuxedPort()!,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      await wait(20);
+
+      expect((server as any).metadataWaiters.length).toBe(1);
+
+      socket.destroy();
+      await wait(20);
+
+      expect((server as any).metadataWaiters.length).toBe(0);
+    });
+
     it("JMuxer duplex data is written to socket", async () => {
       await server.start();
 

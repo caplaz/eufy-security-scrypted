@@ -1265,6 +1265,14 @@ export class StreamServer extends EventEmitter {
     socket.on("close", pendingCleanup);
     socket.on("error", pendingCleanup);
 
+    // A pending muxer client owns a metadata waiter. If its downstream
+    // socket disappears before the first frame arrives, abort that waiter
+    // immediately instead of retaining it until the 60s metadata timeout.
+    const metadataWaitAbortController = new AbortController();
+    const cancelMetadataWait = () => metadataWaitAbortController.abort();
+    socket.once("close", cancelMetadataWait);
+    socket.once("error", cancelMetadataWait);
+
     // Kick off the upstream livestream (no-op if already running).
     this.updateLivestreamStateForMuxerClients();
 
@@ -1282,13 +1290,20 @@ export class StreamServer extends EventEmitter {
     try {
       // 60s — battery cameras (T8170 S340 sleep mode, T86P2 4G LTE cold-start)
       // can take 30–45s to deliver their first IDR after startLivestream.
-      const metadata = await this.waitForVideoMetadata(60000);
+      const metadata = await this.waitForVideoMetadata(60000, {
+        signal: metadataWaitAbortController.signal,
+      });
       const c = metadata.videoCodec.toUpperCase();
       videoCodec = c === "H265" || c === "HEVC" ? "H265" : "H264";
     } catch (e) {
-      this.logger.warn(
-        `Muxer client: timed out waiting for video metadata, falling back to hinted codec ${videoCodec}. ${e}`,
-      );
+      if (!metadataWaitAbortController.signal.aborted) {
+        this.logger.warn(
+          `Muxer client: timed out waiting for video metadata, falling back to hinted codec ${videoCodec}. ${e}`,
+        );
+      }
+    } finally {
+      socket.removeListener("close", cancelMetadataWait);
+      socket.removeListener("error", cancelMetadataWait);
     }
 
     // Socket may have given up while we waited.
