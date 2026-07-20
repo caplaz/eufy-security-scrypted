@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Optional H.265 compatibility stream**: The plugin now distinguishes the
+  truthful native `p2p` stream from the strictly H.264 `p2p-h264` compatibility
+  stream. `Auto` transcodes only verified H.265 interactive live views and
+  keeps recorder/prebuffer destinations native; `Force` requires compatibility
+  for verified H.265; and `Native` always preserves the source stream. Unknown
+  codecs are never guessed or relabelled. Explicit `p2p-h264` requests fail
+  rather than silently falling back when verification or encoder admission is
+  unavailable.
+- **Compatibility encoder admission controls**: Compatibility transcodes are
+  capacity-accounted per active encoder, including continuously running
+  prebuffers. New admissions are thermally gated at 85 °C and resume at 75 °C;
+  the gate does not terminate an encoder already running and is inert on hosts
+  without a usable temperature reading. Except for a continuous prebuffer, an
+  encoder is not retained beyond its consumer lifecycle and configured linger.
 - **eufy-security-ws 3.1.0 / schema 21 support** (#35): Typed client support for the schema-21 PTZ preset commands (`device.preset_position`, `device.save_preset_position`, `device.delete_preset_position`) via `presetPosition()` / `savePresetPosition()` / `deletePresetPosition()` on the device command builder. New upstream device models are recognized with correct capabilities and names: HomeBase Mini (T8025), NVR S4 Max (T8N00), PoE Bullet-PTZ Cam S4 (T8E00), Camera S4 / SoloCam E42 / 4G LTE Cam S330 as battery PTZ cameras, FamiLock S3 (T85V0) as a battery dual video doorbell + lock, FamiLock E34 (T85P0), Smart Lock C33/C30, Motion Sensor E20, Siren E20, and the Water and Freeze Sensor (T8920). The development Docker Compose image is pinned to `bropat/eufy-security-ws:3.1.0`.
 - **Per-HomeBase stream coordination** (#28): A Eufy HomeBase serves only one camera P2P stream at a time. A new station stream coordinator serializes `startLivestream` across cameras on the same HomeBase — live view preempts with a clean stop-before-start handoff ("newest tap wins"), a warm-up guard absorbs the Home-app grid's burst of simultaneous requests, and background work never interrupts a viewer.
 - **Wedge detection and automatic station recovery** (#28): Cold-start (no first frame within 18s) and mid-session (15s data stall) watchdogs detect a wedged upstream P2P session, recycle the station connection (`station.disconnect`/`connect`), and automatically restart the livestream for waiting consumers — no more plugin restarts to recover a dead stream. Suppression guards (no-signal, chronic-failure, busy-sibling) protect healthy cameras on a shared HomeBase from recycle storms.
@@ -40,7 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Deprecated `debug` option on `StreamServerOptions`** (#33): logger `minLevel` has controlled verbosity for a long time.
 - Internal dead module `device-manifest-builder.ts` (#33) — zero imports; manifest building lives in `DeviceUtils`.
 
-*Thanks to [@josha](https://github.com/josha) for the shared-HomeBase reliability work (#28).*
+_Thanks to [@josha](https://github.com/josha) for the shared-HomeBase reliability work (#28)._
 
 ## [0.3.1] - 2026-04-20
 
@@ -50,7 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Device Support**: ensure standalone devices route through EufyStation by defaulting providerNativeId to station_<serial>
+- **Device Support**: ensure standalone devices route through EufyStation by defaulting providerNativeId to station\_<serial>
 - **Error Handling**: use Promise.allSettled so one bad device doesn't block all others (#22)
 - **State Updates**: guard against state updates before device initialization (#17)
 
@@ -95,7 +109,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Wrong FFmpeg demuxer for H.265**: Streams always passed `-f h264` to FFmpeg regardless of camera codec; H.265 cameras now correctly use `-f hevc`
 - **`providerNativeId=undefined` edge case**: `registerDevicesFromServerState` now handles stations with an undefined `providerNativeId` without throwing
 
-*Thanks to [@DTse](https://github.com/DTse) for contributing audio streaming and intercom support.*
+_Thanks to [@DTse](https://github.com/DTse) for contributing audio streaming and intercom support._
 
 ## [0.2.1] - 2025-10-26
 

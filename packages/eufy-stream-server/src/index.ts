@@ -50,7 +50,6 @@ export type {
   CompatibilityEncoderPoolOptions,
 } from "./compatibility-encoder-pool";
 export { ThermalGovernor } from "./thermal-governor";
-
 export type {
   TemperatureReader,
   ThermalGovernorOptions,

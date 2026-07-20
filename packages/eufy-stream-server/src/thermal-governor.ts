@@ -87,7 +87,7 @@ export class ThermalGovernor {
    * Concurrent callers share one temperature read and observe the same state.
    */
   public async checkCompatibilityEncoderAdmission(): Promise<boolean> {
-    if (this.isSamplingDue()) {
+    if (this.sampleInFlight || this.isSamplingDue()) {
       await this.sample();
     }
 

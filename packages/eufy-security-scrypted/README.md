@@ -114,7 +114,9 @@ After installation, configure the plugin with:
 
 - **WebSocket URL**: URL of your eufy-security-ws server (default: `ws://localhost:3000`)
 - **Debug Logging**: Enable verbose logging for troubleshooting
-- **Memory Management**: Configure memory thresholds for optimal performance
+- **H.265 Compatibility Mode**: Choose `Auto` (the default), `Force`, or
+  `Native` for the optional H.265-to-H.264 compatibility stream. See
+  [Native and compatibility streams](#native-and-compatibility-streams).
 
 ## Device Support
 
@@ -382,13 +384,74 @@ Eufy Camera → eufy-security-ws → WebSocket → Scrypted Plugin → TCP Serve
 ✅ **Keyframe Detection** - Fast stream initialization  
 ✅ **Auto Cleanup** - Resources freed when not streaming
 
+### Native and Compatibility Streams
+
+The plugin exposes two stable P2P stream contracts:
+
+| Stream ID  | Contract                                                                                                                                                                     |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `p2p`      | Native P2P video. It does not start a compatibility encoder and reports the camera's actual verified codec (`H264` or `H265`); an H.265 source is never relabelled as H.264. |
+| `p2p-h264` | Compatibility video. It is available only after a verified H.265 source is admitted to the compatibility encoder, and its output contract is H.264.                          |
+
+An explicit `p2p` request is always native, regardless of mode. An explicit
+`p2p-h264` request is strict: it fails with an actionable selection error when
+the source codec is not verified H.265 or an encoder cannot be admitted. It
+never silently falls back to `p2p`.
+
+| Mode     | Default routing behavior                                                                                                                                                                                                                                                                                 |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Auto`   | Uses `p2p-h264` only for a verified H.265 source sent to an interactive local or remote live-view destination and only when an encoder is available. All other destinations, including local and remote recorders, remain native. Unknown or unverified codecs remain native; the plugin does not guess. |
+| `Force`  | Uses compatibility H.264 for a verified H.265 source. A verified native H.264 source remains native. Missing codec verification or unavailable encoder capacity returns an error instead of guessing or relabelling the stream.                                                                          |
+| `Native` | Always uses `p2p`; no compatibility encoder is requested.                                                                                                                                                                                                                                                |
+
+#### Capacity, prebuffer, and thermal admission
+
+Each active compatibility transcode consumes one encoder slot and CPU capacity.
+Plan capacity for the sum of continuously running compatibility prebuffers and
+the peak number of interactive compatibility viewers, rather than only the
+number of cameras. A continuous prebuffer holds its encoder slot and CPU for
+as long as it is enabled.
+
+Except for a continuous compatibility prebuffer, a compatibility encoder is
+created only for an active consumer and may remain during the configured
+post-consumer linger. It is not kept running outside that lifecycle. Native
+`p2p` streams never consume a compatibility encoder slot.
+
+The thermal governor gates new compatibility encoder admissions at 85 °C and
+allows new admissions again only at or below 75 °C (with admission-triggered
+sampling at most once every 30 seconds). It deliberately does not terminate an
+encoder that is already running. When the host does not expose a usable
+temperature reading, or reading it fails, the gate is inert, so it is a safety
+limit rather than a guarantee that every platform will prevent overheating.
+
 ### Stream Quality
 
 - **Resolution**: Up to 2K (device dependent)
-- **Codec**: H.264 (hardware accelerated)
+- **Codec**: Native H.264 or H.265; the optional `p2p-h264` compatibility
+  stream is H.264
 - **Audio**: AAC stereo
 - **Latency**: ~1-3 seconds (typical)
 - **Bandwidth**: 2-5 Mbps (variable)
+
+### Verification and CI
+
+The automated tests cover stream selection (`Auto`, `Force`, `Native`, explicit
+stream IDs, recorder routing, and unverified codecs), thermal hysteresis and
+concurrent admission checks, and the FFmpeg input configuration handed to
+Scrypted. A real-FFmpeg HEVC-to-H.264 integration test also verifies that an
+H.265 input can be decoded and emitted as decodable H.264. It self-skips on a
+developer machine when FFmpeg or the required encoders are unavailable.
+
+The dedicated FFmpeg CI job requires FFmpeg with the x264 and x265 encoders, so
+the integration test is exercised in CI instead of being hidden by the local
+skip. It validates the conversion pipeline, not a physical camera; still test
+`p2p-h264` with a live verified H.265 camera before relying on it in production.
+
+GitHub Actions installs dependencies and the Scrypted SDK, then runs the root
+build and test suites on Node.js 18, 20, and 22. Its quality job additionally
+type-checks, lints, and formats the client package. Run `npm run build`,
+`npm run test`, `npm run lint`, and `npm run format:check` locally before
+submitting changes.
 
 ---
 

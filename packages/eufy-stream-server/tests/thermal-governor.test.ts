@@ -93,6 +93,26 @@ describe("ThermalGovernor", () => {
     expect(reads).toBe(1);
   });
 
+  it("waits for an in-flight admission sample before returning an admission decision", async () => {
+    let releaseReading: (temperature: number) => void = () => undefined;
+    const reading = new Promise<number>((resolve) => {
+      releaseReading = resolve;
+    });
+    const governor = new ThermalGovernor({
+      temperatureReader: () => reading,
+      criticalTemperatureC: 80,
+      recoveryTemperatureC: 70,
+    });
+
+    const firstAdmission = governor.checkCompatibilityEncoderAdmission();
+    const concurrentAdmission = governor.checkCompatibilityEncoderAdmission();
+    releaseReading(80);
+
+    await expect(
+      Promise.all([firstAdmission, concurrentAdmission]),
+    ).resolves.toEqual([false, false]);
+  });
+
   it("samples on compatibility admissions only after the configured interval", async () => {
     let now = 1_000;
     const temperatures = [75, 80];
