@@ -1,8 +1,4 @@
-import {
-  Fmp4BoxStream,
-  findVideoTrackId,
-  moofFirstSampleIsSync,
-} from "../src";
+import { Fmp4BoxStream, findVideoTrackId, moofFirstSampleIsSync } from "../src";
 
 const box = (type: string, payload: Uint8Array = Buffer.alloc(0)): Buffer => {
   const result = Buffer.alloc(8 + payload.length);
@@ -36,7 +32,10 @@ const hdlr = (handlerType: string): Buffer => {
 };
 
 const trak = (trackId: number, handlerType: string, version = 0): Buffer =>
-  box("trak", Buffer.concat([tkhd(trackId, version), box("mdia", hdlr(handlerType))]));
+  box(
+    "trak",
+    Buffer.concat([tkhd(trackId, version), box("mdia", hdlr(handlerType))]),
+  );
 
 const tfhd = (trackId: number, defaultSampleFlags?: number): Buffer => {
   const hasDefaultFlags = defaultSampleFlags !== undefined;
@@ -46,11 +45,13 @@ const tfhd = (trackId: number, defaultSampleFlags?: number): Buffer => {
   return fullBox("tfhd", hasDefaultFlags ? 0x20 : 0, payload);
 };
 
-const trun = (options: {
-  sampleCount?: number;
-  firstSampleFlags?: number;
-  sampleFlags?: number;
-} = {}): Buffer => {
+const trun = (
+  options: {
+    sampleCount?: number;
+    firstSampleFlags?: number;
+    sampleFlags?: number;
+  } = {},
+): Buffer => {
   const sampleCount = options.sampleCount ?? 1;
   const hasFirstSampleFlags = options.firstSampleFlags !== undefined;
   const hasSampleFlags = options.sampleFlags !== undefined;
@@ -71,7 +72,11 @@ const trun = (options: {
   );
 };
 
-const traf = (trackId: number, run: Buffer, defaultSampleFlags?: number): Buffer =>
+const traf = (
+  trackId: number,
+  run: Buffer,
+  defaultSampleFlags?: number,
+): Buffer =>
   box("traf", Buffer.concat([tfhd(trackId, defaultSampleFlags), run]));
 
 describe("Fmp4BoxStream", () => {
@@ -89,7 +94,8 @@ describe("Fmp4BoxStream", () => {
     stream.on("init", (data: Buffer) => inits.push(data));
     stream.on("fragment", (data: Buffer) => fragments.push(data));
 
-    for (const byte of Buffer.concat([init, fragment])) stream.write(Buffer.from([byte]));
+    for (const byte of Buffer.concat([init, fragment]))
+      stream.write(Buffer.from([byte]));
 
     expect(inits).toEqual([init]);
     expect(fragments).toEqual([fragment]);
@@ -104,7 +110,9 @@ describe("Fmp4BoxStream", () => {
     stream.on("init", (data: Buffer) => inits.push(data));
     stream.on("fragment", (data: Buffer) => fragments.push(data));
 
-    stream.write(Buffer.concat([box("free"), init, box("free"), fragment, box("free")]));
+    stream.write(
+      Buffer.concat([box("free"), init, box("free"), fragment, box("free")]),
+    );
 
     expect(inits).toEqual([init]);
     expect(fragments).toEqual([fragment]);
@@ -157,7 +165,9 @@ describe("Fmp4BoxStream", () => {
     stream.write(extended);
 
     expect(errors).toHaveLength(2);
-    expect(errors.every((error) => /invalid.*size/i.test(error.message))).toBe(true);
+    expect(errors.every((error) => /invalid.*size/i.test(error.message))).toBe(
+      true,
+    );
   });
 
   it("reset discards buffered bytes and incomplete boxes", () => {
@@ -193,8 +203,14 @@ describe("Fmp4BoxStream", () => {
 
 describe("findVideoTrackId", () => {
   it("finds a video track ID from version 0 and version 1 tkhd boxes", () => {
-    const version0 = Buffer.concat([box("ftyp"), box("moov", Buffer.concat([trak(3, "soun"), trak(42, "vide")]))]);
-    const version1 = Buffer.concat([box("ftyp"), box("moov", trak(99, "vide", 1))]);
+    const version0 = Buffer.concat([
+      box("ftyp"),
+      box("moov", Buffer.concat([trak(3, "soun"), trak(42, "vide")])),
+    ]);
+    const version1 = Buffer.concat([
+      box("ftyp"),
+      box("moov", trak(99, "vide", 1)),
+    ]);
 
     expect(findVideoTrackId(version0)).toBe(42);
     expect(findVideoTrackId(version1)).toBe(99);

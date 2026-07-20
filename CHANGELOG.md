@@ -7,17 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-20
+
 ### Added
 
-- **Optional H.265 compatibility stream**: The plugin now distinguishes the
-  truthful native `p2p` stream from the strictly H.264 `p2p-h264` compatibility
-  stream. `Auto` transcodes only verified H.265 interactive live views and
+- **Optional H.265 compatibility stream** (#36): H.265-only cameras can now be
+  viewed in HomeKit and the browser via one **shared** per-camera H.264 encoder
+  (a single `libx264` transcode fanned out to all consumers, not one per
+  viewer). The plugin distinguishes the truthful native `p2p` stream from the
+  strictly H.264 `p2p-h264` compatibility stream. `Auto` transcodes only verified H.265 interactive live views and
   keeps recorder/prebuffer destinations native; `Force` requires compatibility
   for verified H.265; and `Native` always preserves the source stream. Unknown
   codecs are never guessed or relabelled. Explicit `p2p-h264` requests fail
   rather than silently falling back when verification or encoder admission is
   unavailable.
-- **Compatibility encoder admission controls**: Compatibility transcodes are
+- **Compatibility encoder admission controls** (#36): Compatibility transcodes are
   capacity-accounted per active encoder, including continuously running
   prebuffers. New admissions are thermally gated at 85 °C and resume at 75 °C;
   the gate does not terminate an encoder already running and is inert on hosts
@@ -54,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Deprecated `debug` option on `StreamServerOptions`** (#33): logger `minLevel` has controlled verbosity for a long time.
 - Internal dead module `device-manifest-builder.ts` (#33) — zero imports; manifest building lives in `DeviceUtils`.
 
-_Thanks to [@josha](https://github.com/josha) for the shared-HomeBase reliability work (#28)._
+_Thanks to [@josha](https://github.com/josha) for the shared-HomeBase reliability work (#28) and for the H.265→H.264 compatibility concept and thermal governor (#29), which the shared-relay implementation in #36 builds on._
 
 ## [0.3.1] - 2026-04-20
 

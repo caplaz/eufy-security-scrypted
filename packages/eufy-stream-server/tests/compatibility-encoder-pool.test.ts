@@ -54,7 +54,9 @@ describe("CompatibilityEncoderPool", () => {
     expect(error).toMatchObject({
       code: "COMPATIBILITY_ENCODER_CAPACITY",
       requestedSerialNumber: "camera-2",
-      holders: [expect.objectContaining({ serialNumber: "camera-1", name: "Driveway" })],
+      holders: [
+        expect.objectContaining({ serialNumber: "camera-1", name: "Driveway" }),
+      ],
     });
   });
 
@@ -66,12 +68,18 @@ describe("CompatibilityEncoderPool", () => {
     expect(() =>
       pool.acquire({ serialNumber: "camera-2", consumerKind: "interactive" }),
     ).toThrow(CompatibilityEncoderCapacityError);
-    expect(pool.diagnostics[0]).toMatchObject({ serialNumber: "camera-1", preemptible: false });
+    expect(pool.diagnostics[0]).toMatchObject({
+      serialNumber: "camera-1",
+      preemptible: false,
+    });
   });
 
   it("preempts the oldest all-prebuffer holder for an interactive request", () => {
     let clock = 100;
-    const pool = new CompatibilityEncoderPool({ capacity: 2, now: () => clock });
+    const pool = new CompatibilityEncoderPool({
+      capacity: 2,
+      now: () => clock,
+    });
     const evictOldest = jest.fn(() => {
       throw new Error("eviction cleanup must not block capacity release");
     });
@@ -100,7 +108,10 @@ describe("CompatibilityEncoderPool", () => {
       consumerKind: "prebuffer",
       onPreempt: () => {
         try {
-          pool.acquire({ serialNumber: "camera-a", consumerKind: "interactive" });
+          pool.acquire({
+            serialNumber: "camera-a",
+            consumerKind: "interactive",
+          });
         } catch (error) {
           reentrantError = error;
         }
@@ -158,7 +169,10 @@ describe("CompatibilityEncoderPool", () => {
       serialNumber: "camera-1",
       consumerKind: "prebuffer",
     });
-    expect(pool.diagnostics[0]).toMatchObject({ serialNumber: "camera-1", preemptible: true });
+    expect(pool.diagnostics[0]).toMatchObject({
+      serialNumber: "camera-1",
+      preemptible: true,
+    });
     reAdmitted.release();
   });
 
@@ -189,8 +203,14 @@ describe("CompatibilityEncoderPool", () => {
 
   it("releases leases idempotently and updates consumer composition on detach", () => {
     const pool = new CompatibilityEncoderPool({ capacity: 1 });
-    const prebuffer = pool.acquire({ serialNumber: "camera-1", consumerKind: "prebuffer" });
-    const interactive = pool.acquire({ serialNumber: "camera-1", consumerKind: "interactive" });
+    const prebuffer = pool.acquire({
+      serialNumber: "camera-1",
+      consumerKind: "prebuffer",
+    });
+    const interactive = pool.acquire({
+      serialNumber: "camera-1",
+      consumerKind: "interactive",
+    });
 
     interactive.release();
     interactive.release();

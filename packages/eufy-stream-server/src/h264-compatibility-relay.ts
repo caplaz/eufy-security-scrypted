@@ -1,7 +1,11 @@
 import { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import * as net from "node:net";
-import { Fmp4BoxStream, findVideoTrackId, moofFirstSampleIsSync } from "./fmp4-box-stream";
+import {
+  Fmp4BoxStream,
+  findVideoTrackId,
+  moofFirstSampleIsSync,
+} from "./fmp4-box-stream";
 import {
   CompatibilityEncoderConsumerKind,
   CompatibilityEncoderLease,
@@ -13,7 +17,10 @@ const MAX_QUEUED_BYTES = 1024 * 1024;
 const DEFAULT_CHILD_EXIT_TIMEOUT_MS = 2_000;
 const defaultCompatibilityEncoderPool = new CompatibilityEncoderPool();
 
-type Child = Pick<ChildProcessWithoutNullStreams, "stdin" | "stdout" | "stderr" | "kill"> &
+type Child = Pick<
+  ChildProcessWithoutNullStreams,
+  "stdin" | "stdout" | "stderr" | "kill"
+> &
   EventEmitter;
 
 export interface H264CompatibilityRelayOptions {
@@ -53,12 +60,19 @@ interface Consumer {
  */
 export class H264CompatibilityRelay extends EventEmitter {
   private readonly serialNumber: string;
-  private readonly netApi: Pick<typeof net, "createServer" | "createConnection">;
+  private readonly netApi: Pick<
+    typeof net,
+    "createServer" | "createConnection"
+  >;
   private readonly pool: CompatibilityEncoderPool;
   private readonly lingerMs: number;
   private readonly childExitTimeoutMs: number;
-  private readonly classifyConsumer: (socket: net.Socket) => CompatibilityEncoderConsumerKind;
-  private readonly createChild: NonNullable<H264CompatibilityRelayOptions["createChildProcess"]>;
+  private readonly classifyConsumer: (
+    socket: net.Socket,
+  ) => CompatibilityEncoderConsumerKind;
+  private readonly createChild: NonNullable<
+    H264CompatibilityRelayOptions["createChildProcess"]
+  >;
   private server?: net.Server;
   private source?: net.Socket;
   private child?: Child;
@@ -82,13 +96,18 @@ export class H264CompatibilityRelay extends EventEmitter {
     this.netApi = options.net ?? net;
     this.pool = options.pool ?? defaultCompatibilityEncoderPool;
     this.lingerMs = options.lingerMs ?? 10_000;
-    this.childExitTimeoutMs = options.childExitTimeoutMs ?? DEFAULT_CHILD_EXIT_TIMEOUT_MS;
+    this.childExitTimeoutMs =
+      options.childExitTimeoutMs ?? DEFAULT_CHILD_EXIT_TIMEOUT_MS;
     if (this.childExitTimeoutMs < 0) {
-      throw new RangeError("H264 compatibility relay child exit timeout must not be negative");
+      throw new RangeError(
+        "H264 compatibility relay child exit timeout must not be negative",
+      );
     }
     this.classifyConsumer = options.classifyConsumer ?? (() => "interactive");
-    this.createChild = options.createChildProcess ?? ((command, args, spawnOptions) =>
-      spawn(command, args, spawnOptions) as Child);
+    this.createChild =
+      options.createChildProcess ??
+      ((command, args, spawnOptions) =>
+        spawn(command, args, spawnOptions) as Child);
   }
 
   public getPort(): number | undefined {
@@ -102,11 +121,15 @@ export class H264CompatibilityRelay extends EventEmitter {
 
   public async start(): Promise<void> {
     if (this.disposed) {
-      throw new Error(`H264 compatibility relay for ${this.serialNumber} has been disposed`);
+      throw new Error(
+        `H264 compatibility relay for ${this.serialNumber} has been disposed`,
+      );
     }
     if (this.stopPromise) await this.stopPromise;
     if (this.disposed) {
-      throw new Error(`H264 compatibility relay for ${this.serialNumber} has been disposed`);
+      throw new Error(
+        `H264 compatibility relay for ${this.serialNumber} has been disposed`,
+      );
     }
     if (this.startPromise) return this.startPromise;
     if (this.server && this.child && this.source && !this.stopping) return;
@@ -119,14 +142,18 @@ export class H264CompatibilityRelay extends EventEmitter {
 
   private async startInternal(generation: number): Promise<void> {
     if (!this.serialNumber) {
-      throw new Error("Cannot start H264 compatibility relay: camera serial number is required");
+      throw new Error(
+        "Cannot start H264 compatibility relay: camera serial number is required",
+      );
     }
     if (!this.options.ffmpegPath) {
       throw new Error(
         `Cannot start H264 compatibility relay for ${this.serialNumber}: ffmpeg path is required`,
       );
     }
-    const sourcePort = this.options.getMuxedPort?.() ?? this.options.streamServer?.getMuxedPort();
+    const sourcePort =
+      this.options.getMuxedPort?.() ??
+      this.options.streamServer?.getMuxedPort();
     if (!sourcePort) {
       throw new Error(
         `Cannot start H264 compatibility relay for ${this.serialNumber}: StreamServer muxed source is unavailable`,
@@ -150,12 +177,17 @@ export class H264CompatibilityRelay extends EventEmitter {
       this.ensureCurrent(generation);
       this.emit("started", generation);
     } catch (error) {
-      if (generation === this.generation && !this.stopping) await this.teardown();
+      if (generation === this.generation && !this.stopping)
+        await this.teardown();
       if (generation !== this.generation || this.stopping) {
-        throw new Error(`H264 compatibility relay start was cancelled for ${this.serialNumber}`);
+        throw new Error(
+          `H264 compatibility relay start was cancelled for ${this.serialNumber}`,
+        );
       }
       const detail = error instanceof Error ? error.message : String(error);
-      throw new Error(`Cannot start H264 compatibility relay for ${this.serialNumber}: ${detail}`);
+      throw new Error(
+        `Cannot start H264 compatibility relay for ${this.serialNumber}: ${detail}`,
+      );
     }
   }
 
@@ -182,7 +214,9 @@ export class H264CompatibilityRelay extends EventEmitter {
   }
 
   private async listen(generation: number): Promise<void> {
-    this.server = this.netApi.createServer((socket) => this.addConsumer(socket));
+    this.server = this.netApi.createServer((socket) =>
+      this.addConsumer(socket),
+    );
     await new Promise<void>((resolve, reject) => {
       const server = this.server!;
       const cleanup = () => {
@@ -216,52 +250,113 @@ export class H264CompatibilityRelay extends EventEmitter {
       child = this.createChild(
         this.options.ffmpegPath!,
         [
-          "-hide_banner", "-loglevel", "error",
+          "-hide_banner",
+          "-loglevel",
+          "error",
           // A persistent fMP4 pipe does not get an EOF to flush the MOV
           // demuxer. Restrict probing/decoder reordering so complete moof
           // fragments are processed as they arrive instead of on close.
-          "-threads", "1", "-blocksize", "4096", "-probesize", "4096", "-analyzeduration", "0",
-          "-f", "mp4", "-i", "pipe:0",
-          "-map", "0:v:0", "-map", "0:a?", "-c:v", "libx264",
-          "-preset", "ultrafast", "-tune", "zerolatency", "-g", "30", "-keyint_min", "30",
-          "-sc_threshold", "0", "-c:a", "aac",
+          "-threads",
+          "1",
+          "-blocksize",
+          "4096",
+          "-probesize",
+          "4096",
+          "-analyzeduration",
+          "0",
+          "-f",
+          "mp4",
+          "-i",
+          "pipe:0",
+          "-map",
+          "0:v:0",
+          "-map",
+          "0:a?",
+          "-c:v",
+          "libx264",
+          "-preset",
+          "ultrafast",
+          "-tune",
+          "zerolatency",
+          "-g",
+          "30",
+          "-keyint_min",
+          "30",
+          "-sc_threshold",
+          "0",
+          "-c:a",
+          "aac",
           // Fragment each output frame and flush the AVIO layer: fMP4 output
           // then reaches relay consumers while the upstream remains connected.
-          "-movflags", "frag_every_frame+empty_moov+default_base_moof", "-flush_packets", "1",
-          "-f", "mp4", "pipe:1",
+          "-movflags",
+          "frag_every_frame+empty_moov+default_base_moof",
+          "-flush_packets",
+          "1",
+          "-f",
+          "mp4",
+          "pipe:1",
         ],
         { stdio: ["pipe", "pipe", "pipe"] },
       );
     } catch (error) {
-      throw new Error(`failed to spawn ffmpeg: ${error instanceof Error ? error.message : error}`);
+      throw new Error(
+        `failed to spawn ffmpeg: ${error instanceof Error ? error.message : error}`,
+      );
     }
-    if (!child?.stdin || !child.stdout) throw new Error("ffmpeg did not provide stdio pipes");
+    if (!child?.stdin || !child.stdout)
+      throw new Error("ffmpeg did not provide stdio pipes");
     this.child = child;
     const parser = new Fmp4BoxStream();
     this.parser = parser;
     parser.on("init", (init: Buffer) => {
-      if (this.isCurrent(generation) && this.parser === parser && this.child === child) {
+      if (
+        this.isCurrent(generation) &&
+        this.parser === parser &&
+        this.child === child
+      ) {
         this.acceptInit(init);
       }
     });
     parser.on("fragment", (fragment: Buffer) => {
-      if (this.isCurrent(generation) && this.parser === parser && this.child === child) {
+      if (
+        this.isCurrent(generation) &&
+        this.parser === parser &&
+        this.child === child
+      ) {
         this.acceptFragment(fragment);
       }
     });
-    parser.on("error", (error) => this.handleFailure(generation, "fMP4 output", error));
+    parser.on("error", (error) =>
+      this.handleFailure(generation, "fMP4 output", error),
+    );
     child.stdout.on("data", (chunk: Buffer) => {
-      if (this.isCurrent(generation) && this.parser === parser && this.child === child) {
+      if (
+        this.isCurrent(generation) &&
+        this.parser === parser &&
+        this.child === child
+      ) {
         parser.write(chunk);
       }
     });
-    child.on("error", (error) => this.handleFailure(generation, "ffmpeg", error));
+    child.on("error", (error) =>
+      this.handleFailure(generation, "ffmpeg", error),
+    );
     child.on("exit", (code, signal) => {
-      this.handleFailure(generation, "ffmpeg", new Error(`exited (${code ?? signal ?? "unknown"})`));
+      this.handleFailure(
+        generation,
+        "ffmpeg",
+        new Error(`exited (${code ?? signal ?? "unknown"})`),
+      );
     });
-    child.stdin.on("error", (error) => this.handleFailure(generation, "ffmpeg stdin", error));
-    child.stdout.on("error", (error) => this.handleFailure(generation, "ffmpeg stdout", error));
-    child.stderr.on("error", (error) => this.handleFailure(generation, "ffmpeg stderr", error));
+    child.stdin.on("error", (error) =>
+      this.handleFailure(generation, "ffmpeg stdin", error),
+    );
+    child.stdout.on("error", (error) =>
+      this.handleFailure(generation, "ffmpeg stdout", error),
+    );
+    child.stderr.on("error", (error) =>
+      this.handleFailure(generation, "ffmpeg stderr", error),
+    );
     child.stderr.on("data", () => undefined);
   }
 
@@ -276,7 +371,11 @@ export class H264CompatibilityRelay extends EventEmitter {
       };
       const onError = (error: Error) => {
         cleanup();
-        reject(new Error(`muxed source unavailable on port ${port}: ${error.message}`));
+        reject(
+          new Error(
+            `muxed source unavailable on port ${port}: ${error.message}`,
+          ),
+        );
       };
       const onConnect = () => {
         cleanup();
@@ -284,18 +383,25 @@ export class H264CompatibilityRelay extends EventEmitter {
       };
       const onClose = () => {
         cleanup();
-        reject(new Error(`muxed source unavailable on port ${port}: disconnected`));
+        reject(
+          new Error(`muxed source unavailable on port ${port}: disconnected`),
+        );
       };
       source.once("error", onError);
       source.once("connect", onConnect);
       source.once("close", onClose);
     });
     source.on("error", (error) => {
-      if (this.source === source) this.handleFailure(generation, "muxed source", error);
+      if (this.source === source)
+        this.handleFailure(generation, "muxed source", error);
     });
     source.on("close", () => {
       if (this.source === source) {
-        this.handleFailure(generation, "muxed source", new Error("disconnected"));
+        this.handleFailure(
+          generation,
+          "muxed source",
+          new Error("disconnected"),
+        );
       }
     });
     this.ensureCurrent(generation);
@@ -330,7 +436,14 @@ export class H264CompatibilityRelay extends EventEmitter {
     }
     this.clearLinger();
     const kind = this.classifyConsumer(socket);
-    const consumer: Consumer = { socket, kind, queue: [], queuedBytes: 0, blocked: false, closed: false };
+    const consumer: Consumer = {
+      socket,
+      kind,
+      queue: [],
+      queuedBytes: 0,
+      blocked: false,
+      closed: false,
+    };
     // An interactive attachment protects the otherwise-prebuffer relay from pool preemption.
     if (kind === "interactive" && this.baseLease) {
       try {
@@ -365,7 +478,8 @@ export class H264CompatibilityRelay extends EventEmitter {
   }
 
   private broadcast(fragment: Buffer): void {
-    for (const consumer of this.consumers.values()) this.send(consumer, fragment);
+    for (const consumer of this.consumers.values())
+      this.send(consumer, fragment);
   }
 
   private send(consumer: Consumer, fragment: Buffer): void {
@@ -382,7 +496,9 @@ export class H264CompatibilityRelay extends EventEmitter {
       consumer.queue.length >= MAX_QUEUED_FRAGMENTS ||
       consumer.queuedBytes + fragment.length > MAX_QUEUED_BYTES
     ) {
-      consumer.socket.destroy(new Error("H264 compatibility relay consumer overflow"));
+      consumer.socket.destroy(
+        new Error("H264 compatibility relay consumer overflow"),
+      );
       return;
     }
     consumer.queue.push(fragment);
@@ -400,14 +516,23 @@ export class H264CompatibilityRelay extends EventEmitter {
 
   private handlePreempt(): void {
     if (this.stopping) return;
-    this.emit("preempted", { serialNumber: this.serialNumber, reason: "encoder-pool-preempted" });
+    this.emit("preempted", {
+      serialNumber: this.serialNumber,
+      reason: "encoder-pool-preempted",
+    });
     for (const consumer of this.consumers.values()) {
-      consumer.socket.destroy(new Error("H264 compatibility relay preempted by encoder pool"));
+      consumer.socket.destroy(
+        new Error("H264 compatibility relay preempted by encoder pool"),
+      );
     }
     void this.stop();
   }
 
-  private handleFailure(generation: number, component: string, error: unknown): void {
+  private handleFailure(
+    generation: number,
+    component: string,
+    error: unknown,
+  ): void {
     if (!this.isCurrent(generation)) return;
     this.resetCache();
     const failure = new Error(
@@ -481,7 +606,9 @@ export class H264CompatibilityRelay extends EventEmitter {
     const source = this.source;
     this.source = undefined;
     if (source) {
-      (source as unknown as { unpipe?: (destination?: unknown) => void }).unpipe?.(child?.stdin);
+      (
+        source as unknown as { unpipe?: (destination?: unknown) => void }
+      ).unpipe?.(child?.stdin);
       if (!source.destroyed) {
         await new Promise<void>((resolve) => {
           source.once("close", resolve);
@@ -542,7 +669,9 @@ export class H264CompatibilityRelay extends EventEmitter {
 
   private ensureCurrent(generation: number): void {
     if (!this.isCurrent(generation)) {
-      throw new Error(`H264 compatibility relay start was cancelled for ${this.serialNumber}`);
+      throw new Error(
+        `H264 compatibility relay start was cancelled for ${this.serialNumber}`,
+      );
     }
   }
 }
@@ -559,7 +688,9 @@ export function getSharedH264CompatibilityRelay(
 ): H264CompatibilityRelay {
   const serialNumber = options.serialNumber ?? options.cameraId;
   if (!serialNumber) {
-    throw new Error("Cannot create shared H264 compatibility relay: camera serial number is required");
+    throw new Error(
+      "Cannot create shared H264 compatibility relay: camera serial number is required",
+    );
   }
   const existing = sharedRelays.get(serialNumber);
   if (existing) return existing;

@@ -65,16 +65,19 @@ eufy-security-cli driver status --ws-host <host>
 ```
 
 **Options:**
+
 - `--ws-host, -w <host>` - WebSocket server (e.g., `localhost:3000` or `192.168.1.100:3000`)
 - `--verbose, -v` - Enable detailed logging
 - `--help, -h` - Show help
 
 **Example:**
+
 ```bash
 eufy-security-cli driver status --ws-host 192.168.1.100:3000
 ```
 
 **Output:**
+
 ```
 ✅ Connected to eufy-security-ws
 📡 Server: ws://192.168.1.100:3000
@@ -91,11 +94,13 @@ eufy-security-cli driver connect --ws-host <host>
 ```
 
 **Options:**
+
 - `--ws-host, -w <host>` - WebSocket server
 - `--verbose, -v` - Enable detailed logging
 - `--help, -h` - Show help
 
 **Example:**
+
 ```bash
 eufy-security-cli driver connect --ws-host 192.168.1.100:3000
 ```
@@ -115,16 +120,19 @@ eufy-security-cli device list --ws-host <host>
 ```
 
 **Options:**
+
 - `--ws-host, -w <host>` - WebSocket server (required)
 - `--verbose, -v` - Enable detailed logging
 - `--help, -h` - Show help
 
 **Example:**
+
 ```bash
 eufy-security-cli device list --ws-host 192.168.1.100:3000
 ```
 
 **Output:**
+
 ```
 📹 Found 3 cameras:
 
@@ -146,21 +154,24 @@ eufy-security-cli device stream --ws-host <host> --camera-serial <serial>
 ```
 
 **Options:**
+
 - `--ws-host, -w <host>` - WebSocket server (required)
 - `--camera-serial, -c <serial>` - Camera serial number (required)
-- `--tcp-port, -p <port>` - TCP server port (default: random)
+- `--port, -p <port>` - TCP server port (default: random)
 - `--verbose, -v` - Enable detailed logging
 - `--help, -h` - Show help
 
 **Example:**
+
 ```bash
 eufy-security-cli device stream \
   --ws-host 192.168.1.100:3000 \
   --camera-serial T8210N2012345678 \
-  --tcp-port 8080
+  --port 8080
 ```
 
 **Output:**
+
 ```
 🎥 Starting stream from: Front Door (T8210N2012345678)
 📡 TCP Server: localhost:8080
@@ -201,7 +212,7 @@ ffplay tcp://localhost:45123
 eufy-security-cli device stream \
   --ws-host 192.168.1.100:3000 \
   --camera-serial T8210N2012345678 \
-  --tcp-port 8080
+  --port 8080
 
 # Terminal 2: Record with ffmpeg
 ffmpeg -i tcp://localhost:8080 \
@@ -217,7 +228,7 @@ ffmpeg -i tcp://localhost:8080 \
 eufy-security-cli device stream \
   --ws-host 192.168.1.100:3000 \
   --camera-serial T8210N2012345678 \
-  --tcp-port 8080
+  --port 8080
 
 # Terminal 2: Open in VLC
 vlc tcp://localhost:8080
@@ -230,7 +241,7 @@ vlc tcp://localhost:8080
 eufy-security-cli device stream \
   --ws-host 192.168.1.100:3000 \
   --camera-serial T8210N2012345678 \
-  --tcp-port 8080
+  --port 8080
 
 # Terminal 2: Open in MPV
 mpv tcp://localhost:8080 --profile=low-latency
@@ -274,7 +285,7 @@ mpv tcp://localhost:8080 --profile=low-latency
 2. ✅ Check camera is online
 3. ✅ Ensure camera supports streaming (not all sensors do)
 4. ✅ Check eufy-security-ws logs for errors
-5. ✅ Try a different TCP port with `--tcp-port`
+5. ✅ Try a different TCP port with `--port`
 
 ### Media Player Issues
 
@@ -286,7 +297,7 @@ mpv tcp://localhost:8080 --profile=low-latency
 2. ✅ Use the exact URL shown in CLI output
 3. ✅ Try different player: ffplay, VLC, or MPV
 4. ✅ Check TCP port isn't blocked by firewall
-5. ✅ Use explicit port with `--tcp-port 8080`
+5. ✅ Use explicit port with `--port 8080`
 
 ---
 
@@ -324,7 +335,7 @@ OUTPUT_DIR="/recordings"
 eufy-security-cli device stream \
   --ws-host "$WS_HOST" \
   --camera-serial "$CAMERA" \
-  --tcp-port 8080 &
+  --port 8080 &
 
 STREAM_PID=$!
 
@@ -353,12 +364,12 @@ CAMERAS=$(eufy-security-cli device list --ws-host 192.168.1.100:3000 | grep T821
 PORT=8080
 for SERIAL in $CAMERAS; do
   echo "Starting stream for $SERIAL on port $PORT"
-  
+
   eufy-security-cli device stream \
     --ws-host 192.168.1.100:3000 \
     --camera-serial "$SERIAL" \
-    --tcp-port $PORT &
-  
+    --port $PORT &
+
   ((PORT++))
   sleep 2
 done
@@ -374,24 +385,24 @@ wait
 
 Available for all commands:
 
-| Option             | Short | Description                  |
-| ------------------ | ----- | ---------------------------- |
-| `--verbose`        | `-v`  | Enable verbose logging       |
-| `--help`           | `-h`  | Show command help            |
+| Option      | Short | Description            |
+| ----------- | ----- | ---------------------- |
+| `--verbose` | `-v`  | Enable verbose logging |
+| `--help`    | `-h`  | Show command help      |
 
 ### Driver Commands
 
-| Command          | Description                     |
-| ---------------- | ------------------------------- |
-| `driver status`  | Check server status             |
-| `driver connect` | Test connection                 |
+| Command          | Description         |
+| ---------------- | ------------------- |
+| `driver status`  | Check server status |
+| `driver connect` | Test connection     |
 
 ### Device Commands
 
-| Command         | Description                      |
-| --------------- | -------------------------------- |
-| `device list`   | List all devices                 |
-| `device stream` | Start streaming from camera      |
+| Command         | Description                 |
+| --------------- | --------------------------- |
+| `device list`   | List all devices            |
+| `device stream` | Start streaming from camera |
 
 ---
 

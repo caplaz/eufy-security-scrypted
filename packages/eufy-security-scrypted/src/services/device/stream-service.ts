@@ -145,7 +145,9 @@ export async function readLinuxThermalTemperatureC(): Promise<
         continue;
       }
       const raw = Number(
-        (await readFile(`/sys/class/thermal/${entry.name}/temp`, "utf8")).trim(),
+        (
+          await readFile(`/sys/class/thermal/${entry.name}/temp`, "utf8")
+        ).trim(),
       );
       if (!Number.isFinite(raw)) continue;
       return Math.abs(raw) >= 1_000 ? raw / 1_000 : raw;
@@ -530,8 +532,7 @@ export class StreamService {
       return selection;
     }
 
-    const thermalGovernor =
-      this.thermalGovernor ?? getSharedThermalGovernor();
+    const thermalGovernor = this.thermalGovernor ?? getSharedThermalGovernor();
     const admitted = await thermalGovernor.checkCompatibilityEncoderAdmission();
     if (admitted) return selection;
     const status = thermalGovernor.getStatus();

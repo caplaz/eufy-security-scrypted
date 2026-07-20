@@ -65,7 +65,8 @@ function boxChildren(box: IsoBox, type: string): IsoBox[] | undefined {
 
 function readTkhdTrackId(tkhd: IsoBox): number | undefined {
   if (tkhd.data.length < 1) return undefined;
-  const trackIdOffset = tkhd.data[0] === 1 ? 20 : tkhd.data[0] === 0 ? 12 : undefined;
+  const trackIdOffset =
+    tkhd.data[0] === 1 ? 20 : tkhd.data[0] === 0 ? 12 : undefined;
   if (trackIdOffset === undefined || tkhd.data.length < trackIdOffset + 4) {
     return undefined;
   }
@@ -73,7 +74,9 @@ function readTkhdTrackId(tkhd: IsoBox): number | undefined {
 }
 
 function hdlrIsVideo(hdlr: IsoBox): boolean {
-  return hdlr.data.length >= 12 && hdlr.data.toString("ascii", 8, 12) === "vide";
+  return (
+    hdlr.data.length >= 12 && hdlr.data.toString("ascii", 8, 12) === "vide"
+  );
 }
 
 /** Finds the track ID belonging to the first video track in an init segment. */
@@ -126,7 +129,10 @@ function sampleFlagsAreSync(flags: number): boolean {
   return (flags & SAMPLE_IS_NON_SYNC) === 0;
 }
 
-function readTrunSync(trun: IsoBox, defaultSampleFlags?: number): boolean | undefined {
+function readTrunSync(
+  trun: IsoBox,
+  defaultSampleFlags?: number,
+): boolean | undefined {
   if (trun.data.length < 8) return undefined;
 
   const flags = trun.data.readUInt32BE(0) & 0x00ffffff;
@@ -152,7 +158,10 @@ function readTrunSync(trun: IsoBox, defaultSampleFlags?: number): boolean | unde
   const sampleFlagsSize = flags & 0x000400 ? 4 : 0;
   const compositionOffsetSize = flags & 0x000800 ? 4 : 0;
   const sampleRecordSize =
-    sampleDurationSize + sampleSizeSize + sampleFlagsSize + compositionOffsetSize;
+    sampleDurationSize +
+    sampleSizeSize +
+    sampleFlagsSize +
+    compositionOffsetSize;
   if (
     sampleRecordSize > 0 &&
     sampleCount > Math.floor((trun.data.length - offset) / sampleRecordSize)
@@ -164,14 +173,19 @@ function readTrunSync(trun: IsoBox, defaultSampleFlags?: number): boolean | unde
     ? trun.data.readUInt32BE(offset + sampleDurationSize + sampleSizeSize)
     : undefined;
   const sampleFlags = firstSampleFlags ?? perSampleFlags ?? defaultSampleFlags;
-  return sampleFlags === undefined ? undefined : sampleFlagsAreSync(sampleFlags);
+  return sampleFlags === undefined
+    ? undefined
+    : sampleFlagsAreSync(sampleFlags);
 }
 
 /**
  * Determines whether the first sample of the requested video track is sync.
  * Missing fields and malformed boxes are treated as unknown (false).
  */
-export function moofFirstSampleIsSync(moofData: Buffer, videoTrackId: number): boolean {
+export function moofFirstSampleIsSync(
+  moofData: Buffer,
+  videoTrackId: number,
+): boolean {
   const topLevel = parseBoxes(moofData);
   const moof = topLevel?.find((box) => box.type === "moof");
   if (!moof) return false;
@@ -216,8 +230,14 @@ export class Fmp4BoxStream extends EventEmitter {
     while (offset < chunk.length) {
       if (!this.currentBox) {
         const requiredHeaderLength = this.requiredHeaderLength();
-        const copied = Math.min(requiredHeaderLength - this.headerLength, chunk.length - offset);
-        this.header.set(chunk.subarray(offset, offset + copied), this.headerLength);
+        const copied = Math.min(
+          requiredHeaderLength - this.headerLength,
+          chunk.length - offset,
+        );
+        this.header.set(
+          chunk.subarray(offset, offset + copied),
+          this.headerLength,
+        );
         this.headerLength += copied;
         offset += copied;
         if (this.headerLength < this.requiredHeaderLength()) continue;
@@ -237,7 +257,10 @@ export class Fmp4BoxStream extends EventEmitter {
       const remaining = this.expectedBoxSize! - this.currentBoxLength;
       if (remaining > 0) {
         const copied = Math.min(remaining, chunk.length - offset);
-        this.currentBox!.set(chunk.subarray(offset, offset + copied), this.currentBoxLength);
+        this.currentBox!.set(
+          chunk.subarray(offset, offset + copied),
+          this.currentBoxLength,
+        );
         this.currentBoxLength += copied;
         offset += copied;
       }
@@ -319,7 +342,10 @@ export class Fmp4BoxStream extends EventEmitter {
         break;
       case "mdat":
         if (this.moof) {
-          this.emit("fragment", Buffer.concat([...this.fragmentPrefix, this.moof, box]));
+          this.emit(
+            "fragment",
+            Buffer.concat([...this.fragmentPrefix, this.moof, box]),
+          );
           this.moof = undefined;
           this.fragmentPrefix = [];
         }

@@ -88,7 +88,9 @@ export class CompatibilityEncoderPool {
     this.preemptionCooldownMs =
       options.preemptionCooldownMs ?? DEFAULT_PREEMPTION_COOLDOWN_MS;
     if (this.preemptionCooldownMs < 0) {
-      throw new RangeError("Compatibility encoder pool cooldown must not be negative");
+      throw new RangeError(
+        "Compatibility encoder pool cooldown must not be negative",
+      );
     }
     this.now = options.now ?? Date.now;
   }
@@ -107,7 +109,9 @@ export class CompatibilityEncoderPool {
     this._capacity = capacity;
   }
 
-  public acquire(request: CompatibilityEncoderAcquireRequest): CompatibilityEncoderLease {
+  public acquire(
+    request: CompatibilityEncoderAcquireRequest,
+  ): CompatibilityEncoderLease {
     const existing = this.slots.get(request.serialNumber);
     if (existing) {
       if (request.name && !existing.name) {
@@ -117,7 +121,8 @@ export class CompatibilityEncoderPool {
     }
 
     const now = this.now();
-    const inCooldown = (this.cooldownUntil.get(request.serialNumber) ?? 0) > now;
+    const inCooldown =
+      (this.cooldownUntil.get(request.serialNumber) ?? 0) > now;
     if (!inCooldown) {
       this.cooldownUntil.delete(request.serialNumber);
     }
@@ -249,8 +254,12 @@ export class CompatibilityEncoderPool {
   }
 
   private isPreemptible(slot: EncoderSlot): boolean {
-    return slot.leases.size > 0 &&
-      [...slot.leases.values()].every((lease) => lease.consumerKind === "prebuffer");
+    return (
+      slot.leases.size > 0 &&
+      [...slot.leases.values()].every(
+        (lease) => lease.consumerKind === "prebuffer",
+      )
+    );
   }
 
   private toHolder(slot: EncoderSlot): CompatibilityEncoderHolder {

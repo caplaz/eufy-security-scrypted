@@ -28,7 +28,13 @@ function initSegment(): Buffer {
   hdlr.write("vide", 8, 4, "ascii");
   return Buffer.concat([
     box("ftyp"),
-    box("moov", box("trak", Buffer.concat([box("tkhd", tkhd), box("mdia", box("hdlr", hdlr))]))),
+    box(
+      "moov",
+      box(
+        "trak",
+        Buffer.concat([box("tkhd", tkhd), box("mdia", box("hdlr", hdlr))]),
+      ),
+    ),
   ]);
 }
 
@@ -39,7 +45,13 @@ function fragment(trackId: number, sync: boolean): Buffer {
   trun.writeUInt32BE(0x000004, 0);
   trun.writeUInt32BE(1, 4);
   trun.writeUInt32BE(sync ? 0 : 0x00010000, 8);
-  return Buffer.concat([box("moof", box("traf", Buffer.concat([box("tfhd", tfhd), box("trun", trun)]))), box("mdat", Buffer.from([trackId]))]);
+  return Buffer.concat([
+    box(
+      "moof",
+      box("traf", Buffer.concat([box("tfhd", tfhd), box("trun", trun)])),
+    ),
+    box("mdat", Buffer.from([trackId])),
+  ]);
 }
 
 class FakeChild extends EventEmitter {
@@ -99,14 +111,18 @@ describe("H264CompatibilityRelay", () => {
   it("is exported by the package entry point", () => {
     expect(ExportedRelay).toBe(H264CompatibilityRelay);
     expect(exportedSharedRelay).toBe(getSharedH264CompatibilityRelay);
-    expect(exportedDisposeSharedRelay).toBe(disposeSharedH264CompatibilityRelay);
+    expect(exportedDisposeSharedRelay).toBe(
+      disposeSharedH264CompatibilityRelay,
+    );
   });
 
   it("returns a process-shared relay for the same camera without a manually injected pool", async () => {
     const source = await sourceServer();
     const child = new FakeChild();
     const options = {
-      serialNumber: "shared-camera", getMuxedPort: () => source.port, ffmpegPath: "/fake/ffmpeg",
+      serialNumber: "shared-camera",
+      getMuxedPort: () => source.port,
+      ffmpegPath: "/fake/ffmpeg",
       createChildProcess: () => child,
     };
     const first = getSharedH264CompatibilityRelay(options);
@@ -123,12 +139,19 @@ describe("H264CompatibilityRelay", () => {
     const firstChild = new FakeChild();
     const secondChild = new FakeChild();
     const options = {
-      serialNumber: "restart-shared-camera", getMuxedPort: () => source.port, ffmpegPath: "/fake/ffmpeg",
-      createChildProcess: jest.fn().mockReturnValueOnce(firstChild).mockReturnValueOnce(secondChild),
+      serialNumber: "restart-shared-camera",
+      getMuxedPort: () => source.port,
+      ffmpegPath: "/fake/ffmpeg",
+      createChildProcess: jest
+        .fn()
+        .mockReturnValueOnce(firstChild)
+        .mockReturnValueOnce(secondChild),
     };
     const relay = getSharedH264CompatibilityRelay(options);
     await relay.start();
-    const stopped = new Promise<void>((resolve) => relay.once("stopped", () => resolve()));
+    const stopped = new Promise<void>((resolve) =>
+      relay.once("stopped", () => resolve()),
+    );
     const stopping = relay.stop();
     const restarting = relay.start();
     await stopped;
@@ -142,7 +165,9 @@ describe("H264CompatibilityRelay", () => {
   it("permanently disposes an old shared relay before a replacement can be created", async () => {
     const source = await sourceServer();
     const options = {
-      serialNumber: "disposed-shared-camera", getMuxedPort: () => source.port, ffmpegPath: "/fake/ffmpeg",
+      serialNumber: "disposed-shared-camera",
+      getMuxedPort: () => source.port,
+      ffmpegPath: "/fake/ffmpeg",
       createChildProcess: () => new FakeChild(),
     };
     const oldRelay = getSharedH264CompatibilityRelay(options);
@@ -171,16 +196,33 @@ describe("H264CompatibilityRelay", () => {
     const child = new FakeChild();
     const spawn = jest.fn((..._args: unknown[]) => child);
     const relay = new H264CompatibilityRelay({
-      serialNumber: "camera-1", getMuxedPort: () => source.port, ffmpegPath: "/fake/ffmpeg",
+      serialNumber: "camera-1",
+      getMuxedPort: () => source.port,
+      ffmpegPath: "/fake/ffmpeg",
       createChildProcess: spawn,
     });
     await relay.start();
     const args = spawn.mock.calls[0][1];
-    expect(args).toEqual(expect.arrayContaining([
-      "-threads", "1", "-blocksize", "4096", "-probesize", "4096", "-analyzeduration", "0",
-      "-preset", "ultrafast", "-tune", "zerolatency", "-movflags",
-      "frag_every_frame+empty_moov+default_base_moof", "-flush_packets", "1",
-    ]));
+    expect(args).toEqual(
+      expect.arrayContaining([
+        "-threads",
+        "1",
+        "-blocksize",
+        "4096",
+        "-probesize",
+        "4096",
+        "-analyzeduration",
+        "0",
+        "-preset",
+        "ultrafast",
+        "-tune",
+        "zerolatency",
+        "-movflags",
+        "frag_every_frame+empty_moov+default_base_moof",
+        "-flush_packets",
+        "1",
+      ]),
+    );
     await relay.stop();
     await new Promise<void>((resolve) => source.server.close(() => resolve()));
   });
@@ -201,12 +243,16 @@ describe("H264CompatibilityRelay", () => {
     await new Promise<void>((resolve) => first.once("connect", resolve));
 
     const expected = Buffer.concat([initSegment(), fragment(1, true)]);
-    child.stdout.write(Buffer.concat([initSegment(), fragment(2, true), fragment(1, true)]));
+    child.stdout.write(
+      Buffer.concat([initSegment(), fragment(2, true), fragment(1, true)]),
+    );
     await new Promise((resolve) => setImmediate(resolve));
 
     const late = net.createConnection({ port, host: "127.0.0.1" });
     await new Promise<void>((resolve) => late.once("connect", resolve));
-    expect((await readLength(late, expected.length)).subarray(0, expected.length)).toEqual(expected);
+    expect(
+      (await readLength(late, expected.length)).subarray(0, expected.length),
+    ).toEqual(expected);
     expect(spawn).toHaveBeenCalledTimes(1);
 
     first.destroy();
@@ -220,16 +266,26 @@ describe("H264CompatibilityRelay", () => {
     const child = new FakeChild();
     const pool = new CompatibilityEncoderPool({ capacity: 1 });
     const relay = new H264CompatibilityRelay({
-      serialNumber: "camera-1", getMuxedPort: () => source.port, ffmpegPath: "/fake/ffmpeg",
-      createChildProcess: () => child, pool, lingerMs: 20,
+      serialNumber: "camera-1",
+      getMuxedPort: () => source.port,
+      ffmpegPath: "/fake/ffmpeg",
+      createChildProcess: () => child,
+      pool,
+      lingerMs: 20,
     });
     await relay.start();
-    const socket = net.createConnection({ port: relay.getPort(), host: "127.0.0.1" });
+    const socket = net.createConnection({
+      port: relay.getPort(),
+      host: "127.0.0.1",
+    });
     await new Promise<void>((resolve) => socket.once("connect", resolve));
     socket.destroy();
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(pool.diagnostics).toHaveLength(1);
-    const reconnect = net.createConnection({ port: relay.getPort(), host: "127.0.0.1" });
+    const reconnect = net.createConnection({
+      port: relay.getPort(),
+      host: "127.0.0.1",
+    });
     await new Promise<void>((resolve) => reconnect.once("connect", resolve));
     expect(child.kill).not.toHaveBeenCalled();
     reconnect.destroy();
@@ -244,15 +300,20 @@ describe("H264CompatibilityRelay", () => {
     const child = new FakeChild();
     const pool = new CompatibilityEncoderPool({ capacity: 1 });
     const relay = new H264CompatibilityRelay({
-      serialNumber: "camera-1", getMuxedPort: () => source.port, ffmpegPath: "/fake/ffmpeg",
-      createChildProcess: () => child, pool,
+      serialNumber: "camera-1",
+      getMuxedPort: () => source.port,
+      ffmpegPath: "/fake/ffmpeg",
+      createChildProcess: () => child,
+      pool,
     });
     await relay.start();
     const events: unknown[] = [];
     relay.on("preempted", (event) => events.push(event));
     pool.acquire({ serialNumber: "camera-2", consumerKind: "interactive" });
     await new Promise((resolve) => setImmediate(resolve));
-    expect(events).toEqual([{ serialNumber: "camera-1", reason: "encoder-pool-preempted" }]);
+    expect(events).toEqual([
+      { serialNumber: "camera-1", reason: "encoder-pool-preempted" },
+    ]);
     expect(child.kill).toHaveBeenCalled();
     await new Promise<void>((resolve) => source.server.close(() => resolve()));
   });
@@ -260,26 +321,42 @@ describe("H264CompatibilityRelay", () => {
   it("isolates a slow client after two queued fragments while healthy clients continue", () => {
     const relay = new H264CompatibilityRelay({ serialNumber: "camera-1" });
     const slow = Object.assign(new EventEmitter(), {
-      destroyed: false, write: jest.fn(() => false), destroy: jest.fn(),
+      destroyed: false,
+      write: jest.fn(() => false),
+      destroy: jest.fn(),
     }) as unknown as net.Socket;
     const healthy = Object.assign(new EventEmitter(), {
-      destroyed: false, write: jest.fn(() => true), destroy: jest.fn(),
+      destroyed: false,
+      write: jest.fn(() => true),
+      destroy: jest.fn(),
     }) as unknown as net.Socket;
-    const consumer = (socket: net.Socket) => ({ socket, queue: [], queuedBytes: 0, blocked: false, closed: false, kind: "prebuffer" as const });
+    const consumer = (socket: net.Socket) => ({
+      socket,
+      queue: [],
+      queuedBytes: 0,
+      blocked: false,
+      closed: false,
+      kind: "prebuffer" as const,
+    });
     (relay as any).consumers.set(slow, consumer(slow));
     (relay as any).consumers.set(healthy, consumer(healthy));
     (relay as any).broadcast(Buffer.from("one"));
     (relay as any).broadcast(Buffer.from("two"));
     (relay as any).broadcast(Buffer.from("three"));
     (relay as any).broadcast(Buffer.from("four"));
-    expect(slow.destroy).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("overflow") }));
+    expect(slow.destroy).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("overflow") }),
+    );
     expect(healthy.write).toHaveBeenCalledTimes(4);
   });
 
   it("reports an unavailable muxed source before launching ffmpeg", async () => {
     const spawn = jest.fn();
     const relay = new H264CompatibilityRelay({
-      serialNumber: "camera-1", getMuxedPort: () => undefined, ffmpegPath: "/fake/ffmpeg", createChildProcess: spawn,
+      serialNumber: "camera-1",
+      getMuxedPort: () => undefined,
+      ffmpegPath: "/fake/ffmpeg",
+      createChildProcess: spawn,
     });
     await expect(relay.start()).rejects.toThrow("muxed source is unavailable");
     expect(spawn).not.toHaveBeenCalled();
@@ -290,7 +367,10 @@ describe("H264CompatibilityRelay", () => {
     const child = new FakeChild();
     const spawn = jest.fn(() => child);
     const relay = new H264CompatibilityRelay({
-      serialNumber: "camera-1", getMuxedPort: () => source.port, ffmpegPath: "/fake/ffmpeg", createChildProcess: spawn,
+      serialNumber: "camera-1",
+      getMuxedPort: () => source.port,
+      ffmpegPath: "/fake/ffmpeg",
+      createChildProcess: spawn,
     });
     await Promise.all([relay.start(), relay.start()]);
     expect(spawn).toHaveBeenCalledTimes(1);
@@ -304,16 +384,22 @@ describe("H264CompatibilityRelay", () => {
     const source = await sourceServer();
     const child = new FakeChild();
     child.kill.mockImplementation((signal?: NodeJS.Signals | number) => {
-      if (signal === "SIGKILL") setImmediate(() => child.emit("exit", null, "SIGKILL"));
+      if (signal === "SIGKILL")
+        setImmediate(() => child.emit("exit", null, "SIGKILL"));
       return true;
     });
     const relay = new H264CompatibilityRelay({
-      serialNumber: "camera-1", getMuxedPort: () => source.port, ffmpegPath: "/fake/ffmpeg",
-      createChildProcess: () => child, childExitTimeoutMs: 5,
+      serialNumber: "camera-1",
+      getMuxedPort: () => source.port,
+      ffmpegPath: "/fake/ffmpeg",
+      createChildProcess: () => child,
+      childExitTimeoutMs: 5,
     });
     await relay.start();
     let stopped = false;
-    const stopping = relay.stop().then(() => { stopped = true; });
+    const stopping = relay.stop().then(() => {
+      stopped = true;
+    });
     await new Promise((resolve) => setImmediate(resolve));
     expect(stopped).toBe(false);
     await stopping;
@@ -326,9 +412,14 @@ describe("H264CompatibilityRelay", () => {
     const child = new FakeChild();
     const pendingSource = new PendingSource();
     const relay = new H264CompatibilityRelay({
-      serialNumber: "camera-1", getMuxedPort: () => 12345, ffmpegPath: "/fake/ffmpeg",
+      serialNumber: "camera-1",
+      getMuxedPort: () => 12345,
+      ffmpegPath: "/fake/ffmpeg",
       createChildProcess: () => child,
-      net: { createServer: net.createServer, createConnection: () => pendingSource as unknown as net.Socket },
+      net: {
+        createServer: net.createServer,
+        createConnection: () => pendingSource as unknown as net.Socket,
+      },
     });
     const starting = relay.start();
     await new Promise((resolve) => setImmediate(resolve));
@@ -342,7 +433,9 @@ describe("H264CompatibilityRelay", () => {
     const child = new FakeChild();
     const source = new ControlledSource();
     const relay = new H264CompatibilityRelay({
-      serialNumber: "camera-1", getMuxedPort: () => 12345, ffmpegPath: "/fake/ffmpeg",
+      serialNumber: "camera-1",
+      getMuxedPort: () => 12345,
+      ffmpegPath: "/fake/ffmpeg",
       createChildProcess: () => child,
       net: {
         createServer: net.createServer,
@@ -358,7 +451,9 @@ describe("H264CompatibilityRelay", () => {
     await new Promise((resolve) => setImmediate(resolve));
     expect(relay.getPort()).toBeUndefined();
     const racingClient = net.createConnection({ port, host: "127.0.0.1" });
-    await new Promise<void>((resolve) => racingClient.once("error", () => resolve()));
+    await new Promise<void>((resolve) =>
+      racingClient.once("error", () => resolve()),
+    );
     source.finishClose();
     await stopping;
   });
@@ -367,12 +462,21 @@ describe("H264CompatibilityRelay", () => {
     const source = await sourceServer();
     const child = new FakeChild();
     const relay = new H264CompatibilityRelay({
-      serialNumber: "camera-1", getMuxedPort: () => source.port, ffmpegPath: "/fake/ffmpeg",
+      serialNumber: "camera-1",
+      getMuxedPort: () => source.port,
+      ffmpegPath: "/fake/ffmpeg",
       createChildProcess: () => child,
     });
     await relay.start();
-    const stopped = new Promise<void>((resolve) => relay.once("stopped", () => resolve()));
-    expect(() => child.stdin.emit("error", Object.assign(new Error("broken pipe"), { code: "EPIPE" }))).not.toThrow();
+    const stopped = new Promise<void>((resolve) =>
+      relay.once("stopped", () => resolve()),
+    );
+    expect(() =>
+      child.stdin.emit(
+        "error",
+        Object.assign(new Error("broken pipe"), { code: "EPIPE" }),
+      ),
+    ).not.toThrow();
     await stopped;
     await new Promise<void>((resolve) => source.server.close(() => resolve()));
   });
@@ -381,9 +485,15 @@ describe("H264CompatibilityRelay", () => {
     const source = await sourceServer();
     const firstChild = new FakeChild();
     const secondChild = new FakeChild();
-    const spawn = jest.fn().mockReturnValueOnce(firstChild).mockReturnValueOnce(secondChild);
+    const spawn = jest
+      .fn()
+      .mockReturnValueOnce(firstChild)
+      .mockReturnValueOnce(secondChild);
     const relay = new H264CompatibilityRelay({
-      serialNumber: "camera-1", getMuxedPort: () => source.port, ffmpegPath: "/fake/ffmpeg", createChildProcess: spawn,
+      serialNumber: "camera-1",
+      getMuxedPort: () => source.port,
+      ffmpegPath: "/fake/ffmpeg",
+      createChildProcess: spawn,
     });
     await relay.start();
     await relay.stop();
@@ -403,15 +513,28 @@ describe("H264CompatibilityRelay", () => {
   it("invalidates a generation's cache when its muxed source disconnects", async () => {
     let upstream: net.Socket | undefined;
     let sourceConnected!: () => void;
-    const upstreamReady = new Promise<void>((resolve) => { sourceConnected = resolve; });
-    const source = net.createServer((socket) => { upstream = socket; sourceConnected(); });
-    await new Promise<void>((resolve) => source.listen(0, "127.0.0.1", resolve));
+    const upstreamReady = new Promise<void>((resolve) => {
+      sourceConnected = resolve;
+    });
+    const source = net.createServer((socket) => {
+      upstream = socket;
+      sourceConnected();
+    });
+    await new Promise<void>((resolve) =>
+      source.listen(0, "127.0.0.1", resolve),
+    );
     const port = (source.address() as net.AddressInfo).port;
     const firstChild = new FakeChild();
     const secondChild = new FakeChild();
-    const spawn = jest.fn().mockReturnValueOnce(firstChild).mockReturnValueOnce(secondChild);
+    const spawn = jest
+      .fn()
+      .mockReturnValueOnce(firstChild)
+      .mockReturnValueOnce(secondChild);
     const relay = new H264CompatibilityRelay({
-      serialNumber: "camera-1", getMuxedPort: () => port, ffmpegPath: "/fake/ffmpeg", createChildProcess: spawn,
+      serialNumber: "camera-1",
+      getMuxedPort: () => port,
+      ffmpegPath: "/fake/ffmpeg",
+      createChildProcess: spawn,
     });
     relay.on("error", () => undefined);
     await relay.start();
@@ -419,10 +542,15 @@ describe("H264CompatibilityRelay", () => {
     firstChild.stdout.write(Buffer.concat([initSegment(), fragment(1, true)]));
     await new Promise((resolve) => setImmediate(resolve));
     upstream!.destroy();
-    await new Promise<void>((resolve) => relay.once("stopped", () => resolve()));
+    await new Promise<void>((resolve) =>
+      relay.once("stopped", () => resolve()),
+    );
     expect((relay as any).init).toBeUndefined();
     await relay.start();
-    const client = net.createConnection({ port: relay.getPort(), host: "127.0.0.1" });
+    const client = net.createConnection({
+      port: relay.getPort(),
+      host: "127.0.0.1",
+    });
     await new Promise<void>((resolve) => client.once("connect", resolve));
     const expected = Buffer.concat([initSegment(), fragment(1, true)]);
     const read = readLength(client, expected.length);

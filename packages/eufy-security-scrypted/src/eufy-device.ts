@@ -539,9 +539,7 @@ export class EufyDevice
         typeof value !== "string" ||
         !COMPATIBILITY_MODE_CHOICES.includes(value as CompatibilityMode)
       ) {
-        throw new Error(
-          `Invalid H.264 compatibility mode: ${String(value)}`,
-        );
+        throw new Error(`Invalid H.264 compatibility mode: ${String(value)}`);
       }
       this.storage.setItem(key, value);
       this.logger.info(`🎬 H.264 compatibility mode set to: ${value}`);
