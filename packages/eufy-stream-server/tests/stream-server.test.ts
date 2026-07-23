@@ -2496,4 +2496,55 @@ describe("StreamServer", () => {
       socket.destroy();
     });
   });
+
+  describe("livestream state-desync error handling", () => {
+    it("treats device_livestream_already_running on start as success (no retry churn / no wedge)", async () => {
+      // The pre-flight isLivestreaming() check can return a stale "false"
+      // while the server actually has the stream running; startLivestream then
+      // rejects with "already running". That must be treated as success (the
+      // stream we want IS up) — not retried, which would churn the HomeBase's
+      // single P2P slot and escalate to a spurious wedge/recycle.
+      jest.useFakeTimers();
+      const startLivestream = jest
+        .fn()
+        .mockRejectedValue(
+          new Error("Command failed: device_livestream_already_running"),
+        );
+      const deviceApi = {
+        startLivestream,
+        stopLivestream: jest.fn().mockResolvedValue({}),
+        isLivestreaming: jest.fn().mockResolvedValue({ livestreaming: false }),
+      };
+      const wsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: { device: jest.fn().mockReturnValue(deviceApi) },
+      };
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        wsClient: wsClient as any,
+        serialNumber: "TEST123",
+      });
+      const streamErrors: unknown[] = [];
+      const wedges: unknown[] = [];
+      s.on("streamError", (e) => streamErrors.push(e));
+      s.on("upstreamWedged", (e) => wedges.push(e));
+
+      // Drive ensureLivestreamState directly (no TCP server needed).
+      (s as any).livestreamIntendedState = true;
+      const p = (s as any).ensureLivestreamState();
+      // Fast-forward well past the retry window (retryDelay 5s × 2).
+      await jest.advanceTimersByTimeAsync(12000);
+      await p;
+
+      // Exactly one start attempt, no failure escalation, session anchored so
+      // the mid-session wedge watchdog can still fire if no data arrives.
+      expect(startLivestream).toHaveBeenCalledTimes(1);
+      expect(streamErrors).toHaveLength(0);
+      expect(wedges).toHaveLength(0);
+      expect((s as any).livestreamSessionStartedAt).toBeGreaterThan(0);
+
+      jest.useRealTimers();
+    });
+  });
 });
