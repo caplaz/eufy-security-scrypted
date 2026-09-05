@@ -36,12 +36,23 @@ The Eufy Security Scrypted Plugin provides comprehensive integration between Euf
 
 ### Key Features
 
+- **Direct RTSP Streaming**: Zero-latency local RTSP streaming with native AAC audio and auto-detection, bypassing cloud P2P delays while preserving motion events and two-way talkback
 - **Complete Device Support**: Cameras, doorbells, sensors, and hubs
 - **Real-time Streaming**: H.264 video streaming with audio support
 - **Motion Detection**: Live motion alerts and event notifications
 - **Device Control**: Pan/tilt, lighting, and security system control
 - **HomeKit Secure Video**: Compatible with HomeKit Secure Video
 - **User-friendly Setup**: CAPTCHA and 2FA authentication handling
+
+### Direct RTSP Streaming (Zero Latency & Native AAC Audio)
+
+For cameras with NAS/RTSP enabled in the Eufy Security app (e.g., Indoor Cam 2K, Solo, eufyCam 2/2C/2 Pro/3, etc.):
+- **Native Crystal-Clear Playback**: Streams directly over local RTSP without cloud P2P bandwidth throttling or heavy transcoding delays.
+- **Native AAC Audio**: Out-of-the-box crystal clear audio via standard AAC stream (fixes the `h264/unknown` audio issue).
+- **Auto-Discovery**: Automatically uses the camera's RTSP URL reported by Eufy's local/cloud API.
+- **Custom RTSP URL Field**: Provides a device setting (`RTSP Stream URL`) to specify or override authenticated URLs (e.g. `rtsp://user:password@192.168.x.x/live0`).
+- **Full Talkback Support**: Two-way talkback (intercom) continues to work seamlessly via Eufy's WebSocket/P2P reverse audio channel without interrupting the RTSP stream.
+
 
 ## Installation
 

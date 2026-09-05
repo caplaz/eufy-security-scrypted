@@ -104,6 +104,7 @@ import {
 
 const THUMBNAIL_REFRESH_SETTING_KEY = "thumbnailRefreshInterval";
 const COMPATIBILITY_MODE_SETTING_KEY = "compatibilityMode";
+const RTSP_URL_SETTING_KEY = "customRtspUrl";
 const COMPATIBILITY_MODE_CHOICES: CompatibilityMode[] = [
   "Auto",
   "Force",
@@ -262,6 +263,22 @@ export class EufyDevice
     this.addEventListener(
       DEVICE_EVENTS.RINGS,
       this.handleDoorbellRingsEvent.bind(this),
+    );
+
+    this.addEventListener(
+      DEVICE_EVENTS.GOT_RTSP_URL,
+      (event: { rtspUrl: string }) => {
+        if (event?.rtspUrl) {
+          this.logger.info(
+            `📹 Received RTSP URL event: ${event.rtspUrl.replace(/:[^:@]+@/, ":***@")}`,
+          );
+          if (this.latestProperties) {
+            this.latestProperties.rtspStreamUrl = event.rtspUrl;
+          }
+          this.onDeviceEvent(ScryptedInterface.VideoCamera, undefined);
+          this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+        }
+      },
     );
 
     // Listen for stream started/stopped events
@@ -452,6 +469,11 @@ export class EufyDevice
     // The state service will call onDeviceEvent via our subscription
     // State is now accessed via getters, no need to sync back
     this.stateService.updateProperty(name, value);
+
+    if (name === "rtspStreamUrl" || name === "rtspStream") {
+      this.onDeviceEvent(ScryptedInterface.VideoCamera, undefined);
+      this.onDeviceEvent(ScryptedInterface.Settings, undefined);
+    }
   }
 
   /**
@@ -519,6 +541,25 @@ export class EufyDevice
       group: "Streaming",
     });
 
+    const currentCustomRtsp =
+      (this.storage.getItem(RTSP_URL_SETTING_KEY) as string) || "";
+    const detectedRtsp =
+      (this.latestProperties?.rtspStreamUrl as string)?.trim() || "";
+
+    settings.push({
+      key: RTSP_URL_SETTING_KEY,
+      title: "RTSP Stream URL",
+      description:
+        "Direct RTSP stream URL for high-resolution, low-latency streaming with native AAC audio (e.g. rtsp://user:pass@192.168.x.x/live0). " +
+        (detectedRtsp
+          ? `Auto-detected from camera NAS/RTSP settings: ${detectedRtsp.replace(/:[^:@]+@/, ":***@")}. `
+          : "") +
+        "Leave blank to use the auto-detected camera RTSP URL or standard P2P stream.",
+      value: currentCustomRtsp,
+      placeholder: detectedRtsp || "rtsp://user:pass@192.168.x.x/live0",
+      group: "Streaming",
+    });
+
     return settings;
   }
 
@@ -531,6 +572,22 @@ export class EufyDevice
     if (key === THUMBNAIL_REFRESH_SETTING_KEY) {
       this.storage.setItem(key, String(value));
       this.logger.info(`🖼️  Background thumbnail refresh set to: ${value}`);
+      return;
+    }
+
+    if (key === RTSP_URL_SETTING_KEY) {
+      const val = String(value || "").trim();
+      if (val) {
+        this.storage.setItem(key, val);
+        this.logger.info(
+          `📹 Direct RTSP stream URL set to: ${val.replace(/:[^:@]+@/, ":***@")}`,
+        );
+      } else {
+        this.storage.removeItem(key);
+        this.logger.info("📹 Direct RTSP stream URL cleared");
+      }
+      this.onDeviceEvent(ScryptedInterface.VideoCamera, undefined);
+      this.onDeviceEvent(ScryptedInterface.Settings, undefined);
       return;
     }
 
@@ -629,23 +686,104 @@ export class EufyDevice
   // =================== VIDEO CAMERA INTERFACE ===================
 
   /**
-   * Get video stream options using StreamService
+   * Resolve the RTSP stream URL for direct streaming.
+   * Priority:
+   * 1. Custom URL set in device settings (RTSP_URL_SETTING_KEY)
+   * 2. Device property `rtspStreamUrl` (auto-detected from Eufy API / NAS settings)
+   */
+  getResolvedRtspUrl(): string | undefined {
+    const customUrl = (
+      this.storage.getItem(RTSP_URL_SETTING_KEY) as string
+    )?.trim();
+    if (customUrl) {
+      return customUrl;
+    }
+    const propUrl = (this.latestProperties?.rtspStreamUrl as string)?.trim();
+    if (propUrl && /^rtsps?:\/\//i.test(propUrl)) {
+      return propUrl;
+    }
+    return undefined;
+  }
+
+  /**
+   * Get video stream options using StreamService (and Direct RTSP if available)
    * Delegates to the stream service which handles stream configuration
    */
   async getVideoStreamOptions(): Promise<ResponseMediaStreamOptions[]> {
     await this.propertiesLoaded;
     const quality = this.latestProperties?.videoStreamingQuality;
-    return this.streamService.getVideoStreamOptions(quality);
+    const p2pOptions = this.streamService.getVideoStreamOptions(quality);
+
+    const rtspUrl = this.getResolvedRtspUrl();
+    if (rtspUrl) {
+      const { width, height } = this.streamService.getVideoDimensions(quality);
+      const rtspOption: ResponseMediaStreamOptions = {
+        id: "rtsp",
+        name: "RTSP Stream (Direct)",
+        container: "rtsp",
+        tool: "ffmpeg",
+        video: { codec: "h264", width, height },
+        audio: { codec: "aac" },
+      };
+      return [rtspOption, ...p2pOptions];
+    }
+
+    return p2pOptions;
   }
 
   /**
-   * Get video stream using StreamService
-   * Delegates to the stream service which handles stream server lifecycle and FFmpeg configuration
+   * Get video stream using Direct RTSP or StreamService
+   * Direct RTSP provides zero-latency, high-resolution streaming with native AAC audio.
    */
   async getVideoStream(
     options?: RequestMediaStreamOptions,
   ): Promise<MediaObject> {
     await this.propertiesLoaded;
+    const rtspUrl = this.getResolvedRtspUrl();
+
+    if (rtspUrl && (options?.id === "rtsp" || !options?.id)) {
+      const sanitized = rtspUrl.replace(/:[^:@]+@/, ":***@");
+      this.logger.info(
+        `[stream-request] Streaming via Direct RTSP: ${sanitized}`,
+      );
+
+      // Wake/start RTSP livestream if device requires a trigger (e.g. battery cameras)
+      if (this.latestProperties?.rtspStream && this.api.startRtspLivestream) {
+        try {
+          await this.api.startRtspLivestream();
+        } catch (e) {
+          this.logger.debug(`startRtspLivestream notification: ${e}`);
+        }
+      }
+
+      const quality = this.latestProperties?.videoStreamingQuality;
+      const { width, height } = this.streamService.getVideoDimensions(quality);
+      const streamOptions: ResponseMediaStreamOptions = {
+        id: "rtsp",
+        name: "RTSP Stream (Direct)",
+        container: "rtsp",
+        tool: "ffmpeg",
+        video: { codec: "h264", width, height },
+        audio: { codec: "aac" },
+      };
+
+      const ffmpegInput: FFmpegInput = {
+        url: rtspUrl,
+        inputArguments: [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-rtsp_transport",
+          "tcp",
+          "-i",
+          rtspUrl,
+        ],
+        mediaStreamOptions: streamOptions,
+      };
+
+      return await sdk.mediaManager.createFFmpegMediaObject(ffmpegInput);
+    }
+
     const quality = this.latestProperties?.videoStreamingQuality;
     return this.streamService.getVideoStream(quality, options);
   }
@@ -676,10 +814,37 @@ export class EufyDevice
   }
 
   /**
-   * Take a picture/snapshot using SnapshotService
+   * Take a picture/snapshot using SnapshotService or direct RTSP frame
    * Delegates to the snapshot service which handles stream capture and JPEG conversion
    */
   async takePicture(options?: RequestPictureOptions): Promise<MediaObject> {
+    const rtspUrl = this.getResolvedRtspUrl();
+    if (rtspUrl) {
+      const cached = this.streamServer.getCachedKeyframe(10_000);
+      if (cached) {
+        return this.snapshotService.takePicture(options);
+      }
+      try {
+        const ffmpegInput: FFmpegInput = {
+          inputArguments: [
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-rtsp_transport",
+            "tcp",
+            "-i",
+            rtspUrl,
+            "-vframes",
+            "1",
+            "-f",
+            "image2",
+          ],
+        };
+        return await sdk.mediaManager.createFFmpegMediaObject(ffmpegInput);
+      } catch (e) {
+        this.logger.debug(`RTSP snapshot fallback to snapshotService: ${e}`);
+      }
+    }
     return this.snapshotService.takePicture(options);
   }
 
