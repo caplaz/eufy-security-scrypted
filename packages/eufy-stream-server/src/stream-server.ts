@@ -146,7 +146,21 @@ export class StreamServer extends EventEmitter {
    */
   private muxerStreams = new Map<
     net.Socket,
-    { muxer: JMuxer; duplex: Duplex }
+    {
+      muxer: JMuxer;
+      duplex: Duplex;
+      mode: "both" | "video";
+      /** Codec this muxer instance was built for. */
+      codec: "H264" | "H265";
+      /** Frames fed to this muxer instance (diagnostics for the fallback). */
+      stats: { videoFrames: number; audioFrames: number };
+      /** Called after each video feed; arms the `both` fallback on the first. */
+      onVideoFed?: () => void;
+      /** Switch a `video` muxer back to `both` once real audio shows up. */
+      restoreAudio?: () => void;
+      /** Rebuild or disconnect after the session's codec changed. */
+      onCodecChange?: () => void;
+    }
   >();
   private pendingMuxerSockets = new Set<net.Socket>();
   private pendingMetadataWaitAbortControllers = new Map<
@@ -335,6 +349,11 @@ export class StreamServer extends EventEmitter {
    */
   private metadataGeneration = 0;
   private metadataVerifiedGeneration = -1;
+  /**
+   * Set when a session ends (stop / slot revoke) until the next one begins.
+   * Late frames from the dying session must not re-verify its metadata.
+   */
+  private metadataSessionEnded = false;
   private metadataWaiters: MetadataWaiter[] = [];
 
   // Audio metadata from first audio frame
@@ -360,6 +379,50 @@ export class StreamServer extends EventEmitter {
    * patience window after the handoff/cold-start latency.
    */
   private readonly BOTH_TO_VIDEO_FALLBACK_MS = 4000;
+
+  /**
+   * How long after the first video frame of the current P2P session a muxer
+   * waits for the first ADTS frame before settling on `video` mode. A mic-on
+   * camera delivers audio within ~1-2s of video.
+   */
+  private readonly AUDIO_DETECT_WINDOW_MS = 2500;
+
+  /**
+   * ADTS frames that must arrive in the current session before a muxer that
+   * fell back to (or started in) `video` mode is switched back to `both`.
+   * Guards against a single stray frame flapping the muxer mode.
+   */
+  private readonly AUDIO_RESTORE_MIN_FRAMES = 5;
+
+  /**
+   * How long a muxed client waits for the session's video metadata before
+   * falling back to the codec hint. Battery cameras (T8170 S340 sleep mode,
+   * T86P2 4G LTE cold-start) can take 30–45s to deliver their first IDR.
+   */
+  private readonly MUXER_METADATA_TIMEOUT_MS = 60000;
+
+  /** Delay before re-asking for a HomeBase slot after a live request was denied. */
+  private readonly SLOT_BUSY_RETRY_MS = 3000;
+  private slotRetryTimer?: ReturnType<typeof setTimeout>;
+
+  /**
+   * Wall-clock time of the first video frame of the current P2P session, or 0
+   * if none has arrived yet. Reset when a session begins or the livestream
+   * goes down. The muxer must not pick its mode (or start its `both`→`video`
+   * fallback clock) before this is set: on a battery-camera cold start the
+   * muxer client attaches while the camera is still waking, and anything
+   * decided then is based on the previous session's state.
+   */
+  private sessionFirstVideoAt = 0;
+  private sessionVideoWaiters: Array<() => void> = [];
+  /**
+   * Codec identified from the current session's parameter sets, once seen.
+   * The muxer waits for it so it's never built for a mislabelled codec.
+   */
+  private sessionBitstreamCodec?: "H264" | "H265";
+  private sessionCodecWaiters: Array<() => void> = [];
+  /** ADTS frames received in the current P2P session. */
+  private sessionAudioFrames = 0;
 
   /**
    * Lease on the shared HomeBase stream slot (see
@@ -416,6 +479,8 @@ export class StreamServer extends EventEmitter {
   private cachedSPS: Buffer | null = null;
   private cachedPPS: Buffer | null = null;
   private cachedVPS: Buffer | null = null; // H.265 Video Parameter Set
+  /** Codec the cached parameter sets belong to; never mixed across codecs. */
+  private cachedParamCodec?: "H264" | "H265";
 
   /** Annex-B 4-byte start code used to re-frame cached parameter-set NALs. */
   private static readonly ANNEX_B_START_CODE = Buffer.from([
@@ -849,11 +914,44 @@ export class StreamServer extends EventEmitter {
           }
         }
 
+        // A frame that trails a session we already ended (stop / revoke in
+        // flight) says nothing about the next session.
+        const trailingFrame =
+          this.metadataSessionEnded && !this.livestreamIntendedState;
+
+        // Convert JSONBuffer to Buffer if needed
+        const videoBuffer = Buffer.isBuffer(event.buffer.data)
+          ? event.buffer.data
+          : Buffer.from(event.buffer.data);
+
+        // The codec label in the metadata can be wrong for a whole session
+        // (seen: H.264 bytes labelled H265). Parameter sets in the bitstream
+        // are authoritative; see `H264Parser.detectParameterSetCodec`.
+        const bitstreamCodec = trailingFrame
+          ? undefined
+          : this.h264Parser.detectParameterSetCodec(videoBuffer);
+
         // Capture metadata once for each P2P session. The previous session's
         // record remains available as a hint, but cannot verify this one.
-        if (event.metadata && !this.isMetadataVerifiedForCurrentSession()) {
+        if (
+          event.metadata &&
+          !this.isMetadataVerifiedForCurrentSession() &&
+          !trailingFrame
+        ) {
+          const previousCodec = this.videoMetadata
+            ? StreamServer.toMuxerCodec(this.videoMetadata.videoCodec)
+            : undefined;
+          if (
+            bitstreamCodec &&
+            bitstreamCodec !==
+              StreamServer.toMuxerCodec(event.metadata.videoCodec)
+          ) {
+            this.logger.warn(
+              `⚠️ Metadata says ${event.metadata.videoCodec} but bitstream is ${bitstreamCodec} — using bitstream`,
+            );
+          }
           this.videoMetadata = {
-            videoCodec: event.metadata.videoCodec,
+            videoCodec: bitstreamCodec ?? event.metadata.videoCodec,
             videoFPS: event.metadata.videoFPS,
             videoWidth: event.metadata.videoWidth,
             videoHeight: event.metadata.videoHeight,
@@ -866,6 +964,40 @@ export class StreamServer extends EventEmitter {
           for (const waiter of this.metadataWaiters.splice(0)) {
             waiter.resolve(this.videoMetadata);
           }
+          const codec = StreamServer.toMuxerCodec(
+            this.videoMetadata.videoCodec,
+          );
+          if (previousCodec && previousCodec !== codec) {
+            this.handleCodecChange(previousCodec, codec);
+          } else {
+            // No previous session to compare with (e.g. right after a plugin
+            // restart) — a muxer may still have been built from the persisted
+            // codec hint after its metadata wait timed out.
+            this.reconcileMuxerCodecs(codec);
+          }
+        } else if (bitstreamCodec && this.videoMetadata) {
+          // Parameter sets arriving after the metadata was captured (or a
+          // codec switch inside what looked like one session) correct it.
+          const labelled = StreamServer.toMuxerCodec(
+            this.videoMetadata.videoCodec,
+          );
+          if (bitstreamCodec !== labelled) {
+            this.logger.warn(
+              `⚠️ Session metadata says ${this.videoMetadata.videoCodec} but bitstream is ${bitstreamCodec} — using bitstream`,
+            );
+            this.videoMetadata = {
+              ...this.videoMetadata,
+              videoCodec: bitstreamCodec,
+            };
+            // Listeners (codec persistence) must see the settled codec, not
+            // the label of the session's first frames.
+            this.emit("metadataReceived", this.videoMetadata);
+            this.handleCodecChange(labelled, bitstreamCodec);
+          }
+        }
+        if (bitstreamCodec && !this.sessionBitstreamCodec) {
+          this.sessionBitstreamCodec = bitstreamCodec;
+          for (const notify of this.sessionCodecWaiters.splice(0)) notify();
         }
 
         // Mark livestream as actually running when we receive data
@@ -885,6 +1017,11 @@ export class StreamServer extends EventEmitter {
         // the bropat session is wedged.)
         this.lastVideoDataAt = Date.now();
 
+        if (this.sessionFirstVideoAt === 0 && !trailingFrame) {
+          this.sessionFirstVideoAt = this.lastVideoDataAt;
+          for (const notify of this.sessionVideoWaiters.splice(0)) notify();
+        }
+
         // Log video data events based on client activity
         const activeClients = this.connectionManager.getActiveConnectionCount();
         if (activeClients > 0) {
@@ -900,22 +1037,23 @@ export class StreamServer extends EventEmitter {
           }
         }
 
-        // Convert JSONBuffer to Buffer if needed
-        const videoBuffer = Buffer.isBuffer(event.buffer.data)
-          ? event.buffer.data
-          : Buffer.from(event.buffer.data);
-
         // Fan-out to muxer clients (fMP4 via in-process JMuxer). Update
         // the activity clock so the inactivity timer doesn't kill the
         // livestream while muxer clients are actively consuming it.
         if (this.muxerStreams.size > 0) {
           this.lastClientActivity = Date.now();
-          for (const { muxer } of this.muxerStreams.values()) {
+          for (const {
+            muxer,
+            stats,
+            onVideoFed,
+          } of this.muxerStreams.values()) {
+            stats.videoFrames++;
             try {
               muxer.feed({ video: videoBuffer });
             } catch (e) {
               this.logger.warn(`Muxer video feed error: ${e}`);
             }
+            onVideoFed?.();
           }
         }
 
@@ -978,7 +1116,10 @@ export class StreamServer extends EventEmitter {
         // is detected as video-only and muxed in `video` mode instead. Set this
         // before the no-muxer early-return so detection works even when the
         // first ADTS frame arrives before any muxer client has attached.
-        if (isAdts) this.deliversAudio = true;
+        if (isAdts) {
+          this.deliversAudio = true;
+          this.sessionAudioFrames++;
+        }
 
         if (this.muxerStreams.size === 0) {
           return;
@@ -988,7 +1129,17 @@ export class StreamServer extends EventEmitter {
           return;
         }
 
-        for (const { muxer } of this.muxerStreams.values()) {
+        // Audio became real after a muxer settled on `video` (cold-start
+        // fallback, or audio started late). Bring it back — once enough
+        // frames prove the track is continuous, not a stray frame.
+        if (this.sessionAudioFrames === this.AUDIO_RESTORE_MIN_FRAMES) {
+          for (const { restoreAudio } of [...this.muxerStreams.values()]) {
+            restoreAudio?.();
+          }
+        }
+
+        for (const { muxer, stats } of this.muxerStreams.values()) {
+          stats.audioFrames++;
           try {
             muxer.feed({ audio: audioBuffer });
           } catch (e) {
@@ -1001,6 +1152,54 @@ export class StreamServer extends EventEmitter {
         serialNumber: this.options.serialNumber,
       },
     );
+  }
+
+  private static toMuxerCodec(codec: string): "H264" | "H265" {
+    const c = codec.toUpperCase();
+    return c === "H265" || c === "HEVC" ? "H265" : "H264";
+  }
+
+  /**
+   * The camera came back from a new P2P session (e.g. after a wedge recycle)
+   * with a different codec. Everything built for the old one is now wrong:
+   * cached parameter sets, muxers whose sample description is avcC/hvcC for
+   * the old codec, and raw clients whose ffmpeg was started with the old
+   * demuxer. Muxers that haven't emitted yet rebuild in place; consumers that
+   * already received old-codec bytes are disconnected so they re-request the
+   * stream and get it labelled with the new codec.
+   */
+  private handleCodecChange(from: "H264" | "H265", to: "H264" | "H265"): void {
+    this.hintedVideoCodec = to;
+    this.cachedVPS = null;
+    this.cachedSPS = null;
+    this.cachedPPS = null;
+    this.cachedParamCodec = undefined;
+    const rawClients = Object.keys(this.connectionManager.getConnectionStats());
+    const stale = [...this.muxerStreams.values()].filter(
+      (entry) => entry.codec !== to,
+    ).length;
+    this.logger.warn(
+      `🔀 Video codec changed ${from}→${to} — rebuilding/reconnecting ${stale} muxed and ${rawClients.length} raw client(s)`,
+    );
+    this.reconcileMuxerCodecs(to);
+    for (const connectionId of rawClients) {
+      this.connectionManager.disconnectClient(connectionId);
+    }
+  }
+
+  /**
+   * Rebuild (or disconnect, if it already emitted) every muxer built for a
+   * codec other than the session's. Keyed on what each muxer was actually
+   * built with, so it also catches one built from a stale hint.
+   */
+  private reconcileMuxerCodecs(codec: "H264" | "H265"): void {
+    for (const entry of [...this.muxerStreams.values()]) {
+      if (entry.codec === codec) continue;
+      this.logger.warn(
+        `Muxer was built for ${entry.codec} but the session is ${codec} — correcting for ${this.options.serialNumber}`,
+      );
+      entry.onCodecChange?.();
+    }
   }
 
   /**
@@ -1127,6 +1326,26 @@ export class StreamServer extends EventEmitter {
     );
   }
 
+  /**
+   * A live request was denied because another camera is inside its brief
+   * warm-up window. Nothing else re-asks for the slot while our consumers
+   * wait (a pending muxer would otherwise sit until its 60s metadata
+   * timeout), so retry shortly — for as long as anyone is still waiting.
+   */
+  private scheduleSlotRetry(): void {
+    if (this.slotRetryTimer) return;
+    this.logger.info(
+      `Retrying HomeBase stream slot in ${this.SLOT_BUSY_RETRY_MS}ms`,
+    );
+    this.slotRetryTimer = setTimeout(() => {
+      this.slotRetryTimer = undefined;
+      if (!this.isActive || this.slotRevoked) return;
+      if (this.getTotalConsumers() === 0) return;
+      void this.updateLivestreamStateForMuxerClients();
+    }, this.SLOT_BUSY_RETRY_MS);
+    this.slotRetryTimer.unref?.();
+  }
+
   /** Release our HomeBase stream-slot lease, if held. Idempotent. */
   private releaseStreamSlot(): void {
     if (this.streamLease) {
@@ -1148,6 +1367,7 @@ export class StreamServer extends EventEmitter {
       "↩️  HomeBase stream slot revoked by another camera — yielding",
     );
     this.slotRevoked = true;
+    this.endMetadataSession();
     if (this.warmLease) this.endWarmLease("slot revoked", false);
     this.livestreamIntendedState = false;
     // Stop our P2P livestream FIRST, then release the slot — do NOT release
@@ -1183,6 +1403,8 @@ export class StreamServer extends EventEmitter {
       // We're delivering video now — protect our HomeBase slot from being
       // preempted by another camera's (e.g. grid-preview) live request.
       this.streamLease?.markDelivering();
+    } else {
+      this.endMetadataSession();
     }
     this.emit(active ? "livestreamActive" : "livestreamInactive", {
       serialNumber: this.options.serialNumber,
@@ -1258,6 +1480,7 @@ export class StreamServer extends EventEmitter {
               if (priority === "background" && this.warmLease) {
                 this.endWarmLease("background slot denied", false);
               }
+              if (priority === "live") this.scheduleSlotRetry();
               break;
             }
             this.logger.info(`🎟️  Acquired HomeBase stream slot (${priority})`);
@@ -1440,7 +1663,7 @@ export class StreamServer extends EventEmitter {
         this.isActive = true;
         this.startTime = new Date();
         this.logger.info(
-          `🚀 Stream server started on ${this.options.host}:${this.options.port}`,
+          `🚀 Stream server started on ${this.options.host}:${this.getPort() ?? this.options.port}`,
         );
         this.emit("started");
         resolve();
@@ -1525,13 +1748,45 @@ export class StreamServer extends EventEmitter {
     // if there's no hint either.
     let videoCodec: "H264" | "H265" = this.hintedVideoCodec ?? "H264";
     try {
-      // 60s — battery cameras (T8170 S340 sleep mode, T86P2 4G LTE cold-start)
-      // can take 30–45s to deliver their first IDR after startLivestream.
-      const metadata = await this.waitForVideoMetadata(60000, {
-        signal: metadataWaitAbortController.signal,
-      });
-      const c = metadata.videoCodec.toUpperCase();
-      videoCodec = c === "H265" || c === "HEVC" ? "H265" : "H264";
+      const metadataDeadline = Date.now() + this.MUXER_METADATA_TIMEOUT_MS;
+      const metadata = await this.waitForVideoMetadata(
+        this.MUXER_METADATA_TIMEOUT_MS,
+        {
+          signal: metadataWaitAbortController.signal,
+        },
+      );
+      videoCodec = StreamServer.toMuxerCodec(metadata.videoCodec);
+
+      // On a cold start the metadata above can still be the previous P2P
+      // session's (the new session only begins once the HomeBase slot is
+      // granted, after this client attached). Wait for this session's first
+      // video frame so the codec, the audio decision and the `both` fallback
+      // clock all come from the session that will actually feed the muxer.
+      const arrived = await this.waitForSessionFirstVideo(
+        Math.max(0, metadataDeadline - Date.now()),
+        metadataWaitAbortController.signal,
+      );
+      // Then for the session's parameter sets, so the codec comes from the
+      // bitstream rather than a label that can be wrong. Mid-GOP attaches
+      // wait for the next keyframe at most.
+      const codecKnown =
+        arrived &&
+        (await this.waitForSessionCodec(
+          Math.max(0, metadataDeadline - Date.now()),
+          metadataWaitAbortController.signal,
+        ));
+      if (
+        arrived &&
+        !codecKnown &&
+        !metadataWaitAbortController.signal.aborted
+      ) {
+        this.logger.warn(
+          `Muxer client: no parameter sets seen this session — trusting codec label ${this.videoMetadata?.videoCodec}`,
+        );
+      }
+      if (arrived && this.videoMetadata) {
+        videoCodec = StreamServer.toMuxerCodec(this.videoMetadata.videoCodec);
+      }
     } catch (e) {
       if (!metadataWaitAbortController.signal.aborted) {
         this.logger.warn(
@@ -1552,27 +1807,35 @@ export class StreamServer extends EventEmitter {
 
     const videoFps = this.videoMetadata?.videoFPS ?? 15;
 
+    const sinceFirstVideo = this.sessionFirstVideoAt
+      ? Date.now() - this.sessionFirstVideoAt
+      : 0;
+
     // Pick the muxer mode by whether this camera actually delivers audio.
     // JMuxer `both` will not emit a single fMP4 byte until BOTH the video
     // AND audio tracks have a sample (remux `isReady()`), so a mic-off,
     // video-only camera muxed as `both` hangs forever and the downstream
     // ffmpeg dies with "timeout waiting for data" — live view never starts.
     //
-    // If we've already seen audio from this device, use `both`. If we know
-    // it's video-only, use `video`. If we don't know yet (first stream,
-    // muxer connects before the first audio frame), briefly wait for an
-    // audio frame now that video is confirmed flowing — a mic-on camera
-    // delivers audio within ~1-2s of video; if none arrives, it's video-only.
-    // The socket stays in `pendingMuxerSockets` during this wait so it still
-    // counts as a consumer (keeping the livestream alive).
+    // `deliversAudio` is session-scoped (reset by `beginMetadataSession`), and
+    // we only get here after this session's first video frame, so it reflects
+    // the session that will feed this muxer. If it's still unknown, wait for
+    // an audio frame until AUDIO_DETECT_WINDOW_MS after that
+    // first video frame — a mic-on camera delivers audio within ~1-2s of
+    // video; if none arrives, treat the session as video-only. The socket
+    // stays in `pendingMuxerSockets` during this wait so it still counts as a
+    // consumer (keeping the livestream alive).
     if (this.deliversAudio === undefined) {
-      const audioDeadline = Date.now() + 2500;
+      const audioDeadline =
+        (this.sessionFirstVideoAt || Date.now()) + this.AUDIO_DETECT_WINDOW_MS;
       while (Date.now() < audioDeadline && this.deliversAudio === undefined) {
         if (socket.destroyed) {
           this.pendingMuxerSockets.delete(socket);
           return;
         }
-        await new Promise((r) => setTimeout(r, 150));
+        await new Promise((r) =>
+          setTimeout(r, Math.min(150, Math.max(0, audioDeadline - Date.now()))),
+        );
       }
       if (this.deliversAudio === undefined) this.deliversAudio = false;
     }
@@ -1581,16 +1844,24 @@ export class StreamServer extends EventEmitter {
     this.pendingMuxerSockets.delete(socket);
     const mode: "both" | "video" = this.deliversAudio ? "both" : "video";
     this.logger.info(
-      `Muxer mode=${mode} (deliversAudio=${this.deliversAudio}) for ${this.options.serialNumber}`,
+      `Muxer mode=${mode} (deliversAudio=${this.deliversAudio}, codec=${videoCodec}, first video ${this.sessionFirstVideoAt ? `${sinceFirstVideo}ms ago` : "not yet received"}) for ${this.options.serialNumber}`,
     );
 
     let emittedFirstChunk = false;
     let bothFallbackTimer: ReturnType<typeof setTimeout> | undefined;
+    // At most one in-place video→both restore per socket, so a camera whose
+    // audio comes and goes can't flap the muxer back and forth.
+    let audioRestored = false;
 
     // Build (or rebuild) the JMuxer for this socket in the given mode and wire
     // its output to the socket. Replacing the entry in `muxerStreams` is how the
-    // `both`→`video` fallback swaps modes without dropping the client.
+    // `both`↔`video` and codec switches happen without dropping the client.
     const buildMuxer = (useMode: "both" | "video"): void => {
+      // Always the current session's codec — a rebuild after a codec change
+      // must not reuse the one captured when this client attached.
+      if (this.videoMetadata) {
+        videoCodec = StreamServer.toMuxerCodec(this.videoMetadata.videoCodec);
+      }
       const muxer = new JMuxer({
         mode: useMode,
         videoCodec,
@@ -1616,13 +1887,33 @@ export class StreamServer extends EventEmitter {
       duplex.on("error", (err) => {
         this.logger.warn(`JMuxer duplex error: ${err.message}`);
       });
-      this.muxerStreams.set(socket, { muxer, duplex });
+      const stats = { videoFrames: 0, audioFrames: 0 };
+      this.muxerStreams.set(socket, {
+        muxer,
+        duplex,
+        mode: useMode,
+        codec: videoCodec,
+        stats,
+        onVideoFed:
+          useMode === "both"
+            ? () => {
+                if (stats.videoFrames !== 1) return;
+                if (!emittedFirstChunk) armBothFallback();
+              }
+            : undefined,
+        restoreAudio: useMode === "video" ? restoreAudio : undefined,
+        onCodecChange,
+      });
     };
 
-    buildMuxer(mode);
-    this.logger.info(
-      `Muxed client attached (codec=${videoCodec}, total active muxers: ${this.muxerStreams.size})`,
-    );
+    const replaceMuxer = (useMode: "both" | "video"): void => {
+      try {
+        this.muxerStreams.get(socket)?.muxer.destroy();
+      } catch {
+        // ignore — being replaced anyway
+      }
+      buildMuxer(useMode);
+    };
 
     // `both` mode never emits a single fMP4 byte until JMuxer has BOTH a video
     // keyframe and an audio sample (remux `isReady()`). Some cameras report
@@ -1631,23 +1922,58 @@ export class StreamServer extends EventEmitter {
     // forever and the live view stays black. Guarantee video by rebuilding the
     // muxer video-only if no output appears shortly. Video-capable cameras with
     // real audio emit in well under this window, so they keep their audio.
-    if (mode === "both") {
+    //
+    // The window starts at the first video frame fed to this muxer, not when
+    // the client attached: on a battery-camera cold start the client attaches
+    // while the camera is still waking, and a clock started then expires
+    // before the camera has sent anything, throwing away a working audio track.
+    const armBothFallback = (): void => {
+      if (bothFallbackTimer) return;
       bothFallbackTimer = setTimeout(() => {
         bothFallbackTimer = undefined;
         if (emittedFirstChunk || socket.destroyed) return;
-        if (!this.muxerStreams.has(socket)) return;
+        const entry = this.muxerStreams.get(socket);
+        if (entry?.mode !== "both") return;
         this.logger.warn(
-          `Muxer 'both' produced no fMP4 in ${this.BOTH_TO_VIDEO_FALLBACK_MS}ms — rebuilding video-only for ${this.options.serialNumber} (camera reports audio but isn't delivering a usable track)`,
+          `Muxer 'both' produced no fMP4 in ${this.BOTH_TO_VIDEO_FALLBACK_MS}ms after first video frame (fed ${entry.stats.videoFrames} video / ${entry.stats.audioFrames} ADTS frames, codec=${videoCodec}) — rebuilding video-only for ${this.options.serialNumber}`,
         );
-        const existing = this.muxerStreams.get(socket);
-        try {
-          existing?.muxer.destroy();
-        } catch {
-          // ignore — being replaced anyway
-        }
-        buildMuxer("video");
+        replaceMuxer("video");
       }, this.BOTH_TO_VIDEO_FALLBACK_MS);
-    }
+    };
+
+    // This socket is muxing video-only but the session now carries a
+    // continuous audio track (late audio, or a fallback that fired too early).
+    // Only possible before the first fMP4: once a video-only init segment has
+    // gone out, a second moov mid-stream would break the downstream ffmpeg,
+    // and closing the socket instead costs far more than the audio is worth
+    // (Rebroadcast can take tens of seconds to come back, by which time the
+    // session has ended). So such a socket stays video-only.
+    const restoreAudio = (): void => {
+      if (socket.destroyed || audioRestored || emittedFirstChunk) return;
+      audioRestored = true;
+      this.logger.info(
+        `Audio arrived before any fMP4 — rebuilding muxer as 'both' for ${this.options.serialNumber}`,
+      );
+      replaceMuxer("both");
+    };
+
+    // The session came back with a different codec (see handleCodecChange).
+    const onCodecChange = (): void => {
+      if (socket.destroyed) return;
+      if (!emittedFirstChunk) {
+        replaceMuxer(this.muxerStreams.get(socket)?.mode ?? "video");
+        return;
+      }
+      this.logger.info(
+        `Closing muxed client after codec change so it re-requests the stream for ${this.options.serialNumber}`,
+      );
+      socket.destroy();
+    };
+
+    buildMuxer(mode);
+    this.logger.info(
+      `Muxed client attached (codec=${videoCodec}, total active muxers: ${this.muxerStreams.size})`,
+    );
 
     // Re-evaluate consumer state now that the socket moved from pending →
     // active. No-op if the livestream is already running.
@@ -1766,6 +2092,10 @@ export class StreamServer extends EventEmitter {
     if (this.startStopTimeout) {
       clearTimeout(this.startStopTimeout);
       this.startStopTimeout = undefined;
+    }
+    if (this.slotRetryTimer) {
+      clearTimeout(this.slotRetryTimer);
+      this.slotRetryTimer = undefined;
     }
     this.cancelPostSnapshotLinger("server stopping");
     if (this.warmLease) {
@@ -1918,6 +2248,18 @@ export class StreamServer extends EventEmitter {
       // every cache slot — new clients would receive old frames ahead of the
       // live stream, and the snapshot prepend path would place an old IDR
       // before the fresh one (ffmpeg decodes the FIRST picture it finds).
+      const codec: "H264" | "H265" = isHevc ? "H265" : "H264";
+      const isParameterSet = (type: number) =>
+        isHevc ? type >= 32 && type <= 34 : type === 7 || type === 8;
+      if (
+        this.cachedParamCodec !== codec &&
+        nalUnits.some((nal) => isParameterSet(nal.type))
+      ) {
+        this.cachedVPS = null;
+        this.cachedSPS = null;
+        this.cachedPPS = null;
+        this.cachedParamCodec = codec;
+      }
       nalUnits.forEach((nal) => {
         const framedNal = () =>
           Buffer.concat([StreamServer.ANNEX_B_START_CODE, nal.data]);
@@ -1954,13 +2296,11 @@ export class StreamServer extends EventEmitter {
       // events (H.264 SPS/PPS or H.265 VPS/SPS/PPS without an IRAP slice)
       // don't qualify — FFmpeg can't produce a JPEG from those alone.
       // H.264: require IDR (type 5).  H.265: require an IRAP slice
-      // (types 16–23: BLA/IDR/CRA and reserved IRAP).
+      // (types 16–21: BLA/IDR/CRA) — see `H264Parser`.
       //
       // This happens BEFORE checking if server is active, so snapshots
       // work without TCP server.
-      const hasSnapshotKeyframe = isHevc
-        ? nalUnits.some((nal) => nal.type >= 16 && nal.type <= 23)
-        : nalUnits.some((nal) => nal.type === 5);
+      const hasSnapshotKeyframe = nalUnits.some((nal) => nal.isKeyFrame);
       let snapshotsHandled = false;
       if (hasSnapshotKeyframe) {
         // Build a self-contained, decodable bitstream for the JPEG
@@ -1971,30 +2311,48 @@ export class StreamServer extends EventEmitter {
         // already present in this data event (Eufy sometimes bundles
         // them, sometimes delivers them as separate prior events).
         const types = new Set(nalUnits.map((n) => n.type));
+        const cacheMatches = this.cachedParamCodec === codec;
+        const required: Array<[number, Buffer | null]> = isHevc
+          ? [
+              [32, this.cachedVPS],
+              [33, this.cachedSPS],
+              [34, this.cachedPPS],
+            ]
+          : [
+              [7, this.cachedSPS],
+              [8, this.cachedPPS],
+            ];
         const parts: Buffer[] = [];
-        if (isHevc) {
-          if (!types.has(32) && this.cachedVPS) parts.push(this.cachedVPS);
-          if (!types.has(33) && this.cachedSPS) parts.push(this.cachedSPS);
-          if (!types.has(34) && this.cachedPPS) parts.push(this.cachedPPS);
-        } else {
-          if (!types.has(7) && this.cachedSPS) parts.push(this.cachedSPS);
-          if (!types.has(8) && this.cachedPPS) parts.push(this.cachedPPS);
+        let decodable = true;
+        for (const [type, cached] of required) {
+          if (types.has(type)) continue;
+          if (cached && cacheMatches) parts.push(cached);
+          else decodable = false;
         }
         const snapshotPayload =
           parts.length > 0 ? Buffer.concat([...parts, data]) : data;
 
         // Retain this keyframe for cache-served snapshots/thumbnails. This
-        // fires for EVERY keyframe regardless of whether a snapshot is
-        // pending, so the cache refreshes for free whenever the camera is
-        // already awake (live view, HKSV, motion, or a prior snapshot).
-        this.lastKeyframe = {
-          data: snapshotPayload,
-          codec: isHevc ? "H265" : "H264",
-          timestamp: Date.now(),
-        };
+        // fires for EVERY decodable keyframe regardless of whether a snapshot
+        // is pending, so the cache refreshes for free whenever the camera is
+        // already awake (live view, HKSV, motion, or a prior snapshot). A
+        // keyframe we can't pair with its full parameter-set group (from the
+        // event or the same-codec cache) would decode to a broken image, so
+        // it is neither cached nor handed to waiting snapshots.
+        if (!decodable) {
+          this.logger.debug(
+            `Skipping ${codec} keyframe for snapshots: parameter sets incomplete`,
+          );
+        } else {
+          this.lastKeyframe = {
+            data: snapshotPayload,
+            codec,
+            timestamp: Date.now(),
+          };
+        }
 
         // Resolve any pending snapshot requests with the same decodable buffer.
-        if (this.snapshotResolvers.length > 0) {
+        if (decodable && this.snapshotResolvers.length > 0) {
           this.logger.debug(
             `Resolving ${this.snapshotResolvers.length} snapshot request(s) with keyframe data`,
           );
@@ -2097,11 +2455,94 @@ export class StreamServer extends EventEmitter {
   /** Start a new P2P session whose metadata must be freshly confirmed. */
   private beginMetadataSession(): void {
     this.metadataGeneration++;
+    this.metadataSessionEnded = false;
     // Audio is session-scoped just like codec metadata. A camera may deliver
     // AAC in one P2P session and no audio in the next, so carrying this flag
     // forward would advertise and configure a non-existent track.
     this.deliversAudio = undefined;
     this.audioMetadata = null;
+    this.resetSessionMediaTiming();
+  }
+
+  /**
+   * The P2P session is over (stream stopped, or our HomeBase slot revoked).
+   * Its metadata stays as a codec hint but no longer counts as verified, so
+   * the next viewer wakes the camera instead of trusting a session that is
+   * no longer delivering.
+   */
+  private endMetadataSession(): void {
+    this.metadataVerifiedGeneration = -1;
+    this.metadataSessionEnded = true;
+    this.resetSessionMediaTiming();
+  }
+
+  /**
+   * Forget when the current session's first video frame arrived and how much
+   * audio it carried. Called when a session begins and when the livestream
+   * goes down, so a muxer attaching in between waits for the next session's
+   * first frame instead of deciding from the previous session.
+   */
+  private resetSessionMediaTiming(): void {
+    this.sessionFirstVideoAt = 0;
+    this.sessionAudioFrames = 0;
+    this.sessionBitstreamCodec = undefined;
+  }
+
+  /**
+   * Resolve `true` once the current P2P session has delivered its first video
+   * frame, or `false` on timeout/abort.
+   */
+  private waitForSessionFirstVideo(
+    timeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    return this.waitForSessionSignal(
+      () => this.sessionFirstVideoAt > 0,
+      this.sessionVideoWaiters,
+      timeoutMs,
+      signal,
+    );
+  }
+
+  /**
+   * Resolve `true` once the current session's codec has been identified from
+   * its parameter sets, or `false` on timeout/abort.
+   */
+  private waitForSessionCodec(
+    timeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    return this.waitForSessionSignal(
+      () => this.sessionBitstreamCodec !== undefined,
+      this.sessionCodecWaiters,
+      timeoutMs,
+      signal,
+    );
+  }
+
+  private waitForSessionSignal(
+    isReady: () => boolean,
+    waiters: Array<() => void>,
+    timeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    if (isReady()) return Promise.resolve(true);
+    if (signal.aborted) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      const finish = (arrived: boolean) => {
+        clearTimeout(timeout);
+        signal.removeEventListener("abort", onAbort);
+        const index = waiters.indexOf(notify);
+        if (index !== -1) waiters.splice(index, 1);
+        resolve(arrived);
+      };
+      const notify = () => finish(true);
+      const onAbort = () => finish(false);
+      const timeout = setTimeout(() => finish(false), timeoutMs);
+      timeout.unref?.();
+      waiters.push(notify);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
   }
 
   /** Whether metadata has been confirmed by video data for this P2P session. */
@@ -2172,10 +2613,22 @@ export class StreamServer extends EventEmitter {
    * video metadata. This is intentionally independent of TCP clients: codec
    * selection has to wake the camera before Rebroadcast attaches its socket.
    */
-  acquireMetadataWaiter(timeoutMs: number = 10000): MetadataBootstrapWaiter {
+  acquireMetadataWaiter(
+    timeoutMs: number = 10000,
+    options?: { viewer?: boolean },
+  ): MetadataBootstrapWaiter {
     const controller = new AbortController();
     let held = true;
     let settled = false;
+    if (options?.viewer && this.slotRevoked) {
+      // A fresh viewer request, not a Rebroadcast reconnect: re-take the
+      // HomeBase slot (newest wins) instead of staying down until consumers
+      // that never fully drain finally do.
+      this.slotRevoked = false;
+      this.logger.info(
+        "👀 New viewer request after slot revoke — re-taking HomeBase slot",
+      );
+    }
     this.metadataBootstrapConsumers++;
     void this.updateLivestreamStateForMuxerClients();
 

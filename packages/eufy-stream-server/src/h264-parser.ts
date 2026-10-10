@@ -144,13 +144,12 @@ export class H264Parser {
   }
 
   /**
-   * H.264 keyframe NAL types:
-   * - 5  IDR slice (the actual keyframe)
-   * - 7  SPS (Sequence Parameter Set)
-   * - 8  PPS (Picture Parameter Set)
+   * H.264 keyframe NAL type: 5, the IDR slice. Parameter sets (SPS=7, PPS=8)
+   * travel with keyframes but are not pictures — an event carrying only them
+   * is not a keyframe.
    */
   private isKeyFrameNAL(nalType: number): boolean {
-    return nalType === 5 || nalType === 7 || nalType === 8;
+    return nalType === 5;
   }
 
   extractNALUnits(data: Buffer): NALUnit[] {
@@ -191,25 +190,20 @@ export class H264Parser {
   }
 
   /**
-   * H.265 keyframe NAL types.
-   *
-   * IRAP (Intra Random Access Point) frames — all self-decodable without prior frames:
+   * H.265 keyframe NAL types: the defined IRAP (Intra Random Access Point)
+   * slices, self-decodable without prior frames:
    *   16  BLA_W_LP
    *   17  BLA_W_RADL
    *   18  BLA_N_LP
    *   19  IDR_W_RADL
    *   20  IDR_N_LP
    *   21  CRA_NUT  (Clean Random Access)
-   *   22  RSV_IRAP_VCL22
-   *   23  RSV_IRAP_VCL23
    *
-   * Parameter sets (sent before every IDR access unit):
-   *   32  VPS_NUT  (Video Parameter Set)
-   *   33  SPS_NUT  (Sequence Parameter Set)
-   *   34  PPS_NUT  (Picture Parameter Set)
+   * 22–23 are reserved and never emitted by a conforming encoder. Parameter
+   * sets (VPS=32, SPS=33, PPS=34) travel with keyframes but are not pictures.
    */
   private isKeyFrameHevcNAL(nalType: number): boolean {
-    return (nalType >= 16 && nalType <= 23) || (nalType >= 32 && nalType <= 34);
+    return nalType >= 16 && nalType <= 21;
   }
 
   extractNALUnitsHevc(data: Buffer): NALUnit[] {
@@ -237,4 +231,61 @@ export class H264Parser {
   getNALTypeNameHevc(type: number): string {
     return HEVC_NAL_TYPE_NAMES[type] ?? `Unknown(${type})`;
   }
+
+  // ─── Codec detection ───────────────────────────────────────────────────────
+
+  /**
+   * Identify the codec from the parameter sets at the start of `data`, or
+   * return undefined if none are found. Lets callers trust the bitstream over
+   * a codec label that can be wrong (Eufy has been seen labelling H.264 as
+   * H.265 for a whole P2P session).
+   *
+   * The two codecs' parameter-set headers can't be confused:
+   *   H.265 VPS/SPS/PPS: types 32–34 with a 2-byte header whose second byte is
+   *     0x01–0x07 (nuh_layer_id 0, nuh_temporal_id_plus1 ≥ 1) — e.g. 40 01.
+   *   H.264 SPS: type 7, nal_ref_idc ≠ 0, followed by a known profile_idc —
+   *     e.g. 67 64 / 27 4d.
+   * Parameter sets lead the access unit, so only a short prefix is scanned.
+   */
+  detectParameterSetCodec(
+    data: Buffer,
+    maxScanBytes = 512,
+  ): "H264" | "H265" | undefined {
+    const prefix = data.subarray(0, Math.min(data.length, maxScanBytes));
+    let offset = 0;
+    while (offset < prefix.length) {
+      const startCode = this.findStartCode(prefix, offset);
+      if (!startCode) return undefined;
+      const nal = startCode.position + startCode.length;
+      if (nal + 1 >= prefix.length) return undefined;
+      const b0 = prefix[nal];
+      const b1 = prefix[nal + 1];
+      if ((b0 & 0x80) === 0) {
+        const hevcType = (b0 >> 1) & 0x3f;
+        const layerId = ((b0 & 0x01) << 5) | (b1 >> 3);
+        if (
+          hevcType >= 32 &&
+          hevcType <= 34 &&
+          layerId === 0 &&
+          (b1 & 0x07) !== 0
+        ) {
+          return "H265";
+        }
+        if (
+          (b0 & 0x1f) === 7 &&
+          (b0 & 0x60) !== 0 &&
+          H264_PROFILE_IDCS.has(b1)
+        ) {
+          return "H264";
+        }
+      }
+      offset = nal;
+    }
+    return undefined;
+  }
 }
+
+/** profile_idc values defined by H.264 (Annex A / G / H). */
+const H264_PROFILE_IDCS = new Set([
+  44, 66, 77, 83, 86, 88, 100, 110, 118, 122, 128, 134, 135, 138, 139, 144, 244,
+]);

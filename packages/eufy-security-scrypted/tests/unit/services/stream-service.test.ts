@@ -269,6 +269,7 @@ describe("StreamService", () => {
       mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
         false,
       );
+      mockStreamServer.getVideoMetadata.mockReturnValue(null); // no codec hint
       mockStreamServer.acquireMetadataWaiter.mockReturnValue({
         promise: new Promise((resolve) => {
           resolveMetadata = resolve;
@@ -294,6 +295,35 @@ describe("StreamService", () => {
       expect(release).not.toHaveBeenCalled();
       consumerAttached?.();
       expect(release).toHaveBeenCalledTimes(1);
+    });
+
+    it("wakes the camera as a new viewer without blocking when a codec hint exists", async () => {
+      const release = jest.fn();
+      mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
+        false,
+      );
+      mockStreamServer.getVideoMetadata.mockReturnValue(liveH265Metadata);
+      mockStreamServer.getMuxedPort.mockReturnValue(55555);
+      mockStreamServer.acquireMetadataWaiter.mockReturnValue({
+        promise: new Promise(() => undefined), // camera still waking
+        release,
+        cancel: release,
+      });
+
+      await service.getVideoStream(VideoQuality.HIGH, { id: "p2p" });
+
+      expect(mockStreamServer.acquireMetadataWaiter).toHaveBeenCalledWith(
+        expect.any(Number),
+        { viewer: true },
+      );
+      expect(sdk.mediaManager.createFFmpegMediaObject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mediaStreamOptions: expect.objectContaining({
+            video: expect.objectContaining({ codec: "h265" }),
+          }),
+        }),
+      );
+      expect(release).not.toHaveBeenCalled();
     });
 
     it("keeps a verified H265 native stream truthful when the consumer requests H264", async () => {

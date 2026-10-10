@@ -70,8 +70,15 @@ export interface IStreamServer {
   /** Whether the metadata was observed from the current P2P session. */
   isMetadataVerifiedForCurrentSession(): boolean;
 
-  /** Keep the upstream live while waiting for fresh session metadata. */
-  acquireMetadataWaiter(timeoutMs?: number): MetadataBootstrapWaiter;
+  /**
+   * Keep the upstream live while waiting for fresh session metadata.
+   * `viewer: true` marks a new viewer request, which may re-take a HomeBase
+   * slot that another camera revoked.
+   */
+  acquireMetadataWaiter(
+    timeoutMs?: number,
+    options?: { viewer?: boolean },
+  ): MetadataBootstrapWaiter;
 
   /** Runs once when a raw or muxed downstream consumer attaches. */
   onNextConsumerAttached(callback: () => void): () => void;

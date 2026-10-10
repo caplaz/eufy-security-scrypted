@@ -178,6 +178,8 @@ export class EufyDevice
   // we report no signal), suppress recycles until `recycleSuppressedUntil`.
   // Reset when video actually flows (livestreamActive).
   private consecutiveFailedRecycles = 0;
+  /** Source codec the current stream options were last announced with. */
+  private announcedVideoCodec?: string;
   private recycleSuppressedUntil = 0;
 
   // Background thumbnail refresh bookkeeping. A timer periodically wakes this
@@ -972,6 +974,9 @@ export class EufyDevice
         `🎬 Using stored codec hint for stream server: ${initialVideoCodec}`,
       );
     }
+    // Scrypted read stream options built from this hint when the device
+    // loaded, so it counts as already announced.
+    this.announcedVideoCodec = initialVideoCodec ?? undefined;
 
     this.streamServer = new StreamServer({
       port: 0, // Let the system assign a free port
@@ -998,8 +1003,8 @@ export class EufyDevice
     this.restoreThumbnailKeyframe();
 
     // Persist live-detected codec so the next plugin restart starts with
-    // the right hint. The event fires exactly once per stream-server
-    // instance (on the first video data event).
+    // the right hint. Fires once per P2P session, and again if the codec is
+    // corrected from the bitstream.
     this.streamServer.on(
       "metadataReceived",
       (metadata: { videoCodec?: string }) => {
@@ -1012,9 +1017,6 @@ export class EufyDevice
           this.logger.info(
             `💾 Persisted detected video codec: ${normalized} (was: ${previous ?? "unset"})`,
           );
-          // Stream options carry the source codec. A live session may replace
-          // a persisted startup hint, so ask Scrypted to fetch fresh options.
-          this.onDeviceEvent(ScryptedInterface.VideoCamera, undefined);
         }
       },
     );
@@ -1046,6 +1048,7 @@ export class EufyDevice
       // The camera just stopped — save its last frame so the tile survives a
       // reload. (Populated by any stream: live view, motion recording, etc.)
       this.persistThumbnailKeyframe();
+      this.announceStreamOptionsIfCodecChanged();
     });
 
     this.startThumbnailRefresh();
@@ -1053,6 +1056,23 @@ export class EufyDevice
     this.logger.debug(
       "Stream server created with WebSocket client integration",
     );
+  }
+
+  /**
+   * Stream options carry the source codec, so a new persisted codec needs
+   * Scrypted to fetch fresh options — but only between sessions. Announcing
+   * during a live stream makes Rebroadcast see a config change and restart
+   * its prebuffer session under the viewer (black screen), and cameras like
+   * the S330 relabel their codec within the first second of every session.
+   */
+  private announceStreamOptionsIfCodecChanged(): void {
+    const codec = this.storage.getItem("lastDetectedVideoCodec");
+    if (!codec || codec === this.announcedVideoCodec) return;
+    this.announcedVideoCodec = codec;
+    this.logger.info(
+      `📣 Source codec now ${codec} — reannouncing stream options between sessions`,
+    );
+    this.onDeviceEvent(ScryptedInterface.VideoCamera, undefined);
   }
 
   private getCompatibilityMode(): CompatibilityMode {

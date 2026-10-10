@@ -312,7 +312,9 @@ export class StreamService {
     let handoff: (() => void) | undefined;
     let relayStartedExclusively = false;
     try {
-      const resolved = await this.resolveCurrentSource();
+      const resolved = await this.resolveCurrentSource(
+        options?.id !== "p2p-h264",
+      );
       bootstrap = resolved.bootstrap;
       const selection = await this.select(resolved.codec, options);
 
@@ -488,16 +490,41 @@ export class StreamService {
     return { codec, verified: !!codec };
   }
 
-  private async resolveCurrentSource(): Promise<{
+  private async resolveCurrentSource(allowCodecHint: boolean): Promise<{
     codec: SourceCodec;
     bootstrap?: MetadataBootstrapWaiter;
   }> {
     const current = this.currentVerifiedSource();
     if (current.codec) return { codec: current.codec };
 
+    // No live session (cold start, or the stream stopped / our HomeBase slot
+    // was revoked). This request is a new viewer: the bootstrap wakes the
+    // camera and re-takes the slot.
     const bootstrap = this.streamServer.acquireMetadataWaiter(
       this.metadataTimeoutMs,
+      { viewer: true },
     );
+
+    // With a codec known from the previous session, don't block on the wake —
+    // a battery camera can take longer than the bootstrap timeout to deliver
+    // its first frame, while the muxer itself waits for the new session. If
+    // the camera comes back with a different codec, the stream server drops
+    // the consumer so it re-requests with the right one. An explicit H.264
+    // compatibility request still waits: the relay is chosen for the real
+    // source codec.
+    const hinted = allowCodecHint
+      ? this.toSourceCodec(this.streamServer.getVideoMetadata()?.videoCodec)
+      : undefined;
+    if (hinted) {
+      bootstrap.promise.catch((error) =>
+        this.logger.debug(`Metadata bootstrap ended without video: ${error}`),
+      );
+      this.logger.info(
+        `No live session for ${this.serialNumber} — waking camera, using last-known codec ${hinted}`,
+      );
+      return { codec: hinted, bootstrap };
+    }
+
     try {
       const metadata = await bootstrap.promise;
       const codec = this.toSourceCodec(metadata.videoCodec);
