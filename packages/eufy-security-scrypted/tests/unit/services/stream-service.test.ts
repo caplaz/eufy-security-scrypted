@@ -269,6 +269,7 @@ describe("StreamService", () => {
       mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
         false,
       );
+      mockStreamServer.getVideoMetadata.mockReturnValue(null); // no codec hint
       mockStreamServer.acquireMetadataWaiter.mockReturnValue({
         promise: new Promise((resolve) => {
           resolveMetadata = resolve;
@@ -294,6 +295,35 @@ describe("StreamService", () => {
       expect(release).not.toHaveBeenCalled();
       consumerAttached?.();
       expect(release).toHaveBeenCalledTimes(1);
+    });
+
+    it("wakes the camera as a new viewer without blocking when a codec hint exists", async () => {
+      const release = jest.fn();
+      mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
+        false,
+      );
+      mockStreamServer.getVideoMetadata.mockReturnValue(liveH265Metadata);
+      mockStreamServer.getMuxedPort.mockReturnValue(55555);
+      mockStreamServer.acquireMetadataWaiter.mockReturnValue({
+        promise: new Promise(() => undefined), // camera still waking
+        release,
+        cancel: release,
+      });
+
+      await service.getVideoStream(VideoQuality.HIGH, { id: "p2p" });
+
+      expect(mockStreamServer.acquireMetadataWaiter).toHaveBeenCalledWith(
+        expect.any(Number),
+        { viewer: true },
+      );
+      expect(sdk.mediaManager.createFFmpegMediaObject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mediaStreamOptions: expect.objectContaining({
+            video: expect.objectContaining({ codec: "h265" }),
+          }),
+        }),
+      );
+      expect(release).not.toHaveBeenCalled();
     });
 
     it("keeps a verified H265 native stream truthful when the consumer requests H264", async () => {
@@ -346,6 +376,85 @@ describe("StreamService", () => {
           }),
         }),
       );
+    });
+
+    describe("Force mode (p2p is always H.264)", () => {
+      const relayMock = () => ({
+        start: jest.fn().mockResolvedValue(undefined),
+        stop: jest.fn().mockResolvedValue(undefined),
+        getPort: jest.fn().mockReturnValue(45678),
+      });
+
+      it("transcodes Rebroadcast's explicit p2p request once the codec settles on H.265", async () => {
+        const relay = relayMock();
+        // The session opened as H.264; the settled codec decides.
+        mockStreamServer.getVideoMetadata.mockReturnValue({
+          ...liveH265Metadata,
+          videoCodec: "H264" as any,
+        });
+        mockStreamServer.waitForSettledCodec = jest
+          .fn()
+          .mockResolvedValue("H265");
+        mockStreamServer.getMuxedPort.mockReturnValue(55555);
+        service = new StreamService(
+          serialNumber,
+          mockStreamServer,
+          mockLogger,
+          {
+            compatibilityMode: () => "Force" as CompatibilityMode,
+            relayFactory: jest.fn().mockReturnValue(relay),
+          },
+        );
+
+        await service.getVideoStream(VideoQuality.HIGH, { id: "p2p" });
+
+        expect(mockStreamServer.waitForSettledCodec).toHaveBeenCalled();
+        expect(relay.start).toHaveBeenCalledTimes(1);
+        expect(sdk.mediaManager.createFFmpegMediaObject).toHaveBeenCalledWith(
+          expect.objectContaining({
+            inputArguments: expect.arrayContaining(["tcp://127.0.0.1:45678"]),
+          }),
+        );
+      });
+
+      it("passes H.264 through without the relay", async () => {
+        const relay = relayMock();
+        mockStreamServer.waitForSettledCodec = jest
+          .fn()
+          .mockResolvedValue("H264");
+        mockStreamServer.getMuxedPort.mockReturnValue(55555);
+        service = new StreamService(
+          serialNumber,
+          mockStreamServer,
+          mockLogger,
+          {
+            compatibilityMode: () => "Force" as CompatibilityMode,
+            relayFactory: jest.fn().mockReturnValue(relay),
+          },
+        );
+
+        await service.getVideoStream(VideoQuality.HIGH, { id: "p2p" });
+
+        expect(relay.start).not.toHaveBeenCalled();
+      });
+
+      it("advertises a single, stable H.264 p2p stream whatever the source codec", () => {
+        mockStreamServer.getVideoMetadata.mockReturnValue(liveH265Metadata);
+        service = new StreamService(
+          serialNumber,
+          mockStreamServer,
+          mockLogger,
+          { compatibilityMode: () => "Force" as CompatibilityMode },
+        );
+
+        const options = service.getVideoStreamOptions(VideoQuality.HIGH);
+
+        expect(options).toHaveLength(1);
+        expect(options[0]).toMatchObject({
+          id: "p2p",
+          video: expect.objectContaining({ codec: "h264" }),
+        });
+      });
     });
 
     it("registers bootstrap handoff before the relay attaches its muxed source", async () => {

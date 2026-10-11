@@ -94,6 +94,45 @@ describe("station-stream-coordinator", () => {
     expect(stationSlotHolder(ST)).toBe(A);
   });
 
+  it("tells the revoked holder which camera took the slot", () => {
+    const revokeA = jest.fn();
+    acquireStationSlot(ST, A, "live", revokeA, 0);
+    acquireStationSlot(ST, B, "live", () => {}, 9000);
+    expect(revokeA).toHaveBeenCalledWith(B);
+  });
+
+  describe("a camera whose recent starts delivered no video (failing)", () => {
+    it("can't take the slot from a working camera, even past its warm-up", () => {
+      const revokeA = jest.fn();
+      const leaseA = acquireStationSlot(ST, A, "live", revokeA, 0);
+      leaseA!.markDelivering();
+      const leaseB = acquireStationSlot(ST, B, "live", () => {}, 100000, {
+        failing: true,
+      });
+      expect(leaseB).toBeNull();
+      expect(revokeA).not.toHaveBeenCalled();
+      expect(stationSlotHolder(ST)).toBe(A);
+    });
+
+    it("still gets a free slot", () => {
+      const lease = acquireStationSlot(ST, B, "live", () => {}, 0, {
+        failing: true,
+      });
+      expect(lease).not.toBeNull();
+      expect(stationSlotHolder(ST)).toBe(B);
+    });
+
+    it("is not protected by the warm-up window when a working camera wants the slot", () => {
+      const revokeB = jest.fn();
+      acquireStationSlot(ST, B, "live", revokeB, 0, { failing: true });
+      // A real viewer taps a working camera a second later.
+      const leaseA = acquireStationSlot(ST, A, "live", () => {}, 1000);
+      expect(revokeB).toHaveBeenCalledWith(A);
+      expect(leaseA).not.toBeNull();
+      expect(stationSlotHolder(ST)).toBe(A);
+    });
+  });
+
   it("does not preempt or revoke when the same device re-acquires", () => {
     const revokeA = jest.fn();
     acquireStationSlot(ST, A, "live", revokeA);

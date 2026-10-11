@@ -1,5 +1,10 @@
-import { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import {
+  ChildProcessWithoutNullStreams,
+  execFile,
+  spawn,
+} from "node:child_process";
 import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
 import * as net from "node:net";
 import {
   Fmp4BoxStream,
@@ -16,6 +21,167 @@ const MAX_QUEUED_FRAGMENTS = 2;
 const MAX_QUEUED_BYTES = 1024 * 1024;
 const DEFAULT_CHILD_EXIT_TIMEOUT_MS = 2_000;
 const defaultCompatibilityEncoderPool = new CompatibilityEncoderPool();
+const DEFAULT_VAAPI_DEVICE = "/dev/dri/renderD128";
+const VAAPI_PROBE_TIMEOUT_MS = 5_000;
+
+/**
+ * Output size of the compatibility stream. HomeKit asks for at most 1280x720
+ * and the S330 alternates between 4K and 640x360 mid-session; a fixed size
+ * keeps the encoder (and the fMP4 init segment) valid across those changes.
+ */
+const RELAY_OUTPUT_SIZE = "1280:720";
+
+export type RelayVideoEncoder = "vaapi" | "libx264";
+
+/**
+ * FFmpeg arguments for the relay. Decoding stays in software and
+ * `-reinit_filter 0` keeps the filter graph (and the VAAPI frame pool) alive
+ * when the camera changes resolution mid-stream; `scale` adapts per frame.
+ * A VAAPI decode or a reinitialised graph drops every frame after the first
+ * resolution change (verified on S330 captures).
+ */
+export function buildRelayFfmpegArgs(
+  encoder: RelayVideoEncoder,
+  vaapiDevice = DEFAULT_VAAPI_DEVICE,
+): string[] {
+  const hwInit =
+    encoder === "vaapi"
+      ? [
+          "-init_hw_device",
+          `vaapi=va:${vaapiDevice}`,
+          "-filter_hw_device",
+          "va",
+        ]
+      : [];
+  const video =
+    encoder === "vaapi"
+      ? [
+          "-vf",
+          `scale=${RELAY_OUTPUT_SIZE},format=nv12,hwupload`,
+          "-c:v",
+          "h264_vaapi",
+          "-b:v",
+          "1500k",
+          "-maxrate",
+          "2M",
+          "-bf",
+          "0",
+          "-g",
+          "30",
+        ]
+      : [
+          "-vf",
+          `scale=${RELAY_OUTPUT_SIZE}`,
+          "-c:v",
+          "libx264",
+          "-preset",
+          "ultrafast",
+          "-tune",
+          "zerolatency",
+          "-g",
+          "30",
+          "-keyint_min",
+          "30",
+          "-sc_threshold",
+          "0",
+        ];
+  return [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    ...hwInit,
+    // A persistent fMP4 pipe does not get an EOF to flush the MOV
+    // demuxer. Restrict probing/decoder reordering so complete moof
+    // fragments are processed as they arrive instead of on close.
+    "-threads",
+    "1",
+    "-blocksize",
+    "4096",
+    "-probesize",
+    "4096",
+    "-analyzeduration",
+    "0",
+    "-reinit_filter",
+    "0",
+    "-f",
+    "mp4",
+    "-i",
+    "pipe:0",
+    "-map",
+    "0:v:0",
+    "-map",
+    "0:a?",
+    ...video,
+    "-c:a",
+    "aac",
+    // Fragment each output frame and flush the AVIO layer: fMP4 output
+    // then reaches relay consumers while the upstream remains connected.
+    "-movflags",
+    "frag_every_frame+empty_moov+default_base_moof",
+    "-flush_packets",
+    "1",
+    "-f",
+    "mp4",
+    "pipe:1",
+  ];
+}
+
+/** libva picks i965 on Apollo Lake, whose H.264 encoder asserts; iHD works. */
+function relayEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    LIBVA_DRIVER_NAME: process.env.LIBVA_DRIVER_NAME ?? "iHD",
+  };
+}
+
+const vaapiProbes = new Map<string, Promise<boolean>>();
+
+/**
+ * Whether this FFmpeg can encode H.264 through VAAPI on `device`. Probed once
+ * per ffmpeg/device pair by encoding one tiny frame.
+ */
+export function probeVaapiEncoder(
+  ffmpegPath: string,
+  device = DEFAULT_VAAPI_DEVICE,
+): Promise<boolean> {
+  const key = `${ffmpegPath}|${device}`;
+  let probe = vaapiProbes.get(key);
+  if (!probe) {
+    probe = !existsSync(device)
+      ? Promise.resolve(false)
+      : new Promise<boolean>((resolve) => {
+          execFile(
+            ffmpegPath,
+            [
+              "-hide_banner",
+              "-loglevel",
+              "error",
+              "-init_hw_device",
+              `vaapi=va:${device}`,
+              "-filter_hw_device",
+              "va",
+              "-f",
+              "lavfi",
+              "-i",
+              "testsrc2=size=320x180:rate=15",
+              "-frames:v",
+              "2",
+              "-vf",
+              "format=nv12,hwupload",
+              "-c:v",
+              "h264_vaapi",
+              "-f",
+              "null",
+              "-",
+            ],
+            { timeout: VAAPI_PROBE_TIMEOUT_MS, env: relayEnv() },
+            (error) => resolve(!error),
+          );
+        });
+    vaapiProbes.set(key, probe);
+  }
+  return probe;
+}
 
 type Child = Pick<
   ChildProcessWithoutNullStreams,
@@ -29,8 +195,19 @@ export interface H264CompatibilityRelayOptions {
   cameraId?: string;
   name?: string;
   getMuxedPort?: () => number | undefined;
-  streamServer?: { getMuxedPort(): number | undefined };
+  streamServer?: {
+    getMuxedPort(): number | undefined;
+    /** Cold-start timing hook (see StreamServer.markTiming). */
+    markTiming?(stage: string, detail?: string): void;
+  };
   ffmpegPath?: string;
+  /**
+   * H.264 encoder: "auto" (default) uses VAAPI when the probe succeeds and
+   * falls back to libx264. An injected `createChildProcess` (tests) defaults
+   * to libx264 so no real probe runs.
+   */
+  videoEncoder?: "auto" | RelayVideoEncoder;
+  vaapiDevice?: string;
   pool?: CompatibilityEncoderPool;
   lingerMs?: number;
   /** Bounded wait before escalating a graceful FFmpeg shutdown to SIGKILL. */
@@ -172,7 +349,13 @@ export class H264CompatibilityRelay extends EventEmitter {
       });
       await this.listen(generation);
       this.ensureCurrent(generation);
-      this.spawnChild(generation);
+      const encoder = await this.resolveEncoder();
+      this.ensureCurrent(generation);
+      this.spawnChild(generation, encoder);
+      this.options.streamServer?.markTiming?.(
+        "relay-ffmpeg-spawned",
+        `encoder=${encoder}`,
+      );
       await this.connectSource(sourcePort, generation);
       this.ensureCurrent(generation);
       this.emit("started", generation);
@@ -244,59 +427,26 @@ export class H264CompatibilityRelay extends EventEmitter {
     this.ensureCurrent(generation);
   }
 
-  private spawnChild(generation: number): void {
+  private async resolveEncoder(): Promise<RelayVideoEncoder> {
+    const configured =
+      this.options.videoEncoder ??
+      (this.options.createChildProcess ? "libx264" : "auto");
+    if (configured !== "auto") return configured;
+    return (await probeVaapiEncoder(
+      this.options.ffmpegPath!,
+      this.options.vaapiDevice,
+    ))
+      ? "vaapi"
+      : "libx264";
+  }
+
+  private spawnChild(generation: number, encoder: RelayVideoEncoder): void {
     let child: Child;
     try {
       child = this.createChild(
         this.options.ffmpegPath!,
-        [
-          "-hide_banner",
-          "-loglevel",
-          "error",
-          // A persistent fMP4 pipe does not get an EOF to flush the MOV
-          // demuxer. Restrict probing/decoder reordering so complete moof
-          // fragments are processed as they arrive instead of on close.
-          "-threads",
-          "1",
-          "-blocksize",
-          "4096",
-          "-probesize",
-          "4096",
-          "-analyzeduration",
-          "0",
-          "-f",
-          "mp4",
-          "-i",
-          "pipe:0",
-          "-map",
-          "0:v:0",
-          "-map",
-          "0:a?",
-          "-c:v",
-          "libx264",
-          "-preset",
-          "ultrafast",
-          "-tune",
-          "zerolatency",
-          "-g",
-          "30",
-          "-keyint_min",
-          "30",
-          "-sc_threshold",
-          "0",
-          "-c:a",
-          "aac",
-          // Fragment each output frame and flush the AVIO layer: fMP4 output
-          // then reaches relay consumers while the upstream remains connected.
-          "-movflags",
-          "frag_every_frame+empty_moov+default_base_moof",
-          "-flush_packets",
-          "1",
-          "-f",
-          "mp4",
-          "pipe:1",
-        ],
-        { stdio: ["pipe", "pipe", "pipe"] },
+        buildRelayFfmpegArgs(encoder, this.options.vaapiDevice),
+        { stdio: ["pipe", "pipe", "pipe"], env: relayEnv() },
       );
     } catch (error) {
       throw new Error(
@@ -417,6 +567,10 @@ export class H264CompatibilityRelay extends EventEmitter {
     const trackId = findVideoTrackId(init);
     this.init = init;
     this.videoTrackId = trackId;
+    this.options.streamServer?.markTiming?.(
+      "relay-first-init",
+      `${init.length}B`,
+    );
     this.latestSyncFragment = undefined;
     for (const consumer of this.consumers.values()) this.send(consumer, init);
   }
@@ -425,6 +579,7 @@ export class H264CompatibilityRelay extends EventEmitter {
     if (!this.init || this.videoTrackId === undefined) return;
     if (moofFirstSampleIsSync(fragment, this.videoTrackId)) {
       this.latestSyncFragment = fragment;
+      this.options.streamServer?.markTiming?.("relay-first-sync-fragment");
     }
     this.broadcast(fragment);
   }

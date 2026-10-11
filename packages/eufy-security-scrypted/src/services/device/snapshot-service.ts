@@ -29,7 +29,38 @@ const PLACEHOLDER_JPEG = Buffer.from(
   "base64",
 );
 
+/** Thumbnails are shown at a few hundred pixels; never ship a 4K JPEG. */
+const SNAPSHOT_MAX_WIDTH = 640;
+const SNAPSHOT_JPEG_QUALITY = 3;
+/**
+ * Eufy sends a full 640x360 event frame and, for person events, a small
+ * crop of the face right after it; only full frames make a useful tile.
+ */
+const EVENT_PICTURE_MIN_WIDTH = 320;
+
+/** Width of a baseline/progressive JPEG from its SOF marker, if found. */
+export function jpegWidth(jpeg: Buffer): number | undefined {
+  let offset = 2;
+  while (offset + 9 < jpeg.length) {
+    if (jpeg[offset] !== 0xff) return undefined;
+    const marker = jpeg[offset + 1];
+    const length = jpeg.readUInt16BE(offset + 2);
+    if (marker >= 0xc0 && marker <= 0xc3) {
+      return jpeg.readUInt16BE(offset + 7);
+    }
+    offset += 2 + length;
+  }
+  return undefined;
+}
+
 export class SnapshotService {
+  /** JPEG of the newest keyframe, reused until a newer keyframe arrives. */
+  private jpegCache?: { source: Buffer; jpeg: Buffer; capturedAt: number };
+  /** Event thumbnail from the `picture` property (already a small JPEG). */
+  private eventPicture?: { jpeg: Buffer; receivedAt: number };
+  /** Keyframe that failed to decode; never retried. */
+  private failedSource?: Buffer;
+
   constructor(
     private serialNumber: string,
     private streamServer: IStreamServer,
@@ -50,85 +81,143 @@ export class SnapshotService {
   }
 
   /**
-   * Take a picture/snapshot from the camera
+   * Store the event thumbnail Eufy attaches to motion events (`picture`
+   * property). Served when it is newer than the cached keyframe.
+   */
+  setEventPicture(jpeg: Buffer): void {
+    if (jpeg.length < 4 || jpeg[0] !== 0xff || jpeg[1] !== 0xd8) return;
+    const width = jpegWidth(jpeg);
+    if (width !== undefined && width < EVENT_PICTURE_MIN_WIDTH) {
+      this.logger.info(
+        `🖼️ [snapshot] ignoring ${width}px event picture (crop, not a full frame)`,
+      );
+      return;
+    }
+    this.eventPicture = { jpeg, receivedAt: Date.now() };
+  }
+
+  /**
+   * Take a picture/snapshot from the camera.
    *
-   * Captures an H.264 keyframe from the camera stream and converts it to JPEG.
+   * Serves the newest of: the cached keyframe (converted once to a JPEG of
+   * at most SNAPSHOT_MAX_WIDTH) and the last motion-event thumbnail. Never
+   * throws for a missing or undecodable frame: a rejection makes Scrypted's
+   * Snapshot plugin fall back to the video stream, which wakes the camera.
    *
    * @param options - Snapshot options (timeout, etc.)
    * @returns MediaObject containing the JPEG image
    */
   async takePicture(options?: RequestPictureOptions): Promise<MediaObject> {
-    this.logger.info("📸 Taking snapshot from camera stream");
+    const startedAt = Date.now();
+    const requested = options?.picture
+      ? `${options.picture.width ?? "?"}x${options.picture.height ?? "?"}`
+      : "unspecified";
+    // Scrypted doesn't say who is asking; reason/periodic/bulk/id are the
+    // closest hints (the Home grid sends periodic bulk requests).
+    this.logger.info(
+      `📸 [snapshot] request id=${options?.id ?? "-"} reason=${options?.reason ?? "-"} ` +
+        `periodic=${options?.periodicRequest ?? false} bulk=${options?.bulkRequest ?? false} ` +
+        `size=${requested} timeout=${options?.timeout ?? "-"}`,
+    );
 
-    try {
-      // Thumbnails are served from cache ONLY — never wake the camera.
-      //
-      // A HomeBase serves just one camera P2P stream at a time. The Home-app
-      // "Cameras" grid fires a snapshot request for every camera at once; if
-      // each cache-miss woke its camera, they'd all stampede the single
-      // HomeBase slot and fail together (the wedge cascade). The cache is
-      // refreshed for free whenever the camera is genuinely awake — live
-      // view, motion/HKSV recording, or the serial background refresh — so
-      // thumbnails are "last seen", which is the correct, battery-friendly
-      // behavior for these cameras. `options` (incl. any timeout) is ignored
-      // on purpose: there is no on-demand wake here.
-      void options;
-      const cached = this.streamServer.getCachedKeyframe(
-        Number.POSITIVE_INFINITY,
+    // Thumbnails are served from cache ONLY — never wake the camera.
+    //
+    // A HomeBase serves just one camera P2P stream at a time. The Home-app
+    // "Cameras" grid fires a snapshot request for every camera at once; if
+    // each cache-miss woke its camera, they'd all stampede the single
+    // HomeBase slot and fail together (the wedge cascade). The cache is
+    // refreshed for free whenever the camera is genuinely awake — live
+    // view, motion/HKSV recording, or the serial background refresh — so
+    // thumbnails are "last seen", which is the correct, battery-friendly
+    // behavior for these cameras.
+    const cached = this.streamServer.getCachedKeyframe(
+      Number.POSITIVE_INFINITY,
+    );
+    let source = "placeholder";
+    let jpeg: Buffer = PLACEHOLDER_JPEG;
+    let ageMs: number | undefined;
+
+    if (cached) {
+      const keyframeJpeg = await this.keyframeJpeg(
+        cached.data,
+        cached.codec,
+        Date.now() - cached.ageMs,
       );
-      if (cached) {
-        this.logger.info(
-          `📸 Serving snapshot from cached keyframe: ${cached.data.length} bytes, ` +
-            `${Math.round(cached.ageMs / 1000)}s old, ${cached.codec} — no camera wake`,
-        );
-        return await this.toJpegMediaObject(cached.data, cached.codec);
+      if (keyframeJpeg) {
+        source = keyframeJpeg.converted
+          ? "keyframe (converted)"
+          : "keyframe (cached jpeg)";
+        jpeg = keyframeJpeg.jpeg;
+        ageMs = Date.now() - keyframeJpeg.capturedAt;
       }
-
-      // No frame cached yet (camera hasn't streamed this session — e.g. right
-      // after a plugin reload). Return a placeholder rather than throwing:
-      // throwing makes Scrypted's Snapshot plugin fall back to the video
-      // stream, which starts a livestream and re-creates the stampede. The
-      // real frame appears once the camera next streams (tap / motion / the
-      // serial background refresh).
-      this.logger.info(
-        "📸 No cached frame yet — serving placeholder (not waking camera for a thumbnail)",
-      );
-      return sdk.mediaManager.createMediaObject(
-        PLACEHOLDER_JPEG,
-        "image/jpeg",
-        {
-          sourceId: this.serialNumber,
-        },
-      );
-    } catch (error) {
-      this.logger.error(`Failed to capture snapshot: ${error}`);
-      throw error;
     }
+    const event = this.eventPicture;
+    if (
+      event &&
+      (ageMs === undefined || Date.now() - event.receivedAt < ageMs)
+    ) {
+      source = "event picture";
+      jpeg = event.jpeg;
+      ageMs = Date.now() - event.receivedAt;
+    }
+
+    this.logger.info(
+      `📸 [snapshot] served source=${source} ` +
+        `age=${ageMs === undefined ? "-" : `${Math.round(ageMs / 1000)}s`} ` +
+        `jpeg=${jpeg.length}B total=${Date.now() - startedAt}ms`,
+    );
+    return sdk.mediaManager.createMediaObject(jpeg, "image/jpeg", {
+      sourceId: this.serialNumber,
+    });
   }
 
   /**
-   * Convert a raw H.264/H.265 keyframe to a JPEG MediaObject.
-   *
-   * @param keyframe - Self-contained keyframe bitstream (parameter sets included)
-   * @param videoCodec - Codec of the keyframe ("H264" or "H265")
+   * JPEG for a keyframe: the cached one if this keyframe was already
+   * converted, a fresh conversion otherwise. A keyframe that fails to decode
+   * is remembered and the last good JPEG is returned instead.
    */
-  private async toJpegMediaObject(
+  private async keyframeJpeg(
     keyframe: Buffer,
-    videoCodec: string,
-  ): Promise<MediaObject> {
-    const jpegBuffer = await FFmpegUtils.convertH264ToJPEG(
-      keyframe,
-      2,
-      videoCodec,
-    );
-
-    this.logger.info(
-      `✅ Snapshot converted to JPEG: ${jpegBuffer.length} bytes`,
-    );
-
-    return sdk.mediaManager.createMediaObject(jpegBuffer, "image/jpeg", {
-      sourceId: this.serialNumber,
-    });
+    codec: string,
+    capturedAt: number,
+  ): Promise<{ jpeg: Buffer; capturedAt: number; converted: boolean } | null> {
+    const cache = this.jpegCache;
+    if (cache && cache.source === keyframe) {
+      return {
+        jpeg: cache.jpeg,
+        capturedAt: cache.capturedAt,
+        converted: false,
+      };
+    }
+    if (this.failedSource !== keyframe) {
+      const convertStartedAt = Date.now();
+      try {
+        const jpeg = await FFmpegUtils.convertH264ToJPEG(
+          keyframe,
+          SNAPSHOT_JPEG_QUALITY,
+          codec,
+          SNAPSHOT_MAX_WIDTH,
+        );
+        if (jpeg.length > 0) {
+          this.jpegCache = { source: keyframe, jpeg, capturedAt };
+          this.logger.info(
+            `✅ Snapshot converted to JPEG: ${keyframe.length}B ${codec} → ${jpeg.length}B ` +
+              `in ${Date.now() - convertStartedAt}ms`,
+          );
+          return { jpeg, capturedAt, converted: true };
+        }
+        throw new Error("empty JPEG");
+      } catch (error) {
+        this.failedSource = keyframe;
+        this.logger.warn(
+          `📸 Keyframe ${keyframe.length}B ${codec} does not decode (${error}) — ` +
+            `${cache ? "keeping the previous JPEG" : "no previous JPEG"}`,
+        );
+      }
+    }
+    return cache
+      ? { jpeg: cache.jpeg, capturedAt: cache.capturedAt, converted: false }
+      : null;
   }
 
   /**

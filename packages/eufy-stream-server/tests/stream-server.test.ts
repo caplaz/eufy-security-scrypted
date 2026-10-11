@@ -15,6 +15,25 @@ import {
   createTestHevcPFrameData,
   wait,
 } from "./test-utils";
+import { S330_HEVC } from "./fixtures/s330-hevc-nal-units";
+
+/**
+ * A keyframe access unit whose bytes match its codec: parameter sets + IRAP.
+ * The stream server identifies the codec from these bytes, so a frame
+ * labelled H265 must actually carry H.265 parameter sets.
+ */
+const keyframeAccessUnit = (codec: string): Buffer => {
+  const sc = Buffer.from([0x00, 0x00, 0x00, 0x01]);
+  const nals =
+    codec.toUpperCase() === "H265" || codec.toUpperCase() === "HEVC"
+      ? [S330_HEVC.vps, S330_HEVC.sps, S330_HEVC.pps, S330_HEVC.idrSlice]
+      : [
+          Buffer.from([0x67, 0x42, 0x00, 0x1e]), // SPS, Baseline
+          Buffer.from([0x68, 0xce, 0x3c, 0x80]), // PPS
+          Buffer.from([0x65, 0x88, 0x84, 0x00]), // IDR slice
+        ];
+  return Buffer.concat(nals.flatMap((nal) => [sc, nal]));
+};
 
 // Mock the eufy-security-client
 jest.mock("@caplaz/eufy-security-client", () => ({
@@ -1741,9 +1760,7 @@ describe("StreamServer", () => {
       );
       videoListener[1]({
         serialNumber: "TEST_DEVICE_123",
-        buffer: {
-          data: Buffer.from([0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1e]),
-        },
+        buffer: { data: keyframeAccessUnit(codec) },
         metadata: {
           videoCodec: codec,
           videoFPS: 15,
@@ -2064,15 +2081,13 @@ describe("StreamServer", () => {
         (call: any[]) => call[0] === "livestream video data",
       );
       const videoCallback = videoCall[1];
-      const startCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
-      const nal = Buffer.from([0x67, 0x42, 0x00, 0x1e]);
       // Keep the synthetic first frame after the connection handler has
       // established its metadata session, matching real P2P ordering.
       setTimeout(() => {
         (s as any).deliversAudio = true;
         videoCallback({
           serialNumber: "TEST_DEVICE_123",
-          buffer: { data: Buffer.concat([startCode, nal]) },
+          buffer: { data: keyframeAccessUnit(codec) },
           metadata: {
             videoCodec: codec,
             videoFPS: 30,
@@ -2171,54 +2186,6 @@ describe("StreamServer", () => {
       socket.destroy();
     });
 
-    it("rebuilds a stalled 'both' muxer as video-only so video still flows", async () => {
-      await server.start();
-      // Make the fallback fire fast; the mocked muxer never emits any fMP4.
-      (server as any).BOTH_TO_VIDEO_FALLBACK_MS = 80;
-
-      const muxedPort = server.getMuxedPort()!;
-      const socket = net.createConnection({
-        port: muxedPort,
-        host: "127.0.0.1",
-      });
-      await new Promise((resolve) => socket.on("connect", resolve));
-      // seedVideoMetadata sets deliversAudio=true → muxer built in "both" mode.
-      seedVideoMetadata(server, "H265");
-      await wait(50);
-
-      const JMuxerMock = require("jmuxer").default;
-      const callsBefore = JMuxerMock.mock.calls.length;
-      expect(JMuxerMock.mock.calls[callsBefore - 1][0].mode).toBe("both");
-
-      // No fMP4 within the window → muxer is rebuilt video-only, same client.
-      await wait(140);
-
-      expect(JMuxerMock.mock.calls.length).toBeGreaterThan(callsBefore);
-      expect(
-        JMuxerMock.mock.calls[JMuxerMock.mock.calls.length - 1][0].mode,
-      ).toBe("video");
-      expect((server as any).muxerStreams.size).toBe(1);
-
-      socket.destroy();
-    });
-
-    it("muxes in 'both' mode when the device delivers audio", async () => {
-      await server.start();
-      const socket = net.createConnection({
-        port: server.getMuxedPort()!,
-        host: "127.0.0.1",
-      });
-      await new Promise((resolve) => socket.on("connect", resolve));
-      seedVideoMetadata(server, "H265"); // helper marks deliversAudio = true
-      await wait(50);
-
-      const JMuxerMock = require("jmuxer").default;
-      const lastCall =
-        JMuxerMock.mock.calls[JMuxerMock.mock.calls.length - 1][0];
-      expect(lastCall.mode).toBe("both");
-      socket.destroy();
-    });
-
     it("muxes in 'video' mode for a video-only (mic-off) camera", async () => {
       await server.start();
       const socket = net.createConnection({
@@ -2242,9 +2209,7 @@ describe("StreamServer", () => {
       (server as any).deliversAudio = false;
       videoCallback({
         serialNumber: "TEST_DEVICE_123",
-        buffer: {
-          data: Buffer.from([0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1e]),
-        },
+        buffer: { data: keyframeAccessUnit("H265") },
         metadata: {
           videoCodec: "H265",
           videoFPS: 15,
@@ -2494,6 +2459,657 @@ describe("StreamServer", () => {
 
       expect(deviceApi.stopLivestream).toHaveBeenCalled();
       socket.destroy();
+    });
+  });
+
+  describe("battery-camera cold start and session changes (muxer)", () => {
+    const ADTS = Buffer.from([0xff, 0xf1, 0x50, 0x80, 0x00, 0x1f, 0xfc]);
+
+    const lastListener = (event: string) => {
+      const calls = mockWsClient.addEventListener.mock.calls.filter(
+        (call: any[]) => call[0] === event,
+      );
+      return calls[calls.length - 1][1] as (e: any) => void;
+    };
+    const fireVideo = (codec: "H264" | "H265" = "H264") =>
+      lastListener("livestream video data")({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: { data: keyframeAccessUnit(codec) },
+        metadata: {
+          videoCodec: codec,
+          videoFPS: 15,
+          videoWidth: 2560,
+          videoHeight: 1440,
+        },
+      });
+    const fireAudio = (count = 1) => {
+      for (let i = 0; i < count; i++) {
+        lastListener("livestream audio data")({
+          serialNumber: "TEST_DEVICE_123",
+          buffer: { data: ADTS },
+          metadata: { audioCodec: "AAC" },
+        });
+      }
+    };
+    const jmuxer = () => require("jmuxer").default;
+    const lastCall = () => {
+      const calls = jmuxer().mock.calls;
+      return calls[calls.length - 1][0];
+    };
+    /** Make the newest mocked JMuxer emit fMP4, as a real one would. */
+    const emitFmp4 = () => {
+      const results = jmuxer().mock.results;
+      const instance = results[results.length - 1].value;
+      const duplex = instance.createStream.mock.results[0].value;
+      duplex.push(Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74]));
+    };
+    const connectMuxed = async (s: StreamServer) => {
+      const socket = net.createConnection({
+        port: s.getMuxedPort()!,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      socket.resume(); // drain like ffmpeg does, so a server close surfaces
+      return socket;
+    };
+    const closed = (socket: net.Socket) =>
+      new Promise((resolve) => socket.once("close", resolve));
+    const tune = (s: StreamServer) => {
+      (s as any).BOTH_TO_VIDEO_FALLBACK_MS = 80;
+      (s as any).AUDIO_DETECT_WINDOW_MS = 60;
+      (s as any).AUDIO_RECONNECT_SETTLE_MS = 30;
+    };
+
+    /**
+     * A server whose HomeBase slot is granted only when the test says so,
+     * reproducing the cold-start order where the muxer client attaches
+     * before the P2P session (and `beginMetadataSession`) begins.
+     */
+    const createSlotGatedServer = () => {
+      let grantSlot: () => void = () => undefined;
+      const whenReady = new Promise<void>((resolve) => (grantSlot = resolve));
+      const revokers: Array<() => void> = [];
+      const acquireStreamSlot = jest
+        .fn()
+        .mockImplementation((_priority: string, onRevoke: () => void) => {
+          revokers.push(onRevoke);
+          return {
+            active: true,
+            whenReady,
+            markDelivering: jest.fn(),
+            release: jest.fn(),
+          };
+        });
+      const s = new StreamServer({
+        port: testPort + 2,
+        host: "127.0.0.1",
+        wsClient: mockWsClient,
+        serialNumber: "TEST_DEVICE_123",
+        acquireStreamSlot,
+      });
+      tune(s);
+      return {
+        s,
+        acquireStreamSlot,
+        grantSlot: () => grantSlot(),
+        revoke: () => revokers[revokers.length - 1](),
+      };
+    };
+
+    /** A previous P2P session delivered video + AAC, then stopped. */
+    const runPreviousSession = (s: StreamServer) => {
+      (s as any).beginMetadataSession();
+      fireVideo();
+      fireAudio();
+      expect(s.getAudioStatus()).toBe("aac");
+      (s as any).setLivestreamActual(false);
+      (s as any).livestreamSessionStartedAt = 0;
+    };
+
+    /**
+     * Start a session through a first viewer that delivers video and audio
+     * and is emitting fMP4, so the next muxer client attaches warm.
+     */
+    const startWarmSession = async (codec: "H264" | "H265" = "H264") => {
+      await server.start();
+      tune(server);
+      const opener = await connectMuxed(server);
+      await wait(20);
+      fireVideo(codec);
+      fireAudio();
+      await wait(20);
+      emitFmp4(); // opener is live; it must not fall back during the test
+      await wait(10);
+      return opener;
+    };
+
+    // Report the upstream as streaming once started, like bropat does, so a
+    // reconnecting consumer joins the running P2P session.
+    beforeEach(() => {
+      const api = mockWsClient.commands.device();
+      api.isLivestreaming = jest.fn().mockImplementation(async () => ({
+        livestreaming:
+          api.startLivestream.mock.calls.length >
+          api.stopLivestream.mock.calls.length,
+      }));
+    });
+
+    let gated: StreamServer | undefined;
+    afterEach(async () => {
+      if (gated?.isRunning()) await gated.stop();
+      gated = undefined;
+    });
+
+    describe("cold start", () => {
+      it("waits for the new session's first video frame, then muxes 'both' when audio arrives", async () => {
+        const { s, grantSlot } = createSlotGatedServer();
+        gated = s;
+        await s.start();
+        runPreviousSession(s);
+        const callsBefore = jmuxer().mock.calls.length;
+
+        const socket = await connectMuxed(s);
+        // Camera still waking: the previous session must not build a muxer.
+        await wait(150);
+        expect(jmuxer().mock.calls.length).toBe(callsBefore);
+        expect((s as any).pendingMuxerSockets.size).toBe(1);
+
+        grantSlot();
+        await wait(20);
+        expect(
+          mockWsClient.commands.device().startLivestream,
+        ).toHaveBeenCalled();
+        expect(s.getAudioStatus()).toBe("unknown");
+        expect(jmuxer().mock.calls.length).toBe(callsBefore);
+
+        fireVideo();
+        fireAudio();
+        await wait(30);
+        expect(jmuxer().mock.calls.length).toBe(callsBefore + 1);
+        expect(lastCall().mode).toBe("both");
+        socket.destroy();
+      });
+
+      it("muxes video-only when no audio arrives within the detect window", async () => {
+        await server.start();
+        tune(server);
+        const callsBefore = jmuxer().mock.calls.length;
+        const socket = await connectMuxed(server);
+        await wait(20);
+        fireVideo();
+        await wait(100); // > AUDIO_DETECT_WINDOW_MS
+        expect(jmuxer().mock.calls.length).toBe(callsBefore + 1);
+        expect(lastCall().mode).toBe("video");
+        socket.destroy();
+      });
+
+      it("rebuilds as 'both' in place when audio arrives before the first fMP4", async () => {
+        await server.start();
+        tune(server);
+        const socket = await connectMuxed(server);
+        await wait(20);
+        fireVideo();
+        await wait(100);
+        expect(lastCall().mode).toBe("video");
+        const calls = jmuxer().mock.calls.length;
+
+        fireAudio(5);
+        expect(jmuxer().mock.calls.length).toBe(calls + 1);
+        expect(lastCall().mode).toBe("both");
+        expect(socket.destroyed).toBe(false);
+        socket.destroy();
+      });
+
+      it("never closes a video-only socket for audio once fMP4 has started", async () => {
+        await server.start();
+        tune(server);
+        const socket = await connectMuxed(server);
+        let socketClosed = false;
+        socket.on("close", () => (socketClosed = true));
+        await wait(20);
+        fireVideo();
+        await wait(100);
+        expect(lastCall().mode).toBe("video");
+        emitFmp4();
+        await wait(10);
+        const calls = jmuxer().mock.calls.length;
+
+        fireAudio(10);
+        await wait(100);
+        expect(jmuxer().mock.calls.length).toBe(calls);
+        expect(socketClosed).toBe(false);
+        socket.destroy();
+      });
+
+      it("keeps a mic-off camera video-only for the whole session", async () => {
+        await server.start();
+        tune(server);
+        const callsBefore = jmuxer().mock.calls.length;
+        const socket = await connectMuxed(server);
+        await wait(20);
+        fireVideo();
+        await wait(100);
+        expect(jmuxer().mock.calls.length).toBe(callsBefore + 1);
+        expect(lastCall().mode).toBe("video");
+        emitFmp4();
+
+        for (let i = 0; i < 5; i++) fireVideo();
+        await wait(120);
+        expect(jmuxer().mock.calls.length).toBe(callsBefore + 1);
+        expect(socket.destroyed).toBe(false);
+        socket.destroy();
+      });
+    });
+
+    describe("after a plugin restart and with a busy HomeBase", () => {
+      it("rebuilds a muxer built from the persisted codec hint once the session's codec is known", async () => {
+        const s = new StreamServer({
+          port: testPort + 3,
+          host: "127.0.0.1",
+          wsClient: mockWsClient,
+          serialNumber: "TEST_DEVICE_123",
+          initialVideoCodec: "H265",
+        });
+        gated = s;
+        tune(s);
+        (s as any).MUXER_METADATA_TIMEOUT_MS = 50;
+        await s.start();
+        const callsBefore = jmuxer().mock.calls.length;
+        const socket = await connectMuxed(s);
+        await wait(150); // metadata wait times out → hinted H265, video-only
+        expect(jmuxer().mock.calls.length).toBe(callsBefore + 1);
+        expect(lastCall().videoCodec).toBe("H265");
+
+        fireVideo("H264"); // the session turns out to be H.264
+        expect(jmuxer().mock.calls.length).toBe(callsBefore + 2);
+        expect(lastCall().videoCodec).toBe("H264");
+        expect(socket.destroyed).toBe(false);
+        socket.destroy();
+      });
+
+      it("retries a denied live slot while a consumer waits", async () => {
+        let grants = 0;
+        const acquireStreamSlot = jest.fn().mockImplementation(() =>
+          grants++ === 0
+            ? null // another camera is in its warm-up window
+            : {
+                active: true,
+                whenReady: Promise.resolve(),
+                markDelivering: jest.fn(),
+                release: jest.fn(),
+              },
+        );
+        const s = new StreamServer({
+          port: testPort + 4,
+          host: "127.0.0.1",
+          wsClient: mockWsClient,
+          serialNumber: "TEST_DEVICE_123",
+          acquireStreamSlot,
+        });
+        gated = s;
+        tune(s);
+        (s as any).SLOT_BUSY_RETRY_MS = 50;
+        await s.start();
+        const socket = await connectMuxed(s);
+        await wait(20);
+        expect(acquireStreamSlot).toHaveBeenCalledTimes(1);
+        expect(
+          mockWsClient.commands.device().startLivestream,
+        ).not.toHaveBeenCalled();
+
+        await wait(100);
+        expect(acquireStreamSlot).toHaveBeenCalledTimes(2);
+        expect(
+          mockWsClient.commands.device().startLivestream,
+        ).toHaveBeenCalledTimes(1);
+        socket.destroy();
+      });
+
+      it("stops retrying once no consumer is waiting", async () => {
+        const acquireStreamSlot = jest.fn().mockReturnValue(null);
+        const s = new StreamServer({
+          port: testPort + 5,
+          host: "127.0.0.1",
+          wsClient: mockWsClient,
+          serialNumber: "TEST_DEVICE_123",
+          acquireStreamSlot,
+        });
+        gated = s;
+        (s as any).SLOT_BUSY_RETRY_MS = 50;
+        await s.start();
+        const socket = await connectMuxed(s);
+        await wait(20);
+        socket.destroy();
+        await wait(200);
+        expect(acquireStreamSlot).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe("warm attach", () => {
+      it("muxes 'both' and starts the fallback clock at the first video frame, not at attach", async () => {
+        const opener = await startWarmSession();
+        const socket = await connectMuxed(server);
+        await wait(30);
+        expect(lastCall().mode).toBe("both");
+        const callsAtBuild = jmuxer().mock.calls.length;
+
+        await wait(150); // no video fed yet → no fallback, however long
+        expect(jmuxer().mock.calls.length).toBe(callsAtBuild);
+
+        fireVideo(); // window opens
+        await wait(40);
+        emitFmp4(); // inside the window
+        await wait(120);
+        expect(jmuxer().mock.calls.length).toBe(callsAtBuild);
+        socket.destroy();
+        opener.destroy();
+      });
+
+      it("falls back to video-only, restores 'both' once audio proves continuous, and never flaps", async () => {
+        const opener = await startWarmSession();
+        const socket = await connectMuxed(server);
+        await wait(30);
+        expect(lastCall().mode).toBe("both");
+
+        fireVideo();
+        await wait(120); // no fMP4 → fallback
+        expect(lastCall().mode).toBe("video");
+        const callsAfterFallback = jmuxer().mock.calls.length;
+
+        fireAudio(4); // 5th ADTS frame in this session
+        expect(jmuxer().mock.calls.length).toBe(callsAfterFallback + 1);
+        expect(lastCall().mode).toBe("both");
+
+        fireVideo();
+        await wait(120);
+        expect(lastCall().mode).toBe("video");
+        fireAudio(10);
+        expect(lastCall().mode).toBe("video");
+        expect(socket.destroyed).toBe(false);
+        socket.destroy();
+        opener.destroy();
+      });
+    });
+
+    describe("GOP replay into a new muxer", () => {
+      const newestMuxer = () => {
+        const results = jmuxer().mock.results;
+        return results[results.length - 1].value;
+      };
+
+      it("feeds a muxer built right after a keyframe the current GOP", async () => {
+        const opener = await startWarmSession();
+        const callsBefore = jmuxer().mock.calls.length;
+        const socket = await connectMuxed(server);
+        await wait(30);
+        expect(jmuxer().mock.calls.length).toBe(callsBefore + 1);
+        // No live frame since attach, yet the new muxer already has the
+        // session's keyframe and can emit without waiting a whole GOP.
+        expect(newestMuxer().feed).toHaveBeenCalledWith({
+          video: keyframeAccessUnit("H264"),
+        });
+        socket.destroy();
+        opener.destroy();
+      });
+
+      it("does not replay a GOP older than the replay window", async () => {
+        const opener = await startWarmSession();
+        (server as any).GOP_REPLAY_MAX_AGE_MS = -1;
+        const socket = await connectMuxed(server);
+        await wait(30);
+        expect(newestMuxer().feed).not.toHaveBeenCalledWith(
+          expect.objectContaining({ video: expect.anything() }),
+        );
+        socket.destroy();
+        opener.destroy();
+      });
+    });
+
+    describe("waitForSettledCodec", () => {
+      it("waits for the second keyframe and reports the codec the camera switched to", async () => {
+        await server.start();
+        (server as any).CODEC_SETTLE_MS = 60_000;
+        (server as any).beginMetadataSession();
+        fireVideo("H265");
+        let settled: string | undefined | null = null;
+        const waiting = server
+          .waitForSettledCodec(2_000)
+          .then((codec) => (settled = codec));
+        await wait(150);
+        expect(settled).toBeNull(); // one keyframe: not settled yet
+        fireVideo("H264"); // the S330 switches at its next keyframe
+        await waiting;
+        expect(settled).toBe("H264");
+      });
+
+      it("settles on time after the first frame when no second keyframe comes", async () => {
+        await server.start();
+        (server as any).CODEC_SETTLE_MS = 50;
+        (server as any).beginMetadataSession();
+        fireVideo("H265");
+        await expect(server.waitForSettledCodec(2_000)).resolves.toBe("H265");
+      });
+
+      it("resolves undefined when the session never delivers video", async () => {
+        await server.start();
+        (server as any).beginMetadataSession();
+        await expect(server.waitForSettledCodec(150)).resolves.toBeUndefined();
+      });
+    });
+
+    describe("stale session after a HomeBase slot revoke", () => {
+      it("stops trusting the session and lets a new viewer re-take the slot", async () => {
+        const { s, acquireStreamSlot, grantSlot, revoke } =
+          createSlotGatedServer();
+        gated = s;
+        await s.start();
+        grantSlot();
+        const socket = await connectMuxed(s);
+        await wait(20);
+        fireVideo();
+        await wait(20);
+        expect(s.isMetadataVerifiedForCurrentSession()).toBe(true);
+        const api = mockWsClient.commands.device();
+        const startsBefore = api.startLivestream.mock.calls.length;
+
+        revoke();
+        await wait(30);
+        expect(s.isMetadataVerifiedForCurrentSession()).toBe(false);
+        expect(api.stopLivestream).toHaveBeenCalled();
+
+        // A frame trailing the revoked session must not re-verify it.
+        fireVideo();
+        expect(s.isMetadataVerifiedForCurrentSession()).toBe(false);
+
+        // Rebroadcast reconnecting is not a new viewer: stay yielded.
+        const reconnect = await connectMuxed(s);
+        await wait(30);
+        expect(api.startLivestream.mock.calls.length).toBe(startsBefore);
+
+        // A getVideoStream bootstrap is: it re-takes the slot and restarts.
+        const slotsBefore = acquireStreamSlot.mock.calls.length;
+        const viewer = s.acquireMetadataWaiter(5000, { viewer: true });
+        await wait(30);
+        expect(acquireStreamSlot.mock.calls.length).toBe(slotsBefore + 1);
+        expect(api.startLivestream.mock.calls.length).toBe(startsBefore + 1);
+
+        fireVideo();
+        await expect(viewer.promise).resolves.toEqual(
+          expect.objectContaining({ videoCodec: "H264" }),
+        );
+        expect(s.isMetadataVerifiedForCurrentSession()).toBe(true);
+        viewer.release();
+        reconnect.destroy();
+        socket.destroy();
+      });
+
+      it("stops trusting the session when the livestream stops", () => {
+        (server as any).beginMetadataSession();
+        fireVideo();
+        expect(server.isMetadataVerifiedForCurrentSession()).toBe(true);
+        (server as any).setLivestreamActual(false);
+        expect(server.isMetadataVerifiedForCurrentSession()).toBe(false);
+        // The codec stays available as a hint for the next request.
+        expect(server.getVideoMetadata()?.videoCodec).toBe("H264");
+      });
+    });
+
+    describe("codec label vs bitstream", () => {
+      const sc = Buffer.from([0x00, 0x00, 0x00, 0x01]);
+      const h264PSlice = Buffer.concat([sc, Buffer.from([0x21, 0x9a, 0x02])]);
+      const fireFrame = (data: Buffer, label: "H264" | "H265") =>
+        lastListener("livestream video data")({
+          serialNumber: "TEST_DEVICE_123",
+          buffer: { data },
+          metadata: {
+            videoCodec: label,
+            videoFPS: 15,
+            videoWidth: 3840,
+            videoHeight: 2160,
+          },
+        });
+
+      it("trusts H.264 parameter sets over an H265 label and muxes H.264", async () => {
+        await server.start();
+        tune(server);
+        const socket = await connectMuxed(server);
+        await wait(20);
+        fireFrame(keyframeAccessUnit("H264"), "H265");
+        await wait(100);
+
+        expect(server.getVideoMetadata()?.videoCodec).toBe("H264");
+        expect(lastCall().videoCodec).toBe("H264");
+        socket.destroy();
+      });
+
+      it("re-emits metadataReceived with the codec settled by the bitstream", () => {
+        const seen: string[] = [];
+        server.on("metadataReceived", (m) => seen.push(m.videoCodec));
+        (server as any).beginMetadataSession();
+        fireFrame(h264PSlice, "H265"); // label only, no parameter sets yet
+        fireFrame(keyframeAccessUnit("H264"), "H265");
+        expect(seen).toEqual(["H265", "H264"]);
+      });
+
+      it("waits for parameter sets before building the muxer, then corrects the label", async () => {
+        await server.start();
+        tune(server);
+        const callsBefore = jmuxer().mock.calls.length;
+        const socket = await connectMuxed(server);
+        await wait(20);
+
+        // Session opens mid-GOP: slices only, labelled H265 (wrongly).
+        fireFrame(h264PSlice, "H265");
+        fireFrame(h264PSlice, "H265");
+        await wait(50);
+        expect(server.getVideoMetadata()?.videoCodec).toBe("H265");
+        expect(jmuxer().mock.calls.length).toBe(callsBefore);
+
+        fireFrame(keyframeAccessUnit("H264"), "H265");
+        await wait(100); // + AUDIO_DETECT_WINDOW_MS (no audio in this session)
+        expect(server.getVideoMetadata()?.videoCodec).toBe("H264");
+        expect(jmuxer().mock.calls.length).toBe(callsBefore + 1);
+        expect(lastCall().videoCodec).toBe("H264");
+        socket.destroy();
+      });
+    });
+
+    describe("snapshot keyframe cache", () => {
+      const sc = Buffer.from([0x00, 0x00, 0x00, 0x01]);
+      const nalsOf = (...nals: Buffer[]) =>
+        Buffer.concat(nals.flatMap((nal) => [sc, nal]));
+      const label = (codec: "H264" | "H265") => {
+        (server as any).videoMetadata = {
+          videoCodec: codec,
+          videoFPS: 15,
+          videoWidth: 3840,
+          videoHeight: 2160,
+        };
+      };
+
+      it("does not cache a P-frame or an IDR without its parameter sets", async () => {
+        label("H265");
+        await server.streamVideo(nalsOf(S330_HEVC.trailSlice));
+        await server.streamVideo(nalsOf(S330_HEVC.idrSlice));
+        expect(server.getCachedKeyframe(60000)).toBeNull();
+      });
+
+      it("caches a self-contained H.265 keyframe, prepending cached parameter sets", async () => {
+        label("H265");
+        await server.streamVideo(
+          nalsOf(S330_HEVC.vps, S330_HEVC.sps, S330_HEVC.pps),
+        );
+        await server.streamVideo(nalsOf(S330_HEVC.idrSlice));
+        const cached = server.getCachedKeyframe(60000);
+        expect(cached?.codec).toBe("H265");
+        expect(cached?.data).toEqual(
+          nalsOf(
+            S330_HEVC.vps,
+            S330_HEVC.sps,
+            S330_HEVC.pps,
+            S330_HEVC.idrSlice,
+          ),
+        );
+      });
+
+      it("never pairs an H.265 keyframe with H.264 parameter sets", async () => {
+        label("H264");
+        await server.streamVideo(
+          nalsOf(
+            Buffer.from([0x67, 0x42, 0x00, 0x1e]),
+            Buffer.from([0x68, 0xce, 0x3c, 0x80]),
+          ),
+        );
+        label("H265");
+        await server.streamVideo(nalsOf(S330_HEVC.idrSlice));
+        expect(server.getCachedKeyframe(60000)).toBeNull();
+      });
+    });
+
+    describe("codec change between sessions (H.265 → H.264)", () => {
+      it("rebuilds a muxer that hasn't emitted with the new codec, including the both→video fallback", async () => {
+        const opener = await startWarmSession("H265");
+        const socket = await connectMuxed(server);
+        await wait(30);
+        expect(lastCall()).toEqual(
+          expect.objectContaining({ mode: "both", videoCodec: "H265" }),
+        );
+
+        (server as any).beginMetadataSession(); // wedge recycle → new session
+        fireVideo("H264");
+        expect(lastCall()).toEqual(
+          expect.objectContaining({ mode: "both", videoCodec: "H264" }),
+        );
+        expect((server as any).cachedVPS).toBeNull();
+
+        await wait(120); // still no fMP4 → fallback uses the current codec
+        expect(lastCall()).toEqual(
+          expect.objectContaining({ mode: "video", videoCodec: "H264" }),
+        );
+        socket.destroy();
+        opener.destroy();
+      });
+
+      it("disconnects consumers that already received old-codec fMP4 or raw bytes", async () => {
+        const opener = await startWarmSession("H265");
+        const socket = await connectMuxed(server);
+        const socketClosed = closed(socket);
+        await wait(30);
+        emitFmp4();
+        await wait(10);
+
+        const raw = net.createConnection({ port: testPort, host: "127.0.0.1" });
+        await new Promise((resolve) => raw.on("connect", resolve));
+        raw.resume();
+        const rawClosed = closed(raw);
+        await wait(20);
+
+        (server as any).beginMetadataSession();
+        fireVideo("H264");
+        await Promise.all([socketClosed, rawClosed]);
+        expect((server as any).hintedVideoCodec).toBe("H264");
+        opener.destroy();
+      });
     });
   });
 });

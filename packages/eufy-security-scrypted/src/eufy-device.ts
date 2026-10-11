@@ -178,7 +178,20 @@ export class EufyDevice
   // we report no signal), suppress recycles until `recycleSuppressedUntil`.
   // Reset when video actually flows (livestreamActive).
   private consecutiveFailedRecycles = 0;
+  /** Source codec the current stream options were last announced with. */
+  private announcedVideoCodec?: string;
   private recycleSuppressedUntil = 0;
+
+  // Consecutive starts that delivered no video (upstream wedges), reset when
+  // video flows. At FAILING_NO_DATA_STARTS this camera is "failing": it may
+  // use a free HomeBase slot but can't take it from a working camera, so an
+  // offline camera that keeps being re-requested stops kicking live viewers
+  // off the shared HomeBase. Expires after FAILING_WINDOW_MS without a new
+  // failure, giving the camera a fresh chance.
+  private noDataStarts = 0;
+  private lastNoDataAt = 0;
+  private readonly FAILING_NO_DATA_STARTS = 2;
+  private readonly FAILING_WINDOW_MS = 30 * 60 * 1000;
 
   // Background thumbnail refresh bookkeeping. A timer periodically wakes this
   // camera (at background priority, gated by the station coordinator) to keep
@@ -269,6 +282,7 @@ export class EufyDevice
       DEVICE_EVENTS.LIVESTREAM_STARTED,
       () => {
         this.logger.info("Stream started");
+        this.streamServer?.markTiming?.("livestream-started-event");
       },
       {
         serialNumber: this.info?.serialNumber,
@@ -442,6 +456,29 @@ export class EufyDevice
     name,
     value,
   }: DevicePropertyChangedEventPayload) {
+    if (name === "picture") {
+      // Diagnostics for event thumbnails (candidate snapshot source): what
+      // arrives, how big, and when relative to the cached keyframe.
+      const picture = value as
+        | { data?: { data?: number[] } | Buffer; type?: { mime?: string } }
+        | undefined;
+      const data = picture?.data;
+      const jpeg = Buffer.isBuffer(data)
+        ? data
+        : data?.data
+          ? Buffer.from(data.data)
+          : undefined;
+      const bytes = jpeg?.length ?? 0;
+      if (jpeg) this.snapshotService?.setEventPicture(jpeg);
+      const cached = this.streamServer?.getCachedKeyframe(
+        Number.POSITIVE_INFINITY,
+      );
+      this.logger.info(
+        `🖼️ [snapshot] picture property changed: ${bytes}B ${picture?.type?.mime ?? typeof value}, ` +
+          `cached keyframe age=${cached ? `${Math.round(cached.ageMs / 1000)}s` : "none"}`,
+      );
+    }
+
     // Update cached properties
     this.latestProperties = this.latestProperties && {
       ...this.latestProperties,
@@ -510,10 +547,12 @@ export class EufyDevice
       title: "H.264 Compatibility Mode",
       description:
         "Auto uses the H.264 relay only for a live, verified H.265 source " +
-        "when a compatibility stream is requested. Force requires that relay " +
-        "for verified H.265 sources; Native always keeps the camera's native " +
-        "codec. The relay consumes host CPU and can increase prebuffer startup " +
-        "time, so Auto is the recommended default.",
+        "when a compatibility stream is requested. Force makes the main P2P " +
+        "stream always H.264 (HomeKit needs this for cameras that switch to " +
+        "H.265): H.264 from the camera passes through, H.265 is transcoded " +
+        "to 1280x720 (hardware VAAPI when available, otherwise host CPU). " +
+        "Transcoding can add a second to prebuffer startup. Native always " +
+        "keeps the camera's native codec.",
       value: this.getCompatibilityMode(),
       choices: COMPATIBILITY_MODE_CHOICES,
       group: "Streaming",
@@ -972,6 +1011,9 @@ export class EufyDevice
         `🎬 Using stored codec hint for stream server: ${initialVideoCodec}`,
       );
     }
+    // Scrypted read stream options built from this hint when the device
+    // loaded, so it counts as already announced.
+    this.announcedVideoCodec = initialVideoCodec ?? undefined;
 
     this.streamServer = new StreamServer({
       port: 0, // Let the system assign a free port
@@ -983,13 +1025,23 @@ export class EufyDevice
       // Serialize streaming across cameras on the same HomeBase (one P2P
       // stream at a time). Live always wins (preempting); background
       // (thumbnail refresh) is denied while the slot is busy.
-      acquireStreamSlot: (priority, onRevoke) =>
-        acquireStationSlot(
+      acquireStreamSlot: (priority, onRevoke) => {
+        const failing = this.isFailingToStream();
+        const lease = acquireStationSlot(
           this.getStationSN(),
           this.serialNumber,
           priority,
           onRevoke,
-        ),
+          Date.now(),
+          { failing },
+        );
+        if (!lease && failing) {
+          this.logger.info(
+            `⛔ Not taking the HomeBase slot from a working camera: ${this.noDataStarts} recent start(s) of ${this.serialNumber} delivered no video`,
+          );
+        }
+        return lease;
+      },
     });
 
     // Restore the last thumbnail keyframe from storage so the camera's tile
@@ -998,8 +1050,8 @@ export class EufyDevice
     this.restoreThumbnailKeyframe();
 
     // Persist live-detected codec so the next plugin restart starts with
-    // the right hint. The event fires exactly once per stream-server
-    // instance (on the first video data event).
+    // the right hint. Fires once per P2P session, and again if the codec is
+    // corrected from the bitstream.
     this.streamServer.on(
       "metadataReceived",
       (metadata: { videoCodec?: string }) => {
@@ -1012,9 +1064,6 @@ export class EufyDevice
           this.logger.info(
             `💾 Persisted detected video codec: ${normalized} (was: ${previous ?? "unset"})`,
           );
-          // Stream options carry the source codec. A live session may replace
-          // a persisted startup hint, so ask Scrypted to fetch fresh options.
-          this.onDeviceEvent(ScryptedInterface.VideoCamera, undefined);
         }
       },
     );
@@ -1028,6 +1077,8 @@ export class EufyDevice
         staleMs?: number;
         consumers?: number;
       }) => {
+        this.noDataStarts++;
+        this.lastNoDataAt = Date.now();
         this.recycleStationP2P(info).catch((e) =>
           this.logger.warn(`Station P2P recycle threw: ${e}`),
         );
@@ -1041,17 +1092,44 @@ export class EufyDevice
       // guard's sibling check.)
       this.consecutiveFailedRecycles = 0;
       this.recycleSuppressedUntil = 0;
+      this.noDataStarts = 0;
     });
     this.streamServer.on("livestreamInactive", () => {
       // The camera just stopped — save its last frame so the tile survives a
       // reload. (Populated by any stream: live view, motion recording, etc.)
       this.persistThumbnailKeyframe();
+      this.announceStreamOptionsIfCodecChanged();
     });
 
     this.startThumbnailRefresh();
 
     this.logger.debug(
       "Stream server created with WebSocket client integration",
+    );
+  }
+
+  /**
+   * Stream options carry the source codec, so a new persisted codec needs
+   * Scrypted to fetch fresh options — but only between sessions. Announcing
+   * during a live stream makes Rebroadcast see a config change and restart
+   * its prebuffer session under the viewer (black screen), and cameras like
+   * the S330 relabel their codec within the first second of every session.
+   */
+  private announceStreamOptionsIfCodecChanged(): void {
+    const codec = this.storage.getItem("lastDetectedVideoCodec");
+    if (!codec || codec === this.announcedVideoCodec) return;
+    this.announcedVideoCodec = codec;
+    this.logger.info(
+      `📣 Source codec now ${codec} — reannouncing stream options between sessions`,
+    );
+    this.onDeviceEvent(ScryptedInterface.VideoCamera, undefined);
+  }
+
+  /** See `noDataStarts`. */
+  private isFailingToStream(): boolean {
+    return (
+      this.noDataStarts >= this.FAILING_NO_DATA_STARTS &&
+      Date.now() - this.lastNoDataAt < this.FAILING_WINDOW_MS
     );
   }
 

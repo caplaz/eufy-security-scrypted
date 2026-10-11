@@ -69,11 +69,13 @@ const INTERACTIVE_LIVE_DESTINATIONS = new Set(["local", "remote"]);
 
 /**
  * Select either the truthful native P2P stream or a guaranteed compatibility
- * H.264 stream. Explicit stream ids take precedence; destination is only an
+ * H.264 stream. Explicit stream ids take precedence, except that Force mode
+ * also governs `p2p`: Rebroadcast (and so HomeKit) always requests `p2p`
+ * explicitly, and Force promises that stream is H.264. Destination is only an
  * Auto-mode default-routing hint.
  */
 export function selectStream(input: StreamSelectionInput): StreamSelection {
-  if (input.streamId === "p2p") {
+  if (input.streamId === "p2p" && input.compatibilityMode !== "Force") {
     return NATIVE_STREAM;
   }
 

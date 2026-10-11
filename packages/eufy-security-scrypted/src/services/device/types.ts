@@ -70,8 +70,15 @@ export interface IStreamServer {
   /** Whether the metadata was observed from the current P2P session. */
   isMetadataVerifiedForCurrentSession(): boolean;
 
-  /** Keep the upstream live while waiting for fresh session metadata. */
-  acquireMetadataWaiter(timeoutMs?: number): MetadataBootstrapWaiter;
+  /**
+   * Keep the upstream live while waiting for fresh session metadata.
+   * `viewer: true` marks a new viewer request, which may re-take a HomeBase
+   * slot that another camera revoked.
+   */
+  acquireMetadataWaiter(
+    timeoutMs?: number,
+    options?: { viewer?: boolean },
+  ): MetadataBootstrapWaiter;
 
   /** Runs once when a raw or muxed downstream consumer attaches. */
   onNextConsumerAttached(callback: () => void): () => void;
@@ -84,4 +91,16 @@ export interface IStreamServer {
    * Returns undefined if not started.
    */
   getMuxedPort(): number | undefined;
+
+  /**
+   * Resolve the session codec once it has settled (see StreamServer), or
+   * undefined on timeout.
+   */
+  waitForSettledCodec?(timeoutMs: number): Promise<"H264" | "H265" | undefined>;
+
+  /** Open a cold-start timing timeline (`⏱️ [timing]` log lines). */
+  beginTiming?(label: string): void;
+
+  /** Log a stage of the open timing timeline. */
+  markTiming?(stage: string, detail?: string, repeat?: boolean): void;
 }

@@ -91,10 +91,12 @@ describe("SnapshotService", () => {
       const result = await service.takePicture();
 
       // Cached frame converted with its own stored codec.
+      // Cached frame converted with its own codec, downscaled for thumbnails.
       expect(FFmpegUtils.convertH264ToJPEG).toHaveBeenCalledWith(
         cachedKeyframe,
-        2,
+        3,
         "H265",
+        640,
       );
       expect(sdk.mediaManager.createMediaObject).toHaveBeenCalledWith(
         mockJpegData,
@@ -144,19 +146,124 @@ describe("SnapshotService", () => {
       );
     });
 
-    it("propagates conversion errors", async () => {
+    it("converts a keyframe once and reuses the JPEG until a newer keyframe arrives", async () => {
       mockStreamServer.getCachedKeyframe = jest.fn().mockReturnValue({
         data: cachedKeyframe,
         codec: "H265",
         ageMs: 10,
       });
-      const error = new Error("Conversion failed");
-      (FFmpegUtils.convertH264ToJPEG as jest.Mock).mockRejectedValueOnce(error);
+      await service.takePicture();
+      await service.takePicture();
+      expect(FFmpegUtils.convertH264ToJPEG).toHaveBeenCalledTimes(1);
 
-      await expect(service.takePicture()).rejects.toThrow("Conversion failed");
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        `Failed to capture snapshot: ${error}`,
+      const newer = Buffer.from(cachedKeyframe);
+      mockStreamServer.getCachedKeyframe = jest.fn().mockReturnValue({
+        data: newer,
+        codec: "H265",
+        ageMs: 5,
+      });
+      await service.takePicture();
+      expect(FFmpegUtils.convertH264ToJPEG).toHaveBeenCalledTimes(2);
+    });
+
+    it("never rejects on an undecodable keyframe: serves the last good JPEG and does not retry it", async () => {
+      mockStreamServer.getCachedKeyframe = jest.fn().mockReturnValue({
+        data: cachedKeyframe,
+        codec: "H265",
+        ageMs: 10,
+      });
+      await service.takePicture(); // good JPEG cached
+
+      const broken = Buffer.from([0x00, 0x00, 0x01, 0x26]);
+      mockStreamServer.getCachedKeyframe = jest.fn().mockReturnValue({
+        data: broken,
+        codec: "H265",
+        ageMs: 1,
+      });
+      (FFmpegUtils.convertH264ToJPEG as jest.Mock).mockRejectedValueOnce(
+        new Error("Conversion failed"),
       );
+
+      await expect(service.takePicture()).resolves.toBeDefined();
+      await service.takePicture();
+      // One good conversion + one failed attempt; the broken frame is not retried.
+      expect(FFmpegUtils.convertH264ToJPEG).toHaveBeenCalledTimes(2);
+      const served = (sdk.mediaManager.createMediaObject as jest.Mock).mock
+        .calls;
+      expect(served[served.length - 1][0]).toBe(mockJpegData);
+    });
+
+    it("serves the motion-event picture when it is newer than the cached keyframe", async () => {
+      mockStreamServer.getCachedKeyframe = jest.fn().mockReturnValue({
+        data: cachedKeyframe,
+        codec: "H265",
+        ageMs: 60_000,
+      });
+      const eventJpeg = Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x01]);
+      service.setEventPicture(eventJpeg);
+
+      await service.takePicture();
+
+      const served = (sdk.mediaManager.createMediaObject as jest.Mock).mock
+        .calls;
+      expect(served[served.length - 1][0]).toBe(eventJpeg);
+    });
+
+    it("ignores a small event crop that follows the full event frame", async () => {
+      mockStreamServer.getCachedKeyframe = jest.fn().mockReturnValue({
+        data: cachedKeyframe,
+        codec: "H265",
+        ageMs: 60_000,
+      });
+      // SOI, then SOF0 with height 360 / width 640, and a 120x160 crop.
+      const sof = (width: number, height: number) =>
+        Buffer.from([
+          0xff,
+          0xd8,
+          0xff,
+          0xc0,
+          0x00,
+          0x11,
+          0x08,
+          height >> 8,
+          height & 0xff,
+          width >> 8,
+          width & 0xff,
+          0x03,
+          0x01,
+          0x22,
+          0x00,
+          0x02,
+          0x11,
+          0x01,
+          0x03,
+          0x11,
+          0x01,
+        ]);
+      const fullFrame = sof(640, 360);
+      service.setEventPicture(fullFrame);
+      service.setEventPicture(sof(120, 160));
+
+      await service.takePicture();
+
+      const served = (sdk.mediaManager.createMediaObject as jest.Mock).mock
+        .calls;
+      expect(served[served.length - 1][0]).toBe(fullFrame);
+    });
+
+    it("ignores an event picture that is not a JPEG", async () => {
+      mockStreamServer.getCachedKeyframe = jest.fn().mockReturnValue({
+        data: cachedKeyframe,
+        codec: "H265",
+        ageMs: 60_000,
+      });
+      service.setEventPicture(Buffer.from("not a jpeg"));
+
+      await service.takePicture();
+
+      const served = (sdk.mediaManager.createMediaObject as jest.Mock).mock
+        .calls;
+      expect(served[served.length - 1][0]).toBe(mockJpegData);
     });
   });
 
