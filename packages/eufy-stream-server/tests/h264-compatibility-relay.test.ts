@@ -1,4 +1,5 @@
 import {
+  buildRelayFfmpegArgs,
   disposeSharedH264CompatibilityRelay,
   getSharedH264CompatibilityRelay,
   H264CompatibilityRelay,
@@ -213,6 +214,10 @@ describe("H264CompatibilityRelay", () => {
         "4096",
         "-analyzeduration",
         "0",
+        "-reinit_filter",
+        "0",
+        "-vf",
+        "scale=1280:720",
         "-preset",
         "ultrafast",
         "-tune",
@@ -223,6 +228,47 @@ describe("H264CompatibilityRelay", () => {
         "1",
       ]),
     );
+    await relay.stop();
+    await new Promise<void>((resolve) => source.server.close(() => resolve()));
+  });
+
+  it("encodes through VAAPI with a fixed-size, resolution-change-safe graph", () => {
+    const args = buildRelayFfmpegArgs("vaapi", "/dev/dri/renderD128");
+    const at = (flag: string) => args.indexOf(flag);
+    // Hardware device and -reinit_filter are input options: before -i.
+    expect(at("-init_hw_device")).toBeLessThan(at("-i"));
+    expect(args[at("-init_hw_device") + 1]).toBe(
+      "vaapi=va:/dev/dri/renderD128",
+    );
+    expect(at("-reinit_filter")).toBeLessThan(at("-i"));
+    expect(args[at("-reinit_filter") + 1]).toBe("0");
+    // Software decode + scale, then upload: a VAAPI decode drops every frame
+    // after the camera's first resolution change.
+    expect(args).not.toContain("-hwaccel");
+    expect(args[at("-vf") + 1]).toBe("scale=1280:720,format=nv12,hwupload");
+    expect(args[at("-c:v") + 1]).toBe("h264_vaapi");
+    expect(args).not.toContain("libx264");
+  });
+
+  it("falls back to libx264 without any hardware options", () => {
+    const args = buildRelayFfmpegArgs("libx264");
+    expect(args).not.toContain("-init_hw_device");
+    expect(args[args.indexOf("-c:v") + 1]).toBe("libx264");
+    expect(args[args.indexOf("-vf") + 1]).toBe("scale=1280:720");
+  });
+
+  it("does not probe for VAAPI when a child process factory is injected", async () => {
+    const source = await sourceServer();
+    const child = new FakeChild();
+    const spawn = jest.fn((..._args: unknown[]) => child);
+    const relay = new H264CompatibilityRelay({
+      serialNumber: "camera-1",
+      getMuxedPort: () => source.port,
+      ffmpegPath: "/fake/ffmpeg",
+      createChildProcess: spawn,
+    });
+    await relay.start();
+    expect(spawn.mock.calls[0][1]).toContain("libx264");
     await relay.stop();
     await new Promise<void>((resolve) => source.server.close(() => resolve()));
   });

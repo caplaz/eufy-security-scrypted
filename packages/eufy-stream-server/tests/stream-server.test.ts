@@ -2831,6 +2831,72 @@ describe("StreamServer", () => {
       });
     });
 
+    describe("GOP replay into a new muxer", () => {
+      const newestMuxer = () => {
+        const results = jmuxer().mock.results;
+        return results[results.length - 1].value;
+      };
+
+      it("feeds a muxer built right after a keyframe the current GOP", async () => {
+        const opener = await startWarmSession();
+        const callsBefore = jmuxer().mock.calls.length;
+        const socket = await connectMuxed(server);
+        await wait(30);
+        expect(jmuxer().mock.calls.length).toBe(callsBefore + 1);
+        // No live frame since attach, yet the new muxer already has the
+        // session's keyframe and can emit without waiting a whole GOP.
+        expect(newestMuxer().feed).toHaveBeenCalledWith({
+          video: keyframeAccessUnit("H264"),
+        });
+        socket.destroy();
+        opener.destroy();
+      });
+
+      it("does not replay a GOP older than the replay window", async () => {
+        const opener = await startWarmSession();
+        (server as any).GOP_REPLAY_MAX_AGE_MS = -1;
+        const socket = await connectMuxed(server);
+        await wait(30);
+        expect(newestMuxer().feed).not.toHaveBeenCalledWith(
+          expect.objectContaining({ video: expect.anything() }),
+        );
+        socket.destroy();
+        opener.destroy();
+      });
+    });
+
+    describe("waitForSettledCodec", () => {
+      it("waits for the second keyframe and reports the codec the camera switched to", async () => {
+        await server.start();
+        (server as any).CODEC_SETTLE_MS = 60_000;
+        (server as any).beginMetadataSession();
+        fireVideo("H265");
+        let settled: string | undefined | null = null;
+        const waiting = server
+          .waitForSettledCodec(2_000)
+          .then((codec) => (settled = codec));
+        await wait(150);
+        expect(settled).toBeNull(); // one keyframe: not settled yet
+        fireVideo("H264"); // the S330 switches at its next keyframe
+        await waiting;
+        expect(settled).toBe("H264");
+      });
+
+      it("settles on time after the first frame when no second keyframe comes", async () => {
+        await server.start();
+        (server as any).CODEC_SETTLE_MS = 50;
+        (server as any).beginMetadataSession();
+        fireVideo("H265");
+        await expect(server.waitForSettledCodec(2_000)).resolves.toBe("H265");
+      });
+
+      it("resolves undefined when the session never delivers video", async () => {
+        await server.start();
+        (server as any).beginMetadataSession();
+        await expect(server.waitForSettledCodec(150)).resolves.toBeUndefined();
+      });
+    });
+
     describe("stale session after a HomeBase slot revoke", () => {
       it("stops trusting the session and lets a new viewer re-take the slot", async () => {
         const { s, acquireStreamSlot, grantSlot, revoke } =

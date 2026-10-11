@@ -19,6 +19,7 @@ import JMuxer from "jmuxer";
 import { Logger, ILogObj } from "tslog";
 import { ConnectionManager } from "./connection-manager";
 import { H264Parser } from "./h264-parser";
+import { StageTimeline } from "./stage-timeline";
 import { ServerStats, StreamData } from "./types";
 import {
   EufyWebSocketClient,
@@ -72,7 +73,8 @@ export interface StreamServerOptions {
    */
   acquireStreamSlot?: (
     priority: "live" | "background",
-    onRevoke: () => void,
+    /** Called with the serial of the camera that took the slot, if known. */
+    onRevoke: (byDeviceSN?: string) => void,
   ) => StationSlotLease | null;
 }
 
@@ -425,6 +427,34 @@ export class StreamServer extends EventEmitter {
   private sessionAudioFrames = 0;
 
   /**
+   * Frames of the current GOP (keyframe with parameter sets onward). A muxer
+   * built right after a keyframe would otherwise skip it and wait a whole GOP
+   * (~2 s on the S120) for the next one; a recent GOP is replayed into it.
+   */
+  private currentGop: {
+    codec: "H264" | "H265";
+    startedAt: number;
+    frames: Buffer[];
+    bytes: number;
+  } | null = null;
+  private readonly GOP_REPLAY_MAX_AGE_MS = 500;
+  private readonly GOP_MAX_FRAMES = 60;
+  private readonly GOP_MAX_BYTES = 4 * 1024 * 1024;
+
+  /** Codec of the latest parameter sets this session (switch logging). */
+  private lastBitstreamCodec?: "H264" | "H265";
+
+  /** Decodable keyframes (with full parameter sets) seen this session. */
+  private sessionKeyframes = 0;
+
+  /**
+   * How long after the first video frame the session codec counts as
+   * settled even without a second keyframe. The S330 sometimes opens with
+   * ~0.7s of H.265 and then switches to H.264 at the next keyframe.
+   */
+  private readonly CODEC_SETTLE_MS = 1500;
+
+  /**
    * Lease on the shared HomeBase stream slot (see
    * `StreamServerOptions.acquireStreamSlot`). Held while this camera is the
    * one streaming on its station; released when the stream stops.
@@ -500,6 +530,9 @@ export class StreamServer extends EventEmitter {
     timestamp: number;
   } | null = null;
 
+  /** Cold-start stage timings (`⏱️ [timing]` log lines), per stream request. */
+  private timeline!: StageTimeline;
+
   constructor(options: StreamServerOptions) {
     super();
 
@@ -525,6 +558,8 @@ export class StreamServer extends EventEmitter {
         minLevel: 3, // info level - external loggers control their own debug level
       });
 
+    this.timeline = new StageTimeline((message) => this.logger.info(message));
+
     this.connectionManager = new ConnectionManager(
       this.logger,
       this.options.maxConnections,
@@ -546,6 +581,9 @@ export class StreamServer extends EventEmitter {
         this.logger.info(
           `Client connected: ${connectionId} from ${connectionInfo.remoteAddress}:${connectionInfo.remotePort}`,
         );
+        this.timeline.mark("raw-client-connected", undefined, {
+          repeat: true,
+        });
         this.emit("clientConnected", connectionId, connectionInfo);
 
         // Send cached SPS/PPS headers immediately so FFmpeg can parse the stream
@@ -995,7 +1033,20 @@ export class StreamServer extends EventEmitter {
             this.handleCodecChange(labelled, bitstreamCodec);
           }
         }
+        if (
+          bitstreamCodec &&
+          this.lastBitstreamCodec &&
+          bitstreamCodec !== this.lastBitstreamCodec
+        ) {
+          this.timeline.mark(
+            "bitstream-codec-switch",
+            `${this.lastBitstreamCodec}→${bitstreamCodec}`,
+            { repeat: true },
+          );
+        }
+        if (bitstreamCodec) this.lastBitstreamCodec = bitstreamCodec;
         if (bitstreamCodec && !this.sessionBitstreamCodec) {
+          this.timeline.mark("bitstream-codec", bitstreamCodec);
           this.sessionBitstreamCodec = bitstreamCodec;
           for (const notify of this.sessionCodecWaiters.splice(0)) notify();
         }
@@ -1019,6 +1070,12 @@ export class StreamServer extends EventEmitter {
 
         if (this.sessionFirstVideoAt === 0 && !trailingFrame) {
           this.sessionFirstVideoAt = this.lastVideoDataAt;
+          this.timeline.mark(
+            "first-video-data",
+            event.metadata
+              ? `label=${event.metadata.videoCodec} ${event.metadata.videoWidth}x${event.metadata.videoHeight}`
+              : undefined,
+          );
           for (const notify of this.sessionVideoWaiters.splice(0)) notify();
         }
 
@@ -1036,6 +1093,8 @@ export class StreamServer extends EventEmitter {
             );
           }
         }
+
+        if (!trailingFrame) this.trackCurrentGop(videoBuffer);
 
         // Fan-out to muxer clients (fMP4 via in-process JMuxer). Update
         // the activity clock so the inactivity timer doesn't kill the
@@ -1361,10 +1420,10 @@ export class StreamServer extends EventEmitter {
    * — WITHOUT recycling, since this is contention, not a wedge — until our own
    * consumers drain. The slot already belongs to the preemptor at this point.
    */
-  private handleSlotRevoked(): void {
+  private handleSlotRevoked(byDeviceSN?: string): void {
     if (this.slotRevoked) return;
     this.logger.info(
-      "↩️  HomeBase stream slot revoked by another camera — yielding",
+      `↩️  HomeBase stream slot revoked by another camera${byDeviceSN ? ` (${byDeviceSN})` : ""} — yielding`,
     );
     this.slotRevoked = true;
     this.endMetadataSession();
@@ -1469,13 +1528,20 @@ export class StreamServer extends EventEmitter {
             this.livestreamIntendedState = true;
           }
           if (!this.streamLease?.active) {
-            const lease = this.options.acquireStreamSlot(priority, () =>
-              this.handleSlotRevoked(),
+            // Starts without a stream request (thumbnail refresh, snapshot)
+            // get their own timeline.
+            if (!this.timeline.isActive()) {
+              this.timeline.begin(`livestream-wanted (${priority})`);
+            }
+            const lease = this.options.acquireStreamSlot(
+              priority,
+              (byDeviceSN) => this.handleSlotRevoked(byDeviceSN),
             );
             if (!lease) {
               this.logger.info(
                 `⛔ HomeBase stream slot busy — deferring ${priority} start`,
               );
+              this.timeline.mark("slot-denied", priority, { repeat: true });
               this.livestreamIntendedState = false;
               if (priority === "background" && this.warmLease) {
                 this.endWarmLease("background slot denied", false);
@@ -1484,9 +1550,11 @@ export class StreamServer extends EventEmitter {
               break;
             }
             this.logger.info(`🎟️  Acquired HomeBase stream slot (${priority})`);
+            this.timeline.mark("slot-acquired", priority);
             this.streamLease = lease;
             this.streamLeasePriority = priority;
             await lease.whenReady;
+            this.timeline.mark("slot-ready");
             if (!this.livestreamIntendedState || this.slotRevoked) break;
           }
         }
@@ -1531,10 +1599,16 @@ export class StreamServer extends EventEmitter {
             `🎥 Starting livestream (attempt ${attempt}/${maxRetries}, consecutive-no-data=${this.consecutiveNoDataStarts}/${this.MAX_NO_DATA_STARTS})`,
           );
           this.beginMetadataSession();
+          if (!this.timeline.isActive())
+            this.timeline.begin("livestream-wanted");
+          this.timeline.mark("start_livestream-sent", `attempt ${attempt}`, {
+            repeat: true,
+          });
           await this.options.wsClient.commands
             .device(this.options.serialNumber)
             .startLivestream();
           this.logger.info("✅ Livestream start command sent successfully");
+          this.timeline.mark("start_livestream-ack");
 
           // Wait the full cold-start window before re-evaluating. A
           // deeply-idle battery camera can legitimately take 30–45s to wake
@@ -1563,6 +1637,7 @@ export class StreamServer extends EventEmitter {
             this.logger.info(
               "📡 Bropat reports livestream already active — anchoring session for wedge watchdog",
             );
+            this.timeline.mark("livestream-already-active");
           } else {
             this.logger.debug("Livestream already running as desired");
           }
@@ -1714,6 +1789,7 @@ export class StreamServer extends EventEmitter {
     // muxers as consumers.
     this.pendingMuxerSockets.add(socket);
     this.notifyNextConsumerAttached();
+    this.timeline.mark("muxed-client-connected", undefined, { repeat: true });
 
     const pendingCleanup = () => {
       this.pendingMuxerSockets.delete(socket);
@@ -1846,6 +1922,9 @@ export class StreamServer extends EventEmitter {
     this.logger.info(
       `Muxer mode=${mode} (deliversAudio=${this.deliversAudio}, codec=${videoCodec}, first video ${this.sessionFirstVideoAt ? `${sinceFirstVideo}ms ago` : "not yet received"}) for ${this.options.serialNumber}`,
     );
+    this.timeline.mark("muxer-built", `mode=${mode} codec=${videoCodec}`, {
+      repeat: true,
+    });
 
     let emittedFirstChunk = false;
     let bothFallbackTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1881,6 +1960,10 @@ export class StreamServer extends EventEmitter {
           this.logger.info(
             `JMuxer emitting fMP4 (first chunk: ${chunk.length} bytes, mode=${useMode}, codec=${videoCodec}, fps=${videoFps})`,
           );
+          this.timeline.mark(
+            "first-fmp4-to-client",
+            `mode=${useMode} codec=${videoCodec}`,
+          );
         }
         if (!socket.destroyed) socket.write(chunk);
       });
@@ -1904,6 +1987,7 @@ export class StreamServer extends EventEmitter {
         restoreAudio: useMode === "video" ? restoreAudio : undefined,
         onCodecChange,
       });
+      this.replayCurrentGop(socket, videoCodec);
     };
 
     const replaceMuxer = (useMode: "both" | "video"): void => {
@@ -2264,6 +2348,7 @@ export class StreamServer extends EventEmitter {
         const framedNal = () =>
           Buffer.concat([StreamServer.ANNEX_B_START_CODE, nal.data]);
         if (!isHevc && nal.type === 7) {
+          this.noteSpsChange(codec, nal.data);
           this.cachedSPS = framedNal();
           this.logger.debug(
             `Cached H.264 SPS (${this.cachedSPS.length} bytes)`,
@@ -2279,6 +2364,7 @@ export class StreamServer extends EventEmitter {
             `Cached H.265 VPS (${this.cachedVPS.length} bytes)`,
           );
         } else if (isHevc && nal.type === 33) {
+          this.noteSpsChange(codec, nal.data);
           this.cachedSPS = framedNal();
           this.logger.debug(
             `Cached H.265 SPS (${this.cachedSPS.length} bytes)`,
@@ -2349,6 +2435,11 @@ export class StreamServer extends EventEmitter {
             codec,
             timestamp: Date.now(),
           };
+          this.sessionKeyframes++;
+          this.timeline.mark(
+            "first-irap-with-params",
+            `${codec} ${snapshotPayload.length}B`,
+          );
         }
 
         // Resolve any pending snapshot requests with the same decodable buffer.
@@ -2384,6 +2475,7 @@ export class StreamServer extends EventEmitter {
 
       // Update client activity timestamp when data is successfully sent
       if (success) {
+        this.timeline.mark("first-raw-bytes-to-client");
         this.lastClientActivity = Date.now();
       }
 
@@ -2471,6 +2563,7 @@ export class StreamServer extends EventEmitter {
    * no longer delivering.
    */
   private endMetadataSession(): void {
+    this.timeline.end("session ended");
     this.metadataVerifiedGeneration = -1;
     this.metadataSessionEnded = true;
     this.resetSessionMediaTiming();
@@ -2485,6 +2578,9 @@ export class StreamServer extends EventEmitter {
   private resetSessionMediaTiming(): void {
     this.sessionFirstVideoAt = 0;
     this.sessionAudioFrames = 0;
+    this.sessionKeyframes = 0;
+    this.currentGop = null;
+    this.lastBitstreamCodec = undefined;
     this.sessionBitstreamCodec = undefined;
   }
 
@@ -2543,6 +2639,41 @@ export class StreamServer extends EventEmitter {
       waiters.push(notify);
       signal.addEventListener("abort", onAbort, { once: true });
     });
+  }
+
+  /**
+   * Resolve the current session's codec once it has settled: after the
+   * second decodable keyframe, or CODEC_SETTLE_MS after the first video
+   * frame. Cameras that switch codec do it at the start of a session, so a
+   * consumer that must pick a pipeline per codec (H.264 Force mode) waits
+   * here instead of deciding from the first frames. Resolves undefined on
+   * timeout.
+   */
+  async waitForSettledCodec(
+    timeoutMs: number,
+  ): Promise<"H264" | "H265" | undefined> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const verified = this.isMetadataVerifiedForCurrentSession();
+      const codec =
+        verified && this.videoMetadata
+          ? StreamServer.toMuxerCodec(this.videoMetadata.videoCodec)
+          : undefined;
+      const settled =
+        codec !== undefined &&
+        (this.sessionKeyframes >= 2 ||
+          (this.sessionFirstVideoAt > 0 &&
+            Date.now() - this.sessionFirstVideoAt >= this.CODEC_SETTLE_MS));
+      if (settled) {
+        this.timeline.mark(
+          "codec-settled",
+          `${codec} keyframes=${this.sessionKeyframes}`,
+        );
+        return codec;
+      }
+      if (Date.now() >= deadline) return undefined;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
   }
 
   /** Whether metadata has been confirmed by video data for this P2P session. */
@@ -2726,6 +2857,102 @@ export class StreamServer extends EventEmitter {
       bytesTransferred: 0,
       lastFrameTime: null,
     };
+  }
+
+  /** Remember the frames of the current GOP for `replayCurrentGop`. */
+  private trackCurrentGop(data: Buffer): void {
+    const codec = this.videoMetadata
+      ? StreamServer.toMuxerCodec(this.videoMetadata.videoCodec)
+      : undefined;
+    if (!codec) return;
+    const isKey =
+      codec === "H265"
+        ? this.h264Parser.isKeyFrameHevc(data)
+        : this.h264Parser.isKeyFrame(data);
+    if (isKey && this.h264Parser.detectParameterSetCodec(data) === codec) {
+      this.currentGop = {
+        codec,
+        startedAt: Date.now(),
+        frames: [data],
+        bytes: data.length,
+      };
+      return;
+    }
+    const gop = this.currentGop;
+    if (
+      !gop ||
+      gop.codec !== codec ||
+      gop.frames.length >= this.GOP_MAX_FRAMES ||
+      gop.bytes + data.length > this.GOP_MAX_BYTES
+    ) {
+      this.currentGop = null;
+      return;
+    }
+    gop.frames.push(data);
+    gop.bytes += data.length;
+  }
+
+  /**
+   * Feed a just-built muxer the current GOP if it started recently, so it can
+   * emit from that keyframe instead of waiting for the next one. Older GOPs
+   * are skipped: replaying them would add their age as live latency.
+   */
+  private replayCurrentGop(socket: net.Socket, codec: "H264" | "H265"): void {
+    const gop = this.currentGop;
+    const entry = this.muxerStreams.get(socket);
+    if (!gop || !entry || gop.codec !== codec) return;
+    const ageMs = Date.now() - gop.startedAt;
+    if (ageMs > this.GOP_REPLAY_MAX_AGE_MS) return;
+    // Not counted in stats and no onVideoFed: the both→video fallback clock
+    // still starts at the first live frame of this muxer.
+    for (const frame of gop.frames) {
+      try {
+        entry.muxer.feed({ video: frame });
+      } catch (e) {
+        this.logger.warn(`Muxer GOP replay error: ${e}`);
+        return;
+      }
+    }
+    this.timeline.mark(
+      "muxer-primed",
+      `${gop.frames.length} frame(s), keyframe ${ageMs}ms old`,
+      { repeat: true },
+    );
+  }
+
+  /**
+   * Open a cold-start timing timeline (`⏱️ [timing]` log lines). Called on
+   * each stream request; if a start is already being timed, the request is
+   * logged as a stage of it instead.
+   */
+  beginTiming(label: string): void {
+    this.timeline.begin(label);
+  }
+
+  /** Log a timing stage of the open timeline (no-op if none is open). */
+  markTiming(stage: string, detail?: string, repeat = false): void {
+    this.timeline.mark(stage, detail, { repeat });
+  }
+
+  /** Last SPS NAL payload seen per codec, to log mid-session SPS changes. */
+  private lastSpsPayload: { codec: string; data: Buffer } | null = null;
+
+  /**
+   * The S330 changes resolution (and SPS) mid-session (4K → 640x360 → …).
+   * Log every change so cold-start timings show where a muxer had to adapt.
+   */
+  private noteSpsChange(codec: string, sps: Buffer): void {
+    const previous = this.lastSpsPayload;
+    if (previous && (previous.codec !== codec || !previous.data.equals(sps))) {
+      this.timeline.mark(
+        "sps-changed",
+        `${previous.codec}→${codec} (${previous.data.length}B→${sps.length}B)`,
+        { repeat: true },
+      );
+    }
+    if (!previous || !previous.data.equals(sps)) {
+      this.lastSpsPayload = { codec, data: Buffer.from(sps) };
+    }
   }
 
   /**
