@@ -32,6 +32,26 @@ const PLACEHOLDER_JPEG = Buffer.from(
 /** Thumbnails are shown at a few hundred pixels; never ship a 4K JPEG. */
 const SNAPSHOT_MAX_WIDTH = 640;
 const SNAPSHOT_JPEG_QUALITY = 3;
+/**
+ * Eufy sends a full 640x360 event frame and, for person events, a small
+ * crop of the face right after it; only full frames make a useful tile.
+ */
+const EVENT_PICTURE_MIN_WIDTH = 320;
+
+/** Width of a baseline/progressive JPEG from its SOF marker, if found. */
+export function jpegWidth(jpeg: Buffer): number | undefined {
+  let offset = 2;
+  while (offset + 9 < jpeg.length) {
+    if (jpeg[offset] !== 0xff) return undefined;
+    const marker = jpeg[offset + 1];
+    const length = jpeg.readUInt16BE(offset + 2);
+    if (marker >= 0xc0 && marker <= 0xc3) {
+      return jpeg.readUInt16BE(offset + 7);
+    }
+    offset += 2 + length;
+  }
+  return undefined;
+}
 
 export class SnapshotService {
   /** JPEG of the newest keyframe, reused until a newer keyframe arrives. */
@@ -66,6 +86,13 @@ export class SnapshotService {
    */
   setEventPicture(jpeg: Buffer): void {
     if (jpeg.length < 4 || jpeg[0] !== 0xff || jpeg[1] !== 0xd8) return;
+    const width = jpegWidth(jpeg);
+    if (width !== undefined && width < EVENT_PICTURE_MIN_WIDTH) {
+      this.logger.info(
+        `🖼️ [snapshot] ignoring ${width}px event picture (crop, not a full frame)`,
+      );
+      return;
+    }
     this.eventPicture = { jpeg, receivedAt: Date.now() };
   }
 

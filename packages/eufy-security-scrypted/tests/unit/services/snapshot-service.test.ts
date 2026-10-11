@@ -209,6 +209,48 @@ describe("SnapshotService", () => {
       expect(served[served.length - 1][0]).toBe(eventJpeg);
     });
 
+    it("ignores a small event crop that follows the full event frame", async () => {
+      mockStreamServer.getCachedKeyframe = jest.fn().mockReturnValue({
+        data: cachedKeyframe,
+        codec: "H265",
+        ageMs: 60_000,
+      });
+      // SOI, then SOF0 with height 360 / width 640, and a 120x160 crop.
+      const sof = (width: number, height: number) =>
+        Buffer.from([
+          0xff,
+          0xd8,
+          0xff,
+          0xc0,
+          0x00,
+          0x11,
+          0x08,
+          height >> 8,
+          height & 0xff,
+          width >> 8,
+          width & 0xff,
+          0x03,
+          0x01,
+          0x22,
+          0x00,
+          0x02,
+          0x11,
+          0x01,
+          0x03,
+          0x11,
+          0x01,
+        ]);
+      const fullFrame = sof(640, 360);
+      service.setEventPicture(fullFrame);
+      service.setEventPicture(sof(120, 160));
+
+      await service.takePicture();
+
+      const served = (sdk.mediaManager.createMediaObject as jest.Mock).mock
+        .calls;
+      expect(served[served.length - 1][0]).toBe(fullFrame);
+    });
+
     it("ignores an event picture that is not a JPEG", async () => {
       mockStreamServer.getCachedKeyframe = jest.fn().mockReturnValue({
         data: cachedKeyframe,
