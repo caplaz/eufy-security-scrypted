@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unnecessary retries when a livestream is already running** ([#37](https://github.com/caplaz/eufy-security-scrypted/pull/37)): Treat `device_livestream_already_running` as success when the initial status check is stale. The no-data watchdog remains active so an upstream stream that delivers no video can still recover.
 - **Camera permanently unavailable after HomeBase slot revocation** ([#46](https://github.com/caplaz/eufy-security-scrypted/issues/46), [#47](https://github.com/caplaz/eufy-security-scrypted/pull/47)): Clear the revoked-slot state when no consumers remain, including the idle-stop path, so the next viewer can start the camera again. Serialize teardown with arriving viewers so the old stream stops and releases its lease before a new viewer acquires one.
 
+- **Scrypted plugin missing from npm packages**: Include the built `dist/plugin.zip` in the npm tarball despite the repository-wide `dist/` ignore rule.
+
 ### Contributors
 
 Thanks to [@realAbitbol](https://github.com/realAbitbol) for diagnosing and fixing muxer initialization and zero-FPS timing, including a regression test using the real JMuxer; [@engim4-git](https://github.com/engim4-git) for the detailed idle-slot revocation report and reproduction; and [@jeepster5](https://github.com/jeepster5) for the shared-HomeBase streaming reports that exposed the already-running state mismatch.
