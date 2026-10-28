@@ -1017,6 +1017,148 @@ describe("StreamServer", () => {
       await s.stop();
     });
 
+    it("can start a new viewer after an idle stream loses its slot", async () => {
+      const { mockWsClient, startLivestream } = makeWs();
+      let revoke: (() => void) | undefined;
+      const acquireStreamSlot = jest.fn(
+        (_priority: string, onRevoke: () => void) => {
+          revoke = onRevoke;
+          return {
+            active: true,
+            release: jest.fn(),
+            markDelivering: jest.fn(),
+            whenReady: Promise.resolve(),
+          };
+        },
+      );
+      const s = new StreamServer({
+        port: 0,
+        host: "127.0.0.1",
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot,
+      });
+      const sockets: net.Socket[] = [];
+      try {
+        await s.start();
+        const first = net.createConnection({
+          port: s.getPort(),
+          host: "127.0.0.1",
+        });
+        sockets.push(first);
+        await new Promise<void>((resolve) => first.once("connect", resolve));
+        await wait(30);
+        const video = mockWsClient.addEventListener.mock.calls.find(
+          (call: any[]) => call[0] === "livestream video data",
+        )![1] as (event: any) => void;
+        video({
+          serialNumber: "TEST123",
+          buffer: { data: createTestH264Data() },
+          metadata: {
+            videoCodec: "H264",
+            videoFPS: 15,
+            videoWidth: 1920,
+            videoHeight: 1080,
+          },
+        });
+        first.destroy();
+        await wait(30);
+        expect((s as any).getTotalConsumers()).toBe(0);
+        expect(startLivestream).toHaveBeenCalledTimes(1);
+
+        // The stream lingers after its viewer leaves; another camera takes
+        // its slot before the idle monitor has stopped it.
+        revoke!();
+        await wait(30);
+        const next = net.createConnection({
+          port: s.getPort(),
+          host: "127.0.0.1",
+        });
+        sockets.push(next);
+        await new Promise<void>((resolve) => next.once("connect", resolve));
+        await wait(30);
+        expect(acquireStreamSlot).toHaveBeenCalledTimes(2);
+        expect(startLivestream).toHaveBeenCalledTimes(2);
+      } finally {
+        for (const socket of sockets) socket.destroy();
+        await s.stop();
+      }
+    });
+
+    it("waits for revoked stream teardown before granting an arriving viewer", async () => {
+      const { mockWsClient, startLivestream } = makeWs();
+      const oldRelease = jest.fn();
+      const newRelease = jest.fn();
+      let finishStop!: () => void;
+      const stop = new Promise<void>((resolve) => {
+        finishStop = resolve;
+      });
+      mockWsClient.commands
+        .device()
+        .isLivestreaming.mockResolvedValue({ livestreaming: true });
+      mockWsClient.commands.device().stopLivestream.mockReturnValue(stop);
+      const acquireStreamSlot = jest.fn().mockReturnValue({
+        active: true,
+        release: newRelease,
+        markDelivering: jest.fn(),
+        whenReady: Promise.resolve(),
+      });
+      const s = new StreamServer({
+        port: 0,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+        acquireStreamSlot,
+      });
+      (s as any).streamLease = { active: false, release: oldRelease };
+      (s as any).livestreamIntendedState = true;
+      try {
+        (s as any).handleSlotRevoked();
+        await wait(0); // stop is now in flight
+        (s as any).metadataBootstrapConsumers = 1;
+        const attach = (s as any).updateLivestreamStateForMuxerClients();
+        await wait(0);
+        expect(acquireStreamSlot).not.toHaveBeenCalled();
+        expect(startLivestream).not.toHaveBeenCalled();
+        mockWsClient.commands
+          .device()
+          .isLivestreaming.mockResolvedValue({ livestreaming: false });
+        finishStop();
+        await attach;
+        await wait(0);
+        expect(oldRelease).toHaveBeenCalledTimes(1);
+        expect(acquireStreamSlot).toHaveBeenCalledTimes(1);
+        expect(startLivestream).toHaveBeenCalledTimes(1);
+        expect(newRelease).not.toHaveBeenCalled();
+      } finally {
+        finishStop();
+        await wait(0);
+        (s as any).metadataBootstrapConsumers = 0;
+        (s as any).stopActivityMonitoring();
+        if ((s as any).startStopTimeout)
+          clearTimeout((s as any).startStopTimeout);
+      }
+    });
+
+    it("clears a stale revoke when the idle monitor finds no consumers", async () => {
+      jest.useFakeTimers();
+      const { mockWsClient } = makeWs();
+      const s = new StreamServer({
+        port: 0,
+        wsClient: mockWsClient as any,
+        serialNumber: "TEST123",
+      });
+      try {
+        (s as any).slotRevoked = true;
+        (s as any).lastClientActivity = Date.now() - 13000;
+        (s as any).startActivityMonitoring();
+        await jest.advanceTimersByTimeAsync(5000);
+        expect((s as any).slotRevoked).toBe(false);
+      } finally {
+        (s as any).stopActivityMonitoring();
+        jest.useRealTimers();
+      }
+    });
+
     it("on revoke, stops the livestream BEFORE releasing the slot (clean staggered handoff)", async () => {
       const order: string[] = [];
       let started = false;

@@ -603,6 +603,7 @@ export class StreamServer extends EventEmitter {
     reason: string,
     replacedByRealConsumer: boolean,
     expectedId?: number,
+    stopUpstream: boolean = true,
   ): void {
     const warmLease = this.warmLease;
     if (
@@ -614,6 +615,7 @@ export class StreamServer extends EventEmitter {
     clearTimeout(warmLease.timer);
     this.warmLease = undefined;
     this.metadataBootstrapConsumers--;
+    if (!stopUpstream) return;
 
     if (replacedByRealConsumer && this.getRealConsumerCount() > 0) {
       // Never let a later warm expiry release the new live grant. The same
@@ -760,6 +762,7 @@ export class StreamServer extends EventEmitter {
           `🕒 No client activity for ${Math.round(timeSinceActivity / 1000)}s and no active clients, stopping camera stream`,
         );
         this.livestreamIntendedState = false;
+        this.slotRevoked = false;
         this.lastVideoDataAt = 0;
         this.livestreamSessionStartedAt = 0;
         this.stopActivityMonitoring();
@@ -1148,25 +1151,34 @@ export class StreamServer extends EventEmitter {
       "↩️  HomeBase stream slot revoked by another camera — yielding",
     );
     this.slotRevoked = true;
-    if (this.warmLease) this.endWarmLease("slot revoked", false);
+    if (this.warmLease) {
+      // The ordered teardown below owns the upstream stop.
+      this.endWarmLease("slot revoked", false, undefined, false);
+    }
+    // Only suppress reconnects while the preempted consumers still exist.
+    // An idle/lingering stream has nobody left to drain and must allow the
+    // next viewer to acquire a fresh slot. Count metadata waiters too, after
+    // removing any warm bootstrap hold above.
+    this.slotRevoked = this.getTotalConsumers() > 0;
     this.livestreamIntendedState = false;
-    // Stop our P2P livestream FIRST, then release the slot — do NOT release
-    // synchronously here. The preemptor's `whenReady` is gated on our release,
-    // so releasing before our stream has actually stopped lets the preemptor
-    // call `startLivestream` while our P2P is still up. On the one-stream-at-a-
-    // time HomeBase that overlap starves the handoff: the preemptor gets a
-    // frame or two (enough for metadata) and then stalls, while our redundant
-    // stop races its start (`device_livestream_not_running`). Deferring the
-    // release until after our stop completes (in `ensureLivestreamState`'s stop
-    // branch, with the `finally` as a backstop for the already-stopped case)
-    // makes it a clean staggered handoff: we stop → free the HomeBase → the
-    // preemptor starts on an idle station. `whenReady`'s timeout still bounds
-    // the preemptor's wait if our stop hangs.
-    void this.ensureLivestreamState()
-      .catch((e) =>
-        this.logger.warn(`Post-revoke ensureLivestreamState failed: ${e}`),
-      )
+    // Serialize teardown with incoming consumers. Stop directly rather than
+    // reading mutable intent after an asynchronous status query: a new
+    // snapshot can set intent while the old session is still stopping.
+    // Keep the revoked lease until stop completes, then let a waiting viewer
+    // acquire its own grant. No old finalizer may release that new grant.
+    const transition = this.stopUpstreamBeforeReleasingStreamSlot()
+      .catch((e) => {
+        this.logger.warn(`Post-revoke upstream stop failed: ${e}`);
+      })
       .finally(() => this.releaseStreamSlot());
+    this.streamSlotTransition = transition;
+    void transition.then(() => {
+      if (this.streamSlotTransition !== transition) return;
+      this.streamSlotTransition = undefined;
+      // Consumers attaching during teardown waited on the transition and
+      // returned; re-evaluate them once the old lease is safely released.
+      void this.updateLivestreamStateForMuxerClients();
+    });
   }
 
   /**
