@@ -1571,7 +1571,13 @@ export class StreamServer extends EventEmitter {
       return;
     }
 
-    const videoFps = this.videoMetadata?.videoFPS ?? 15;
+    // `videoFPS` is 0 on cameras that don't advertise a rate (e.g. Indoor Cam
+    // C220). `?? 15` lets that 0 through to JMuxer, which then substitutes its
+    // own default of 30 and stamps every sample 33ms apart while the camera
+    // really delivers one every ~67ms (14.8fps measured) — the muxed timeline
+    // runs ~2x faster than wall clock, on both tracks. `|| 15` uses the
+    // intended fallback instead.
+    const videoFps = this.videoMetadata?.videoFPS || 15;
 
     // Pick the muxer mode by whether this camera actually delivers audio.
     // JMuxer `both` will not emit a single fMP4 byte until BOTH the video
@@ -1608,6 +1614,41 @@ export class StreamServer extends EventEmitter {
     let emittedFirstChunk = false;
     let bothFallbackTimer: ReturnType<typeof setTimeout> | undefined;
 
+    // A fresh JMuxer emits nothing until its remuxer has parsed the parameter
+    // sets (`readyToDecode`): SPS+PPS for H.264, plus VPS for H.265. Cameras
+    // only repeat those when they emit a keyframe — every 4s on an Indoor Cam
+    // C220 — and this socket is usually created after the stream's opening
+    // keyframe has already gone out. The muxer then stays silent until the
+    // next keyframe, which is at least as long as
+    // BOTH_TO_VIDEO_FALLBACK_MS: `both` gets downgraded to video-only, the
+    // downstream ffmpeg still has an audio output mapped (the media stream
+    // options promised audio) and dies with "Output file does not contain any
+    // stream", killing the session in ~11-30s.
+    //
+    // Seed the muxer with the cached parameter sets so it is ready on the very
+    // next live frame. Raw TCP clients already get exactly this treatment via
+    // sendCachedHeaders(); the cache holds individual NALs, never a stale
+    // keyframe, so priming cannot put an old picture ahead of the live stream.
+    const primeMuxer = (muxer: JMuxer): void => {
+      // H.265: VPS → SPS → PPS (order matters for decoder initialisation).
+      const parameterSets =
+        videoCodec === "H265"
+          ? [this.cachedVPS, this.cachedSPS, this.cachedPPS]
+          : [this.cachedSPS, this.cachedPPS];
+      const available = parameterSets.filter((nal): nal is Buffer => !!nal);
+      if (available.length === 0) return;
+      try {
+        muxer.feed({ video: Buffer.concat(available) });
+        this.logger.debug(
+          `Primed ${videoCodec} muxer with ${available.length} cached parameter set(s) for ${this.options.serialNumber}`,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Failed to prime muxer with cached parameter sets: ${error}`,
+        );
+      }
+    };
+
     // Build (or rebuild) the JMuxer for this socket in the given mode and wire
     // its output to the socket. Replacing the entry in `muxerStreams` is how the
     // `both`→`video` fallback swaps modes without dropping the client.
@@ -1620,6 +1661,7 @@ export class StreamServer extends EventEmitter {
         clearBuffer: false,
         debug: false,
       });
+      primeMuxer(muxer);
       const duplex: Duplex = muxer.createStream();
       duplex.on("data", (chunk: Buffer) => {
         if (!emittedFirstChunk) {
@@ -1646,12 +1688,17 @@ export class StreamServer extends EventEmitter {
     );
 
     // `both` mode never emits a single fMP4 byte until JMuxer has BOTH a video
-    // keyframe and an audio sample (remux `isReady()`). Some cameras report
-    // audio (a stray ADTS frame flips `deliversAudio`) but don't actually
-    // deliver a continuous audio track once muxing starts — so `both` waits
-    // forever and the live view stays black. Guarantee video by rebuilding the
-    // muxer video-only if no output appears shortly. Video-capable cameras with
-    // real audio emit in well under this window, so they keep their audio.
+    // and an audio sample (remux `isReady()`). Some cameras report audio (a
+    // stray ADTS frame flips `deliversAudio`) but don't actually deliver a
+    // continuous audio track once muxing starts — so `both` waits forever and
+    // the live view stays black. Guarantee video by rebuilding the muxer
+    // video-only if no output appears shortly. Video-capable cameras with real
+    // audio emit in well under this window, so they keep their audio.
+    //
+    // Since the muxer is primed with the cached parameter sets (see
+    // primeMuxer), the video side is always ready, so silence here means the
+    // audio track genuinely never received a sample — which is what this
+    // fallback is for.
     if (mode === "both") {
       bothFallbackTimer = setTimeout(() => {
         bothFallbackTimer = undefined;

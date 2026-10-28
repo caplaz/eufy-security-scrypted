@@ -2385,6 +2385,152 @@ describe("StreamServer", () => {
     });
   });
 
+  describe("muxer priming with cached parameter sets", () => {
+    const START = Buffer.from([0x00, 0x00, 0x00, 0x01]);
+    const SPS_NAL = Buffer.from([0x67, 0x42, 0x00, 0x1e]);
+    const PPS_NAL = Buffer.from([0x68, 0xce, 0x3c, 0x80]);
+    const IDR_NAL = Buffer.from([0x65, 0xaa, 0xaa, 0xaa, 0xaa]);
+
+    const nalTypes = (buf: Buffer, hevc = false): number[] => {
+      const types: number[] = [];
+      let i = 0;
+      while (i < buf.length) {
+        const sc = buf.indexOf(START, i);
+        if (sc < 0) break;
+        const header = sc + START.length;
+        if (header >= buf.length) break;
+        types.push(hevc ? (buf[header] >> 1) & 0x3f : buf[header] & 0x1f);
+        i = header + 1;
+      }
+      return types;
+    };
+
+    const fireVideo = (data: Buffer, videoCodec = "H264", videoFPS = 30) => {
+      const handler = mockWsClient.addEventListener.mock.calls.find(
+        (c: any[]) => c[0] === "livestream video data",
+      )[1];
+      handler({
+        serialNumber: "TEST_DEVICE_123",
+        buffer: { data },
+        metadata: {
+          videoCodec,
+          videoFPS,
+          videoWidth: 1920,
+          videoHeight: 1080,
+        },
+      });
+    };
+
+    // Connect a muxed client and let it graduate to an active muxer. The
+    // connect starts a fresh metadata session (clearing stale audio state), so
+    // audio capability is re-declared afterwards to skip the 2.5s audio probe.
+    const attachMuxer = async () => {
+      await server.start();
+      const socket = net.createConnection({
+        port: server.getMuxedPort()!,
+        host: "127.0.0.1",
+      });
+      await new Promise((resolve) => socket.on("connect", resolve));
+      await wait(0);
+      (server as any).deliversAudio = true;
+      return socket;
+    };
+
+    const lastMuxer = () => {
+      const JMuxerMock = require("jmuxer").default;
+      return JMuxerMock.mock.results[JMuxerMock.mock.results.length - 1].value;
+    };
+
+    it("primes a new H.264 muxer with the cached SPS/PPS (never the stale IDR)", async () => {
+      const socket = await attachMuxer();
+
+      // Eufy bundles the parameter sets with the keyframe. This frame is what
+      // populates the cache — and it is NOT fanned out to the muxer, which is
+      // only constructed once this event has been processed.
+      fireVideo(
+        Buffer.concat([START, SPS_NAL, START, PPS_NAL, START, IDR_NAL]),
+      );
+      await wait(50);
+
+      const muxer = lastMuxer();
+      const feeds = muxer.feed.mock.calls.map((c: any[]) => c[0]);
+      const primed = feeds.filter((f: any) => f.video);
+
+      expect(primed).toHaveLength(1);
+      // Parameter sets only: a stale keyframe ahead of the live stream would
+      // make ffmpeg decode an old picture first.
+      expect(nalTypes(primed[0].video)).toEqual([7, 8]);
+      expect(primed[0].video.includes(IDR_NAL)).toBe(false);
+
+      socket.destroy();
+    });
+
+    it("primes an H.265 muxer with VPS→SPS→PPS in decoder order", async () => {
+      const socket = await attachMuxer();
+
+      fireVideo(createTestHevcData(), "H265");
+      await wait(50);
+
+      const muxer = lastMuxer();
+      const primed = muxer.feed.mock.calls
+        .map((c: any[]) => c[0])
+        .filter((f: any) => f.video);
+
+      expect(primed).toHaveLength(1);
+      expect(nalTypes(primed[0].video, true)).toEqual([32, 33, 34]);
+
+      socket.destroy();
+    });
+
+    it("does not prime a muxer when no parameter sets are cached", async () => {
+      const socket = await attachMuxer();
+
+      // IDR-only event: no SPS/PPS to cache, so there is nothing to prime with.
+      fireVideo(Buffer.concat([START, IDR_NAL]));
+      await wait(50);
+
+      expect(lastMuxer().feed).not.toHaveBeenCalled();
+
+      socket.destroy();
+    });
+
+    it("uses the fallback fps when the camera reports 0 (JMuxer would use 30)", async () => {
+      const socket = await attachMuxer();
+
+      fireVideo(
+        Buffer.concat([START, SPS_NAL, START, PPS_NAL, START, IDR_NAL]),
+        "H264",
+        0,
+      );
+      await wait(50);
+
+      const JMuxerMock = require("jmuxer").default;
+      const options =
+        JMuxerMock.mock.calls[JMuxerMock.mock.calls.length - 1][0];
+      expect(options.fps).toBe(15);
+
+      socket.destroy();
+    });
+
+    it("keeps a reported fps when the camera advertises one", async () => {
+      const socket = await attachMuxer();
+
+      fireVideo(
+        Buffer.concat([START, SPS_NAL, START, PPS_NAL, START, IDR_NAL]),
+        "H264",
+        24,
+      );
+      await wait(50);
+
+      const JMuxerMock = require("jmuxer").default;
+      const options =
+        JMuxerMock.mock.calls[JMuxerMock.mock.calls.length - 1][0];
+      expect(options.fps).toBe(24);
+
+      socket.destroy();
+    });
+  });
+
   describe("parameter-set caching (individual NAL units, not whole events)", () => {
     const START = Buffer.from([0x00, 0x00, 0x00, 0x01]);
     const SPS_NAL = Buffer.from([0x67, 0x42, 0x00, 0x1e]);

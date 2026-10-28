@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Muxed clients stalled until the camera's next keyframe**: a newly attached
+  fMP4 muxer is now primed with the cached parameter sets (SPS+PPS, or
+  VPS+SPS+PPS for H.265) instead of waiting for the next keyframe to carry
+  them. Raw TCP clients already received these headers on connect
+  (`sendCachedHeaders`); the muxed path did not, so a socket attaching mid-GOP
+  stayed silent for up to a full keyframe interval. Where that interval is at
+  least `BOTH_TO_VIDEO_FALLBACK_MS` (4s on an Indoor Cam C220) the `both` muxer
+  was always downgraded to video-only, and a downstream ffmpeg that had already
+  mapped an audio output — because the media stream options advertise audio —
+  exited with `Output file does not contain any stream`, killing the session
+  after ~11-30s. Priming makes the muxer ready on the first live frame, so the
+  audio-aware fallback now only fires when audio samples genuinely never
+  arrive.
+- **Muxed timeline ran ~2x faster than the camera**: `videoFPS: 0` (reported by
+  cameras that don't advertise a rate, e.g. Indoor Cam C220) reached JMuxer,
+  which substitutes its own default of 30fps and stamps every sample 33ms apart
+  while the camera delivers one every ~67ms (14.8fps measured). The intended
+  15fps fallback is now actually applied.
+
 ## [0.4.0] - 2026-07-20
 
 ### Added
