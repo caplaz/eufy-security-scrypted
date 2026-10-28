@@ -7,26 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-28
+
 ### Fixed
 
-- **Muxed clients stalled until the camera's next keyframe**: a newly attached
-  fMP4 muxer is now primed with the cached parameter sets (SPS+PPS, or
-  VPS+SPS+PPS for H.265) instead of waiting for the next keyframe to carry
-  them. Raw TCP clients already received these headers on connect
-  (`sendCachedHeaders`); the muxed path did not, so a socket attaching mid-GOP
-  stayed silent for up to a full keyframe interval. Where that interval is at
-  least `BOTH_TO_VIDEO_FALLBACK_MS` (4s on an Indoor Cam C220) the `both` muxer
-  was always downgraded to video-only, and a downstream ffmpeg that had already
-  mapped an audio output — because the media stream options advertise audio —
-  exited with `Output file does not contain any stream`, killing the session
-  after ~11-30s. Priming makes the muxer ready on the first live frame, so the
-  audio-aware fallback now only fires when audio samples genuinely never
-  arrive.
-- **Muxed timeline ran ~2x faster than the camera**: `videoFPS: 0` (reported by
-  cameras that don't advertise a rate, e.g. Indoor Cam C220) reached JMuxer,
-  which substitutes its own default of 30fps and stamps every sample 33ms apart
-  while the camera delivers one every ~67ms (14.8fps measured). The intended
-  15fps fallback is now actually applied.
+- **HomeKit sessions ending after 11–30 seconds** ([#42](https://github.com/caplaz/eufy-security-scrypted/pull/42)): New fMP4 muxers receive cached H.264 SPS/PPS or H.265 VPS/SPS/PPS parameter sets immediately. Clients attaching between keyframes can start muxing without waiting for the next keyframe, preventing an unnecessary video-only fallback that could drop audio and terminate playback.
+- **Incorrect timing when a camera reports zero FPS** ([#42](https://github.com/caplaz/eufy-security-scrypted/pull/42)): Apply the intended 15fps fallback instead of allowing JMuxer to default to 30fps. Cameras reporting a frame rate retain their reported value.
+- **Unnecessary retries when a livestream is already running** ([#37](https://github.com/caplaz/eufy-security-scrypted/pull/37)): Treat `device_livestream_already_running` as success when the initial status check is stale. The no-data watchdog remains active so an upstream stream that delivers no video can still recover.
+- **Camera permanently unavailable after HomeBase slot revocation** ([#46](https://github.com/caplaz/eufy-security-scrypted/issues/46), [#47](https://github.com/caplaz/eufy-security-scrypted/pull/47)): Clear the revoked-slot state when no consumers remain, including the idle-stop path, so the next viewer can start the camera again. Serialize teardown with arriving viewers so the old stream stops and releases its lease before a new viewer acquires one.
+
+### Contributors
+
+Thanks to [@realAbitbol](https://github.com/realAbitbol) for diagnosing and fixing muxer initialization and zero-FPS timing, including a regression test using the real JMuxer; [@engim4-git](https://github.com/engim4-git) for the detailed idle-slot revocation report and reproduction; and [@jeepster5](https://github.com/jeepster5) for the shared-HomeBase streaming reports that exposed the already-running state mismatch.
 
 ## [0.4.0] - 2026-07-20
 
