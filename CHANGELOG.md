@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Scrypted plugin missing from npm packages**: Include the built `dist/plugin.zip` in the npm tarball despite the repository-wide `dist/` ignore rule.
 
+### Changed
+
+- **Documentation refreshed**: Setup instructions, package APIs, CLI examples, Docker configuration, streaming behavior, release steps, and the in-app README now match the current implementation.
+
 ### Contributors
 
 Thanks to [@realAbitbol](https://github.com/realAbitbol) for diagnosing and fixing muxer initialization and zero-FPS timing, including a regression test using the real JMuxer; [@engim4-git](https://github.com/engim4-git) for the detailed idle-slot revocation report and reproduction; and [@jeepster5](https://github.com/jeepster5) for the shared-HomeBase streaming reports that exposed the already-running state mismatch.
