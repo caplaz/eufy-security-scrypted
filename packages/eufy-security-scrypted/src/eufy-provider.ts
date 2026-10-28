@@ -1132,60 +1132,43 @@ export class EufySecurityProvider
 
 ## 🚀 Quick Setup
 
-### 1. Start the eufy-security-ws Server
+### 1. Start the companion server
 
-This plugin requires a companion WebSocket server to communicate with Eufy cloud services.
-
-#### Option A: Docker (Recommended)
+This plugin uses eufy-security-ws for Eufy cloud authentication and direct device communication. The tested server is bropat/eufy-security-ws:3.1.0 (API schema 21).
 
 Create a \`docker-compose.yml\` file:
 
 \`\`\`yaml
 services:
   eufy-security-ws:
-    image: bropat/eufy-security-ws:latest
-    container_name: eufy-security-ws
+    image: bropat/eufy-security-ws:3.1.0
     ports:
       - "3000:3000"
+    volumes:
+      - ./data:/data
     environment:
-      - USERNAME=your_eufy_email@example.com
-      - PASSWORD=your_eufy_password
-      - COUNTRY=US
+      USERNAME: \${EUFY_EMAIL}
+      PASSWORD: \${EUFY_PASSWORD}
+      PORT: "3000"
+      LOG_LEVEL: info
     restart: unless-stopped
 \`\`\`
 
-Start the server:
-\`\`\`bash
-docker-compose up -d
-\`\`\`
+Set EUFY_EMAIL and EUFY_PASSWORD in your shell or a local .env file, then run \`docker compose up -d\`. Preserve the data volume. Keep credentials out of source control.
 
-#### Option B: NPM Installation
+### 2. Configure plugin settings
 
-\`\`\`bash
-npm install -g eufy-security-ws
-\`\`\`
+- **WebSocket URL**: \`ws://localhost:3000\` by default. For containerized Scrypted, use a companion service name on a shared Docker network or a reachable host address; localhost refers to Scrypted's own container.
+- **Debug Logging**: Enable for troubleshooting.
+- **Current Memory Usage**: Read-only RSS; no memory-threshold setting is available.
+- **Maximum Compatibility Encoders**: Shared H.265-to-H.264 capacity, default 1. New encoders are temperature-gated at 85 °C and allowed again at 75 °C by default.
+- Camera settings include **H.264 Compatibility Mode** (Auto / Force / Native) and **Background Thumbnail Refresh** (Off to 4 hours, default 2 hours).
 
-Create a \`config.json\`:
-\`\`\`json
-{
-  "username": "your_eufy_email@example.com",
-  "password": "your_eufy_password",
-  "country": "US"
-}
-\`\`\`
+Native video can be H.264 or H.265. An explicit p2p request remains native even in Force mode; select p2p-h264 when a verified H.265 source requires compatibility conversion. Snapshots use the last cached frame or a placeholder and do not wake cameras on demand.
 
-Run the server:
-\`\`\`bash
-eufy-security-ws
-\`\`\`
+The default ws:// connection and local media TCP inputs are unencrypted; use a trusted network. This integration still requires Eufy cloud authentication.
 
-### 2. Configure Plugin Settings
-
-After starting the server, configure the plugin:
-
-- **WebSocket URL**: \`ws://localhost:3000\` (default)
-- **Debug Logging**: Enable for troubleshooting
-- **Memory Management**: Configure memory thresholds
+See the [plugin documentation](https://github.com/caplaz/eufy-security-scrypted/blob/main/packages/eufy-security-scrypted/README.md) and [release notes](https://github.com/caplaz/eufy-security-scrypted/blob/main/CHANGELOG.md) for details.
 
 ## 🔌 WebSocket Connection
 
@@ -1207,7 +1190,7 @@ Configure the connection to your eufy-security-ws server:
 **Authentication Status**: ${this.getAuthStatusDescription()}
 
 ### Authentication Flow
-1. Click **"Connect Account"** in plugin settings
+1. Click **"Connect to Eufy Cloud"** in plugin settings
 2. Complete CAPTCHA challenge (if required)
 3. Enter 2FA verification code (if enabled)
 4. Devices will automatically appear
@@ -1229,9 +1212,9 @@ Configure the connection to your eufy-security-ws server:
 
 ## 🔧 Quick Actions
 
-- **Reconnect**: Use if connection is lost
-- **Refresh Devices**: Sync latest device list from Eufy
-- **Debug Toggle**: Enable for troubleshooting logs
+- **Connect to Eufy Cloud** / **Disconnect from Eufy Cloud**: Manage account authentication.
+- **Refresh**: Use the device refresh interface to request current properties.
+- **Debug Logging**: Enable for troubleshooting logs.
 
 ---
 

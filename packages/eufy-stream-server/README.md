@@ -1,605 +1,173 @@
 # @caplaz/eufy-stream-server
 
-> **TCP streaming server for raw H.264 and H.265 video from Eufy cameras**
+Serve Eufy camera video from an `EufyWebSocketClient` on two TCP endpoints:
 
-A lightweight, focused streaming server that delivers raw H.264 or H.265 video over TCP. Perfect for integration with FFmpeg, media players, and custom video processing pipelines.
+| Endpoint | Format                                                                   | Address                                                            |
+| -------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| Raw      | Annex-B H.264 or H.265/HEVC video, without audio                         | Configured `host` and `port`; read the bound port with `getPort()` |
+| Muxed    | Fragmented MP4 containing H.264/H.265 video and AAC audio when available | Random port on `127.0.0.1`; read it with `getMuxedPort()`          |
 
-## 🎯 Quick Start
+The muxed endpoint uses one in-process JMuxer per connection. It remuxes video and ADTS AAC from WebSocket events without an FFmpeg subprocess or re-encoding. Consumers still need decoder support for the camera's codec.
 
-### Prerequisites
+## Quick start
 
-1. **Node.js ≥18.0.0** - Modern Node.js runtime
-2. **@caplaz/eufy-security-client** - WebSocket client for Eufy devices
-
-### Installation
+Install the package and connect to a running [eufy-security-ws server](../../docker/README.md). Camera authentication and driver setup belong to the WebSocket server/client; see the [client README](../eufy-security-client/README.md).
 
 ```bash
-npm install @caplaz/eufy-stream-server
+npm install @caplaz/eufy-stream-server @caplaz/eufy-security-client tslog
 ```
 
-### Basic Example
+This example requires an already authenticated Eufy driver. Complete login, CAPTCHA, or verification-code handling using the client guide before running it.
 
 ```typescript
+import { EufyWebSocketClient } from "@caplaz/eufy-security-client";
 import { StreamServer } from "@caplaz/eufy-stream-server";
-import { EufySecurityClient } from "@caplaz/eufy-security-client";
+import { Logger, type ILogObj } from "tslog";
 
-// Setup Eufy client
-const eufyClient = new EufySecurityClient({
-  wsUrl: "ws://localhost:3000",
-});
-await eufyClient.connect();
+const logger = new Logger<ILogObj>({ minLevel: 3 });
+const client = new EufyWebSocketClient("ws://localhost:3000", logger);
+await client.connect();
+// The socket can open before schema negotiation finishes.
+const readyDeadline = Date.now() + 10000;
+while (!client.isConnected()) {
+  if (Date.now() >= readyDeadline) {
+    client.disconnect();
+    throw new Error("WebSocket schema negotiation timed out");
+  }
+  await new Promise((resolve) => setTimeout(resolve, 100));
+}
+// Subscribe before any authentication flow; this example requires prior login.
+await client.startListening();
+if (!(await client.commands.driver().isConnected()).connected) {
+  client.disconnect();
+  throw new Error("Authenticate the Eufy driver using the client guide first");
+}
 
-// Create stream server
 const server = new StreamServer({
-  port: 8080,
-  wsClient: eufyClient,
-  serialNumber: "T8210N20123456789",
+  wsClient: client,
+  serialNumber: "YOUR_CAMERA_SERIAL",
+  host: "127.0.0.1",
+  port: 0, // Let the OS choose the raw port too.
+  logger,
 });
-
-// Start server
+server.on("error", (error) => logger.error(error));
+server.on("streamError", (error) => logger.error(error));
 await server.start();
-console.log("🎥 Stream server running on port 8080");
 
-// Server automatically starts/stops camera streaming based on client connections
-```
+console.log(`Raw video: tcp://127.0.0.1:${server.getPort()}`);
+console.log(`Muxed MP4: tcp://127.0.0.1:${server.getMuxedPort()}`);
 
----
-
-## ✨ Features
-
-- **Raw H.264/H.265 Streaming** - Direct H.264 or H.265 video without audio or MP4 complexity
-- **TCP Server** - Simple TCP server for easy client connections
-- **NAL Unit Parsing** - Automatic H.264 and H.265/HEVC structure parsing and keyframe detection
-- **Connection Management** - Handles multiple concurrent clients with auto-cleanup
-- **Automatic Camera Control** - Starts/stops streaming based on client activity
-- **Statistics** - Real-time streaming and connection metrics
-- **Snapshot Capture** - Grab single keyframes on demand
-- **Event-Driven** - Real-time events for connections and streaming
-
----
-
-## 🔌 Server Management
-
-### Starting the Server
-
-```typescript
-const server = new StreamServer({
-  port: 8080,              // TCP port (default: 8080)
-  host: "0.0.0.0",         // Bind address (default: all interfaces)
-  maxConnections: 10,      // Max concurrent clients (default: 10)
-  logger: customLogger,    // Optional tslog logger
-  wsClient: eufyClient,    // Required: EufySecurityClient
-  serialNumber: "T8210...", // Required: Camera serial
-});
-
-await server.start();
-```
-
-### Server Events
-
-```typescript
-server.on("started", () => {
-  console.log("✅ Server started");
-});
-
-server.on("stopped", () => {
-  console.log("⏹️  Server stopped");
-});
-
-server.on("error", (error) => {
-  console.error("❌ Server error:", error);
+process.once("SIGINT", async () => {
+  await server.stop();
+  client.disconnect();
 });
 ```
 
-### Stopping the Server
+Use the printed ports with FFmpeg or FFplay. For example:
 
-```typescript
-await server.stop();
-console.log("Server stopped and cleaned up");
+```bash
+# Replace RAW_PORT and MUXED_PORT with the values printed above.
+ffplay -f h264 tcp://127.0.0.1:RAW_PORT
+# For raw HEVC, use -f hevc instead of -f h264.
+ffplay -f mp4 tcp://127.0.0.1:MUXED_PORT
 ```
 
----
+A connection starts the camera stream when needed. Calling `start()` alone opens the listeners without requesting camera video. Await `start()` before reading both ports: the `started` event fires when the raw listener opens, before the muxed listener is ready.
 
-## 👥 Client Connections
+## Stream lifecycle and 0.4.1 behavior
 
-### Connection Events
+- Consumers include raw clients, active/pending muxed clients, snapshot requests, and metadata bootstrap holds. They keep the upstream stream needed; `getActiveConnectionCount()` counts raw clients only.
+- Disconnecting the last viewer does **not** immediately stop the camera. The activity monitor checks every 5 seconds and stops an unused stream after more than 12 seconds without consumer activity. A snapshot that started its own stream uses an 8-second post-snapshot linger when no consumers remain.
+- Raw clients receive cached parameter sets on connect. In 0.4.1, new muxers are also primed with cached SPS/PPS for H.264 or VPS/SPS/PPS for H.265. This lets them initialize without waiting for the next repeated parameter sets; a decoder can still need the next keyframe to display a picture.
+- A camera reporting `videoFPS: 0` now uses the intended 15fps muxer fallback instead of JMuxer's 30fps default. A nonzero advertised rate is retained.
+- Audio capability is detected from ADTS AAC samples for each session. The muxer briefly probes for audio; cameras without usable audio use video-only output. A `both` muxer that emits nothing for 4 seconds is rebuilt video-only. The raw endpoint always excludes audio.
+- Optional station-slot coordination prevents overlapping P2P streams on one HomeBase. A revoked stream stops before its lease is released. Existing preempted consumers remain suppressed until they drain. The 0.4.1 fix clears suppression for an already idle stream and serializes new consumers behind its teardown, allowing later viewers to obtain a fresh grant.
+- An upstream `device_livestream_already_running` start error is treated as success, while the no-data watchdog still checks that video arrives. `upstreamWedged` lets the integrating application arrange station recovery; the server does not itself restart the Docker service.
 
-```typescript
-server.on("clientConnected", (connectionId, connectionInfo) => {
-  console.log(`📱 Client ${connectionId} connected`);
-  console.log(`   From: ${connectionInfo.remoteAddress}`);
-  console.log(`   Port: ${connectionInfo.remotePort}`);
-});
+## Configuration
 
-server.on("clientDisconnected", (connectionId) => {
-  console.log(`�� Client ${connectionId} disconnected`);
-});
-```
+`StreamServerOptions` is exported from the package root.
 
-### Connection Management
+| Option              | Default                              | Meaning                                                                                                             |
+| ------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `wsClient`          | Required                             | Connected `EufyWebSocketClient`                                                                                     |
+| `serialNumber`      | Required                             | Camera serial used to filter video/audio events                                                                     |
+| `port`              | `8080`                               | Raw TCP port; `0` requests an available port                                                                        |
+| `host`              | `"0.0.0.0"`                          | Raw listener bind address                                                                                           |
+| `maxConnections`    | `10`                                 | Maximum concurrent raw TCP clients; does not cap muxed sockets                                                      |
+| `logger`            | Internal tslog logger, `minLevel: 3` | Optional `Logger<ILogObj>`; use `minLevel: 2` for debug logs                                                        |
+| `initialVideoCodec` | No public metadata hint              | Optional `"H264"` or `"H265"` hint until live metadata arrives; muxer timeout fallback is H.264 when no hint exists |
+| `acquireStreamSlot` | No coordination                      | Optional `(priority: "live" \| "background", onRevoke: () => void) => lease \| null`                                |
 
-The server automatically:
+A station lease provides `release()`, `readonly active`, `readonly whenReady: Promise<void>`, and `markDelivering()`. Its `whenReady` gates starting after another camera yields. The integrating coordinator decides whether to grant or reject an acquisition. See the [Scrypted coordinator](../eufy-security-scrypted/src/utils/station-stream-coordinator.ts) for the shared HomeBase policy.
 
-- ✅ Accepts multiple concurrent TCP clients
-- ✅ Starts camera streaming on first client connection
-- ✅ Stops camera streaming when last client disconnects
-- ✅ Broadcasts video data to all connected clients
-- ✅ Cleans up resources when clients disconnect
+## Snapshots and metadata
 
-### Connection Info
+`captureSnapshot(timeoutMs = 15000)` starts streaming if needed and waits for a **new** IDR/IRAP keyframe. It returns an Annex-B `Buffer` with available cached parameter sets prepended, not JPEG data. The timeout applies to waiting for the keyframe after upstream setup. Convert the buffer with a codec-aware tool such as FFmpeg.
 
-```typescript
-const stats = server.getStats();
-console.log(`Active connections: ${stats.connections.active}`);
-console.log(`Total connections: ${stats.connections.total}`);
-```
-
----
-
-## 🎥 Video Streaming
-
-### Stream Events
+`getCachedKeyframe(maxAgeMs)` is the separate, synchronous cache path. It returns `{ data, codec, ageMs }` or `null`, does not wake the camera, and does not refresh an expired cache. `captureSnapshot()` does not automatically serve this cache.
 
 ```typescript
-server.on("videoStreamed", (streamData) => {
-  console.log(`📹 Streamed ${streamData.data.length} bytes`);
-  console.log(`   Keyframe: ${streamData.isKeyFrame ? "Yes" : "No"}`);
-  console.log(`   Timestamp: ${streamData.timestamp}`);
-});
+import { writeFile } from "node:fs/promises";
+
+// With the server from the quick-start example already started:
+const cached = server.getCachedKeyframe(30000);
+const data = cached?.data ?? (await server.captureSnapshot(30000));
+await writeFile("snapshot.annexb", data);
+// H.264: ffmpeg -f h264 -i snapshot.annexb -frames:v 1 snapshot.jpg
+// H.265: ffmpeg -f hevc -i snapshot.annexb -frames:v 1 snapshot.jpg
 ```
 
-### Video Metadata
-
-```typescript
-// Wait for metadata
-const metadata = await server.waitForVideoMetadata(5000);
-console.log(`Video: ${metadata.videoWidth}x${metadata.videoHeight}`);
-console.log(`FPS: ${metadata.videoFPS}`);
-console.log(`Codec: ${metadata.videoCodec}`);
-
-// Or get current metadata
-const current = server.getVideoMetadata();
-if (current) {
-  console.log("Metadata available:", current);
-}
-```
-
-### Manual Streaming
-
-```typescript
-// Manually push H.264 data (advanced use)
-const h264Data = Buffer.from(/* your H.264 data */);
-const success = await server.streamVideo(h264Data, Date.now(), true);
-
-if (success) {
-  console.log("Data streamed to clients");
-}
-```
-
----
-
-## �� Snapshot Capture
-
-### Capturing Snapshots
-
-```typescript
-try {
-  // Capture a keyframe (starts stream if needed)
-  const snapshot = await server.captureSnapshot(15000); // 15s timeout
-  
-  console.log(`✅ Captured ${snapshot.length} bytes`);
-  
-  // Save to file
-  fs.writeFileSync("snapshot.h264", snapshot);
-  
-  // Convert to image with FFmpeg
-  // ffmpeg -i snapshot.h264 -frames:v 1 snapshot.jpg
-  
-} catch (error) {
-  console.error("Failed to capture snapshot:", error);
-}
-```
-
-### How It Works
-
-1. Starts camera stream if not already streaming
-2. Waits for next keyframe (I-frame)
-3. Returns the keyframe as a Buffer
-4. Stops stream if it was started for snapshot
-5. Timeout if no keyframe received within specified time
-
----
-
-## 🎬 Complete Examples
-
-### Basic Streaming Server
-
-```typescript
-import { StreamServer } from "@caplaz/eufy-stream-server";
-import { EufySecurityClient } from "@caplaz/eufy-security-client";
-
-async function runStreamingServer() {
-  // Setup Eufy client
-  const eufy = new EufySecurityClient({
-    wsUrl: "ws://localhost:3000",
-  });
-  
-  await eufy.connect();
-  console.log("✅ Connected to eufy-security-ws");
-  
-  // Get camera info
-  const devices = await eufy.getDevices();
-  const camera = devices.find(d => d.type === "camera");
-  
-  console.log(`📹 Streaming from: ${camera.name}`);
-  
-  // Create server
-  const server = new StreamServer({
-    port: 8080,
-    wsClient: eufy,
-    serialNumber: camera.serial_number,
-  });
-  
-  // Setup event handlers
-  server.on("clientConnected", (id, info) => {
-    console.log(`👤 Client connected from ${info.remoteAddress}`);
-  });
-  
-  server.on("videoStreamed", (data) => {
-    if (data.isKeyFrame) {
-      console.log(`🔑 Keyframe: ${data.data.length} bytes`);
-    }
-  });
-  
-  // Start server
-  await server.start();
-  console.log("🚀 Server running on port 8080");
-  console.log("   Connect with: ffplay tcp://localhost:8080");
-  
-  // Cleanup on exit
-  process.on("SIGINT", async () => {
-    console.log("\n⏹️  Stopping server...");
-    await server.stop();
-    await eufy.disconnect();
-    process.exit(0);
-  });
-}
-
-runStreamingServer();
-```
-
-### Multi-Camera Server
-
-```typescript
-import { StreamServer } from "@caplaz/eufy-stream-server";
-import { EufySecurityClient } from "@caplaz/eufy-security-client";
-
-async function runMultiCameraServer() {
-  const eufy = new EufySecurityClient({
-    wsUrl: "ws://localhost:3000",
-  });
-  
-  await eufy.connect();
-  
-  const cameras = (await eufy.getDevices()).filter(d => d.type === "camera");
-  const servers: StreamServer[] = [];
-  
-  // Create server for each camera
-  for (let i = 0; i < cameras.length; i++) {
-    const camera = cameras[i];
-    const port = 8080 + i;
-    
-    const server = new StreamServer({
-      port,
-      wsClient: eufy,
-      serialNumber: camera.serial_number,
-    });
-    
-    await server.start();
-    console.log(`📹 ${camera.name}: tcp://localhost:${port}`);
-    
-    servers.push(server);
-  }
-  
-  // Cleanup
-  process.on("SIGINT", async () => {
-    for (const server of servers) {
-      await server.stop();
-    }
-    await eufy.disconnect();
-    process.exit(0);
-  });
-}
-
-runMultiCameraServer();
-```
-
-### Snapshot Service
-
-```typescript
-import { StreamServer } from "@caplaz/eufy-stream-server";
-import { EufySecurityClient } from "@caplaz/eufy-security-client";
-import fs from "fs";
-
-async function captureAndSaveSnapshot(serialNumber: string) {
-  const eufy = new EufySecurityClient({
-    wsUrl: "ws://localhost:3000",
-  });
-  
-  await eufy.connect();
-  
-  const server = new StreamServer({
-    port: 8080,
-    wsClient: eufy,
-    serialNumber,
-  });
-  
-  try {
-    console.log("📸 Capturing snapshot...");
-    
-    const snapshot = await server.captureSnapshot(15000);
-    
-    const filename = `snapshot-${Date.now()}.h264`;
-    fs.writeFileSync(filename, snapshot);
-    
-    console.log(`✅ Saved to ${filename} (${snapshot.length} bytes)`);
-    
-  } catch (error) {
-    console.error("❌ Failed:", error.message);
-  } finally {
-    await eufy.disconnect();
-  }
-}
-
-captureAndSaveSnapshot("T8210N20123456789");
-```
-
----
-
-## 🔧 H.264 / H.265 Parser
-
-### Using the Parser (H.264)
-
-```typescript
-import { H264Parser } from "@caplaz/eufy-stream-server";
-
-const parser = new H264Parser(logger);
-
-// Extract NAL units
-const nalUnits = parser.extractNALUnits(h264Buffer);
-console.log(`Found ${nalUnits.length} NAL units`);
-
-nalUnits.forEach(nal => {
-  console.log(`NAL Type: ${nal.type} (${nal.typeName})`);
-  console.log(`Size: ${nal.data.length} bytes`);
-});
-
-// Check for keyframe
-const isKeyFrame = parser.isKeyFrame(h264Buffer);
-console.log(`Is keyframe: ${isKeyFrame ? "Yes" : "No"}`);
-
-// Extract metadata
-const metadata = parser.extractVideoMetadata(h264Buffer);
-if (metadata) {
-  console.log(`Profile: ${metadata.profile}`);
-  console.log(`Level: ${metadata.level}`);
-  console.log(`Resolution: ${metadata.videoWidth}x${metadata.videoHeight}`);
-}
-
-// Validate data
-const isValid = parser.validateH264Data(h264Buffer);
-console.log(`Valid H.264: ${isValid ? "Yes" : "No"}`);
-```
-
-### Using the Parser (H.265 / HEVC)
-
-```typescript
-// Extract H.265 NAL units
-const nalUnits = parser.extractNALUnitsHevc(hevcBuffer);
-nalUnits.forEach(nal => {
-  console.log(`NAL Type: ${nal.type} (${nal.typeName})`);
-});
-
-// Check for H.265 keyframe (IRAP: BLA/IDR/CRA, NAL types 16–23)
-const isKeyFrame = parser.isKeyFrameHevc(hevcBuffer);
-
-// Validate H.265 Annex-B data
-const isValid = parser.validateHevcData(hevcBuffer);
-```
-
-### H.264 NAL Unit Types
-
-| Type | Name          | Description           |
-| ---- | ------------- | --------------------- |
-| 1    | Slice         | Video slice           |
-| 5    | IDR Slice     | Keyframe (I-frame)    |
-| 6    | SEI           | Supplemental info     |
-| 7    | SPS           | Sequence parameters   |
-| 8    | PPS           | Picture parameters    |
-| 9    | AUD           | Access unit delimiter |
-
-### H.265 NAL Unit Types (key subset)
-
-| Type  | Name      | Description                        |
-| ----- | --------- | ---------------------------------- |
-| 16–23 | IRAP      | Keyframe (BLA, IDR_W_RADL, IDR_N_LP, CRA) |
-| 32    | VPS       | Video Parameter Set                |
-| 33    | SPS       | Sequence Parameter Set             |
-| 34    | PPS       | Picture Parameter Set              |
-| 39    | SEI       | Supplemental info (prefix)         |
-
-> **Note**: H.265 NAL type is extracted as `(byte0 >> 1) & 0x3F` (bits 6:1 of the first header byte), not `byte0 & 0x1F` as in H.264.
-
----
-
-## 📊 Statistics & Monitoring
-
-### Getting Statistics
-
-```typescript
-const stats = server.getStats();
-
-console.log("📊 Server Statistics:");
-console.log(`  Running: ${stats.isRunning}`);
-console.log(`  Active: ${stats.isActive}`);
-console.log(`  Uptime: ${stats.uptime}s`);
-
-console.log("👥 Connections:");
-console.log(`  Active: ${stats.connections.active}`);
-console.log(`  Total: ${stats.connections.total}`);
-
-console.log("�� Streaming:");
-console.log(`  Frames: ${stats.streaming.framesProcessed}`);
-console.log(`  Keyframes: ${stats.streaming.keyFrames}`);
-console.log(`  Data: ${(stats.streaming.bytesProcessed / 1024 / 1024).toFixed(2)} MB`);
-console.log(`  Duration: ${stats.streaming.duration}s`);
-```
-
-### Real-Time Monitoring
-
-```typescript
-// Monitor every 10 seconds
-setInterval(() => {
-  const stats = server.getStats();
-  
-  if (stats.isActive) {
-    console.log(`📹 Active - ${stats.connections.active} clients`);
-    console.log(`   ${stats.streaming.framesProcessed} frames, ${stats.streaming.keyFrames} keyframes`);
-  } else {
-    console.log("💤 Idle - waiting for connections");
-  }
-}, 10000);
-```
-
----
-
-## 🔍 Troubleshooting
-
-### Server Won't Start
-
-**Problem**: Server fails to start
-
-**Solutions**:
-
-1. ✅ Check port is not in use: `lsof -i :8080` or `netstat -an | grep 8080`
-2. ✅ Try different port: `{ port: 8081 }`
-3. ✅ Check permissions (ports < 1024 need sudo on Linux)
-4. ✅ Verify eufy client is connected: `wsClient.isConnected()`
-5. ✅ Enable debug logging by passing a logger with a debug-level `minLevel`
-
-### No Video Data
-
-**Problem**: Clients connect but receive no data
-
-**Solutions**:
-
-1. ✅ Verify camera is online in Eufy app
-2. ✅ Check camera serial number is correct
-3. ✅ Ensure camera supports streaming (not a sensor)
-4. ✅ Check eufy-security-ws logs for errors
-5. ✅ Try restarting eufy-security-ws server
-6. ✅ Wait 5-10 seconds for stream to initialize
-
-### Snapshot Timeout
-
-**Problem**: `captureSnapshot()` times out
-
-**Solutions**:
-
-1. ✅ Increase timeout: `captureSnapshot(30000)` (30 seconds)
-2. ✅ Check camera is streaming: Try viewing in Eufy app first
-3. ✅ Verify network connectivity to camera
-4. ✅ Check if camera is busy (already streaming elsewhere)
-5. ✅ Try manual stream: `startStream()` first
-
-### High Memory Usage
-
-**Problem**: Memory usage growing over time
-
-**Solutions**:
-
-1. ✅ Ensure proper cleanup: Call `stop()` when done
-2. ✅ Remove event listeners when not needed
-3. ✅ Don't accumulate video data in handlers
-4. ✅ Limit concurrent connections: `{ maxConnections: 5 }`
-5. ✅ Monitor with: `process.memoryUsage()`
-
----
-
-## 📊 API Reference
-
-### StreamServer Constructor
-
-```typescript
-interface StreamServerOptions {
-  port?: number;                    // TCP port (default: 8080)
-  host?: string;                    // Bind address (default: '0.0.0.0')
-  maxConnections?: number;          // Max clients (default: 10)
-  debug?: boolean;                  // Debug logging (default: false)
-  logger?: Logger<ILogObj>;         // Custom tslog logger
-  wsClient: EufySecurityClient;     // Required: Eufy client
-  serialNumber: string;             // Required: Camera serial
-}
-```
-
-### Methods
-
-| Method                            | Returns                  | Description                      |
-| --------------------------------- | ------------------------ | -------------------------------- |
-| `start()`                         | `Promise<void>`          | Start TCP server                 |
-| `stop()`                          | `Promise<void>`          | Stop server and cleanup          |
-| `streamVideo(data, timestamp, isKeyFrame)` | `Promise<boolean>` | Stream H.264 data    |
-| `captureSnapshot(timeout?)`       | `Promise<Buffer>`        | Capture single keyframe          |
-| `getStats()`                      | `ServerStats`            | Get server statistics            |
-| `getActiveConnectionCount()`      | `number`                 | Get active client count          |
-| `isRunning()`                     | `boolean`                | Check if server is running       |
-| `getVideoMetadata()`              | `VideoMetadata \| null`  | Get video metadata               |
-| `waitForVideoMetadata(timeout?)`  | `Promise<VideoMetadata>` | Wait for metadata                |
-
-### Events
-
-| Event                | Payload                                    | Description              |
-| -------------------- | ------------------------------------------ | ------------------------ |
-| `started`            | `void`                                     | Server started           |
-| `stopped`            | `void`                                     | Server stopped           |
-| `clientConnected`    | `(connectionId, connectionInfo)`           | Client connected         |
-| `clientDisconnected` | `(connectionId)`                           | Client disconnected      |
-| `videoStreamed`      | `(streamData)`                             | Video data streamed      |
-| `metadataReceived`   | `(metadata)`                               | Video metadata received  |
-| `error`              | `(error)`                                  | Error occurred           |
-
----
-
-## 🤝 Related Packages
-
-- **[@caplaz/eufy-security-client](../eufy-security-client)** - Required WebSocket client
-- **[@caplaz/eufy-security-cli](../eufy-security-cli)** - Command-line interface
-- **[@caplaz/eufy-security-scrypted](../eufy-security-scrypted)** - Scrypted plugin
-
----
-
-## 📄 License
-
-MIT License - See [LICENSE](../../LICENSE) file for details
-
----
-
-## 🙏 Credits
-
-Built for the Eufy community
-
----
-
-## 🎉 Contributing
-
-Contributions welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new features
-4. Ensure tests pass: `npm test`
-5. Submit a pull request
-
----
-
-**Made with ❤️ for the Eufy community**
+`getVideoMetadata()` returns the captured record, a codec hint with zero width/height/fps, or `null`. A stored record can belong to an earlier session; use `isMetadataVerifiedForCurrentSession()` when freshness matters. `waitForVideoMetadata(timeoutMs = 10000, { signal }?)` waits for current-session video metadata but does not itself start streaming.
+
+For callers that need to wake the camera before opening a socket, `acquireMetadataWaiter(timeoutMs = 10000)` returns `{ promise, release, cancel }`. Await `promise`, then call `release()` after handing off to a real consumer; `cancel()` also releases the hold. On timeout the server can retain a short warm bootstrap hold, so a timeout does not imply immediate camera shutdown.
+
+## API and events
+
+| Method                                               | Return / purpose                                                                                                    |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `start()` / `stop()`                                 | `Promise<void>`; open listeners / stop upstream and clean up listeners, sockets, timers, and protocol subscriptions |
+| `getPort()` / `getMuxedPort()`                       | `number \| undefined`; actual listener ports                                                                        |
+| `isRunning()`                                        | `boolean`; raw listener active state                                                                                |
+| `getActiveConnectionCount()`                         | Number of raw clients                                                                                               |
+| `getStats()` / `resetStats()`                        | `ServerStats` / reset streaming counters                                                                            |
+| `streamVideo(data: Buffer, timestamp?, isKeyFrame?)` | `Promise<boolean>`; parse/cache raw video and broadcast it to raw clients; does not feed muxers or start upstream   |
+| `getAudioStatus()`                                   | `"unknown" \| "aac" \| "none"`                                                                                      |
+| `setCachedKeyframe(data, codec)`                     | Seed an empty keyframe cache; codec is `"H264" \| "H265"`, timestamp becomes now                                    |
+| `holdWarmLease(ms = 60000)`                          | Request a temporary background bootstrap hold                                                                       |
+| `onNextConsumerAttached(callback)`                   | Register a one-shot callback for the next raw/muxed consumer; returns its removal function                          |
+| `setRecycleInFlight(value: boolean)`                 | Defer upstream starts during externally managed station recovery; rearm waiting consumers when cleared              |
+
+`ServerStats` has `isActive`, `port`, `uptime` in milliseconds, `connections: { active, total, connections }`, and `streaming: { framesProcessed, bytesTransferred, lastFrameTime }`. Connection statistics describe the raw endpoint; use `getPort()` for an OS-assigned port rather than the configured `stats.port`.
+
+| Event                                    | Arguments                                                          |
+| ---------------------------------------- | ------------------------------------------------------------------ |
+| `started`, `stopped`                     | None                                                               |
+| `clientConnected`                        | `connectionId, connectionInfo` for a raw client                    |
+| `clientDisconnected`                     | `connectionId` for a raw client                                    |
+| `videoStreamed`                          | `{ data, timestamp, isKeyFrame }`                                  |
+| `metadataReceived`                       | Video metadata from a session's first metadata-bearing video event |
+| `livestreamActive`, `livestreamInactive` | `{ serialNumber }`; confirmed upstream video state changes         |
+| `upstreamWedged`                         | `{ serialNumber, reason, attempts?, staleMs?, consumers? }`        |
+| `streamError`                            | Processing/upstream error                                          |
+| `error`                                  | TCP listener error                                                 |
+
+The package root exports `StreamServer`, `ConnectionManager`, `H264Parser`, and types `StreamServerOptions`, `StreamData`, `ConnectionInfo`, `ServerStats`, and `NALUnit`. `VideoMetadata` comes from `@caplaz/eufy-security-client`. Lease and metadata-waiter shapes can be inferred from the options/methods; they are not root type exports.
+
+`H264Parser` accepts a tslog logger. It provides `extractNALUnits`, `isKeyFrame`, `validateH264Data`, and `getNALTypeName` for H.264, plus `extractNALUnitsHevc`, `isKeyFrameHevc`, `validateHevcData`, and `getNALTypeNameHevc` for H.265. Extracted NAL units have `type`, `data`, and `isKeyFrame`; use the name lookup methods for display names.
+
+Additional root exports support the plugin's compatibility path: `H264CompatibilityRelay`, its shared relay helpers, `CompatibilityEncoderPool`, `CompatibilityEncoderCapacityError`, `ThermalGovernor`, and fMP4 box helpers. See [the source exports](src/index.ts) for their associated exported types and [the plugin README](../eufy-security-scrypted/README.md) for integration behavior.
+
+## Troubleshooting
+
+- Check the WebSocket server connection, camera serial, and Eufy device availability first. Battery cameras can take longer to wake than an always-powered camera.
+- For silent muxed output, confirm the live codec, audio status, and `streamError` logs. Video-only output is expected when no usable ADTS audio arrives.
+- For snapshots, select the correct raw input codec when converting to JPEG. Increasing the snapshot timeout does not disable upstream watchdog/recovery policy.
+- Bind the raw endpoint explicitly to `127.0.0.1` for local consumers. The muxed endpoint is always local.
+- Call `stop()` before disconnecting the WebSocket client so upstream teardown can complete.
+
+## Development
+
+From this package directory, run `npm run build`, `npm test`, or `npm run lint`. See the [root README](../../README.md) for the monorepo workflow.
+
+[MIT license](../../LICENSE).

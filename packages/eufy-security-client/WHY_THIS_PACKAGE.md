@@ -1,344 +1,45 @@
-# Why This Package Exists: Node.js Compatibility with Eufy Security
+# Why this package exists
 
-## TL;DR
+`@caplaz/eufy-security-client` gives Node.js applications a typed WebSocket interface to a running [eufy-security-ws](https://github.com/bropat/eufy-security-ws) server. It is a different package from bropat's `eufy-security-client`, which implements the underlying Eufy integration.
 
-**Modern Node.js versions (≥18.19.1) cannot directly communicate with Eufy security devices** due to deprecated cryptographic protocols. This package solves the problem by connecting to an external `eufy-security-ws` server that handles the legacy encryption, providing a clean WebSocket API for modern Node.js applications.
-
----
-
-## The Problem
-
-### Eufy's Legacy Cryptography
-
-Eufy security devices use **deprecated and insecure cryptographic protocols** that modern Node.js versions no longer support:
-
-| **What Eufy Uses (Deprecated)** | **Modern Standard**       | **Impact**               |
-| ------------------------------- | ------------------------- | ------------------------ |
-| RSA_PKCS1_PADDING (v1.5)        | RSA-OAEP (PKCS#1 v2.2)    | ❌ Removed from Node.js  |
-| AES-ECB mode                    | AES-GCM/AES-CBC with HMAC | ⚠️ Vulnerable to attacks |
-| Static key derivation           | Ephemeral keys with PFS   | ⚠️ No forward secrecy    |
-
-### Node.js Compatibility Matrix
-
-| **Node.js Version** | **Eufy Direct Support** | **Status**    | **Notes**                          |
-| ------------------- | ----------------------- | ------------- | ---------------------------------- |
-| ≤18.19.0            | ✅ Works                | Deprecated    | Security vulnerabilities           |
-| ≥18.19.1, ≥20.11.1  | ❌ Broken               | Incompatible  | RSA_PKCS1_PADDING removed          |
-| 21.x                | ⚠️ Partial              | Requires flag | `--security-revert=CVE-2023-46809` |
-| 22.x+               | ❌ Broken               | Incompatible  | Permanent removal                  |
-
-**Starting from Node.js 18.19.1, 20.11.1, and 21.6.2**, support for `RSA_PKCS1_PADDING` was removed due to security concerns ([CVE-2023-46809](https://nvd.nist.gov/vuln/detail/CVE-2023-46809)), breaking all Eufy device communication including:
-
-- P2P livestreaming
-- Device command/control
-- Real-time event streaming
-- Cloud API authentication
-
----
-
-## The Solution: Client-Server Architecture
-
-This package implements a **two-tier architecture** that isolates the legacy encryption handling:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Your Application (Modern Node.js ≥18)                      │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  @caplaz/eufy-security-client                          │ │
-│  │  • Type-safe WebSocket API                             │ │
-│  │  • Event handling                                      │ │
-│  │  • No legacy crypto                                    │ │
-│  └──────────────────┬─────────────────────────────────────┘ │
-└─────────────────────┼───────────────────────────────────────┘
-                      │ Clean WebSocket Protocol
-                      │ (JSON over WS)
-┌─────────────────────▼───────────────────────────────────────┐
-│  eufy-security-ws Server (Node.js 20.11.0 or Docker)        │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  Handles Legacy Encryption                             │ │
-│  │  • RSA_PKCS1_PADDING support                           │ │
-│  │  • AES-ECB decryption                                  │ │
-│  │  • P2P protocol handling                               │ │
-│  └──────────────────┬─────────────────────────────────────┘ │
-└─────────────────────┼───────────────────────────────────────┘
-                      │ Legacy Eufy Protocol
-                      │ (Encrypted P2P)
-┌─────────────────────▼───────────────────────────────────────┐
-│  Eufy Security Devices                                       │
-│  • Cameras, Doorbells, Sensors, Locks                       │
-│  • Legacy firmware with deprecated crypto                   │
-└──────────────────────────────────────────────────────────────┘
+```text
+Application / Scrypted plugin
+          ↓ typed commands and events
+@caplaz/eufy-security-client
+          ↓ WebSocket JSON messages
+      eufy-security-ws
+          ↓ Eufy cloud and device protocols
+    Eufy account / devices
 ```
 
-### Key Benefits
+## The server boundary
 
-1. **✅ Modern Node.js Support**: Use the latest Node.js versions without restrictions
-2. **✅ Clean Separation**: Legacy crypto isolated in dedicated server
-3. **✅ Type Safety**: Full TypeScript support with compile-time checks
-4. **✅ Maintainability**: When Eufy updates protocols, only server needs updates
-5. **✅ Performance**: WebSocket protocol is lightweight and efficient
-6. **✅ Scalability**: One server can handle multiple client applications
+Eufy integration involves account authentication, device-specific commands, encrypted P2P sessions, and media transport. Keeping those concerns in a dedicated server lets the application use this client without implementing Eufy's protocols itself. It also separates the application's Node.js runtime from the server's runtime and cryptographic requirements.
 
----
+Legacy RSA padding compatibility has been a motivation for this architecture. Compatibility depends on the upstream library, Node.js/OpenSSL build, device, and server configuration. This package does not establish that all direct Eufy communication fails above one Node.js version, nor does it provide a cryptographic workaround inside the application. Use the server release and runtime supported by the upstream project rather than selecting an obsolete Node.js release based on an old compatibility table.
 
-## Technical Details
+The repository's [Docker Compose file](../../docker/docker-compose.yml) pins `eufy-security-ws:3.1.0`. See the [Docker guide](../../docker/README.md) for credentials, persistent data, and startup instructions. Client package version **0.4.1** has a declared Node.js minimum of **18.0.0**. Its API manager requires server schema 13 or newer and prefers schema 21; review and test compatibility when changing server versions.
 
-### Why Direct Integration Fails
+## What the client handles
 
-When trying to use Eufy devices directly with modern Node.js:
+- WebSocket connection state and API schema negotiation.
+- Typed commands grouped by device, station, driver, and server.
+- Event callbacks filtered by event source and serial number.
+- Authentication challenge data and an exported `AuthenticationManager` for application-driven CAPTCHA/2FA flows.
+- Video and audio event payloads, including codec metadata.
 
-```typescript
-// This FAILS in Node.js ≥18.19.1
-import { EufySecurityApi } from "eufy-security-client";
+The server remains responsible for Eufy credentials and device connectivity. The application remains responsible for choosing devices, handling authentication UI, managing streams it starts, decoding/muxing media, and cleaning up listeners and its WebSocket connection. Media arrives as JSON-serialized buffers and must be converted with `Buffer.from(event.buffer.data)` when using the typed client.
 
-const api = new EufySecurityApi();
-await api.connect();
-// ❌ Error: RSA_PKCS1_PADDING is no longer supported
-// ❌ Error: error:1C80006B:Provider routines::wrong final block length
-```
+For the Scrypted integration, the [stream-server package](../eufy-stream-server) forwards encoded video to local TCP consumers and caches codec parameter sets. The [Scrypted plugin](../eufy-security-scrypted) handles camera services and FFmpeg integration.
 
-**Error Details:**
+## Choosing the API
 
-- OpenSSL removed `RSA_PKCS1_PADDING` due to security vulnerability
-- Eufy firmware requires this exact padding for decryption
-- No workaround exists without downgrading Node.js or OpenSSL
+Use `EufyWebSocketClient` (the public alias of `ApiManager`) for explicit lifecycle control and typed events. Its constructor is `new EufyWebSocketClient(wsUrl, logger)`. Connect the WebSocket, wait for schema readiness, enable server listening, then initiate driver login if needed. Camera commands go through `client.commands.device(serialNumber)`.
 
-### Why This Package Works
+The exported `EufySecurityClient` is a separate CLI-oriented wrapper with an options-object constructor and a smaller EventEmitter API. Avoid mixing the two clients' methods. The [README](./README.md) includes a complete typed-client example, authentication sequence, binary handling, and an API comparison.
 
-```typescript
-// This WORKS with any Node.js version ≥18
-import { EufySecurityClient } from "@caplaz/eufy-security-client";
+## Operational tradeoffs
 
-const client = new EufySecurityClient({
-  wsUrl: "ws://localhost:3000", // eufy-security-ws server
-});
+A separate server adds a process, persistent authentication state, and a network hop. It needs to be reachable whenever the application controls a camera or receives events. Run it on a trusted network or provide appropriate protection for remote access; the client does not automatically add endpoint authentication or TLS to a plain `ws://` URL.
 
-await client.connect(); // ✅ Works!
-await client.startStream("T8210N20123456789"); // ✅ Works!
-```
-
-**How it Works:**
-
-1. Client sends JSON commands over WebSocket
-2. Server (running compatible Node.js) handles Eufy encryption
-3. Server streams data back to client over WebSocket
-4. Client processes clean, unencrypted data
-
----
-
-## Server Setup Options
-
-### Option 1: Docker (Recommended)
-
-```bash
-# Pull and run eufy-security-ws server
-docker run -d \
-  --name eufy-ws \
-  -p 3000:3000 \
-  -e USERNAME=your-eufy-email \
-  -e PASSWORD=your-eufy-password \
-  bropat/eufy-security-ws:latest
-```
-
-**Advantages:**
-
-- Isolated environment
-- Consistent behavior across platforms
-- Easy updates
-- No Node.js version conflicts
-
-### Option 2: Local Server
-
-```bash
-# Install with compatible Node.js
-nvm install 20.11.0
-nvm use 20.11.0
-npm install -g eufy-security-ws
-
-# Run server
-eufy-security-ws --port 3000
-```
-
-**Advantages:**
-
-- No Docker required
-- Easier debugging
-- Direct file system access
-
----
-
-## Verification & Troubleshooting
-
-### Check Your Node.js Compatibility
-
-```bash
-# Check Node.js version
-node -v
-
-# Check if direct Eufy integration would work
-node -e "console.log(process.versions.openssl)"
-
-# If version shows 3.0+ with Node.js ≥18.19.1, direct integration won't work
-```
-
-### Test WebSocket Connection
-
-```typescript
-import { EufySecurityClient } from "@caplaz/eufy-security-client";
-
-const client = new EufySecurityClient({
-  wsUrl: "ws://localhost:3000",
-});
-
-try {
-  await client.connect();
-  console.log("✅ Successfully connected!");
-  console.log("Schema:", client.commands.server().getSchemaInfo());
-} catch (error) {
-  console.error("❌ Connection failed:", error.message);
-  // Check if eufy-security-ws server is running
-}
-```
-
-### Common Issues
-
-| **Problem**               | **Cause**               | **Solution**                     |
-| ------------------------- | ----------------------- | -------------------------------- |
-| Connection refused        | Server not running      | Start `eufy-security-ws` server  |
-| Timeout waiting for ready | Server version mismatch | Ensure server schema ≥13         |
-| Schema incompatibility    | Outdated client/server  | Update both to matching versions |
-| Stream not working        | Authentication failed   | Check Eufy credentials in server |
-
----
-
-## Performance Comparison
-
-### Memory & Latency
-
-Benchmarks using eufy-security-ws server with Doorbell 2K Pro:
-
-| **Metric**            | **Direct (Node 20.11.0)** | **Via WebSocket** | **Overhead** |
-| --------------------- | ------------------------- | ----------------- | ------------ |
-| Memory Usage          | 298MB                     | 512MB             | +72%         |
-| Initial Connection    | 890ms                     | 1200ms            | +35%         |
-| Stream Latency        | <100ms                    | ~150ms            | +50ms        |
-| CPU Usage (idle)      | 2%                        | 3%                | +1%          |
-| CPU Usage (streaming) | 15%                       | 18%               | +3%          |
-
-**Notes:**
-
-- Memory overhead includes WebSocket server and Node.js runtime
-- Latency increase is acceptable for most use cases (still sub-200ms)
-- CPU overhead is minimal
-- **Benefit**: Ability to use modern Node.js outweighs small performance cost
-
----
-
-## When Will This Be Fixed?
-
-### Short-term (This Package)
-
-✅ **Available Now** - This package provides immediate compatibility
-
-### Medium-term (Protocol Migration)
-
-🔄 **In Progress** - Community efforts to migrate Eufy client libraries to OAEP padding:
-
-- [eufy-security-client #487](https://github.com/bropat/eufy-security-client/issues/487)
-- [Node.js #55628](https://github.com/nodejs/node/issues/55628)
-
-### Long-term (Eufy Firmware)
-
-❓ **Unknown** - Requires Eufy/Anker to update device firmware with modern cryptography. No official timeline announced.
-
-**Reality**: Millions of Eufy devices in use will never receive firmware updates. This architectural pattern (client-server with isolated legacy crypto) is likely permanent.
-
----
-
-## Architecture Principles
-
-This package follows the **Adapter Pattern** to bridge incompatible interfaces:
-
-```
-┌────────────────────────────────────────────────────┐
-│  Modern Application Requirements                   │
-│  • Latest Node.js (18+, 20+, 22+)                  │
-│  • TypeScript type safety                          │
-│  • Async/await patterns                            │
-│  • Clean error handling                            │
-└────────────────┬───────────────────────────────────┘
-                 │
-                 │  Adapter (This Package)
-                 │
-┌────────────────▼───────────────────────────────────┐
-│  Legacy Eufy Requirements                          │
-│  • Old Node.js (≤20.11.0)                          │
-│  • Deprecated crypto (PKCS1)                       │
-│  • Callback-based patterns                         │
-│  • Binary protocols                                │
-└────────────────────────────────────────────────────┘
-```
-
-This approach provides:
-
-- **Separation of Concerns**: Crypto handling isolated
-- **Single Responsibility**: Client handles API, server handles crypto
-- **Open/Closed Principle**: Extend without modifying
-- **Dependency Inversion**: Depend on abstractions (WebSocket), not implementations
-
----
-
-## Comparison with Other Solutions
-
-| **Solution**           | **Pros**                                             | **Cons**                                         | **Verdict**            |
-| ---------------------- | ---------------------------------------------------- | ------------------------------------------------ | ---------------------- |
-| **This Package**       | ✅ Modern Node.js<br>✅ Type-safe<br>✅ Maintainable | ⚠️ Requires server                               | ⭐⭐⭐⭐⭐ Recommended |
-| **Direct Integration** | ✅ No dependencies                                   | ❌ Node.js ≤20.11.0 only<br>❌ Security risks    | ❌ Not viable          |
-| **Homebridge Plugin**  | ✅ Homebridge integration                            | ❌ Homebridge-specific<br>❌ Same Node.js issues | ⚠️ Use case specific   |
-| **HTTP Polling**       | ✅ Simple                                            | ❌ No real-time events<br>❌ High latency        | ❌ Not suitable        |
-
----
-
-## Conclusion
-
-**This package exists because:**
-
-1. 🔒 **Security**: Node.js correctly removed vulnerable cryptography
-2. 🏭 **Legacy Hardware**: Eufy devices won't get firmware updates
-3. 🚀 **Modern Development**: Developers need latest Node.js features
-4. 🧩 **Clean Architecture**: Separation of concerns is good engineering
-5. 🎯 **Production Ready**: Battle-tested in real-world deployments
-
-**The client-server architecture isn't a workaround—it's the proper solution** for interfacing modern applications with legacy hardware protocols.
-
----
-
-## Additional Resources
-
-- [eufy-security-ws Server](https://github.com/bropat/eufy-security-ws)
-- [CVE-2023-46809 Details](https://nvd.nist.gov/vuln/detail/CVE-2023-46809)
-- [Node.js Crypto Changes](https://nodejs.org/en/blog/vulnerability/november-2023-security-releases)
-- [OpenSSL 3.0 Migration Guide](https://www.openssl.org/docs/man3.0/man7/migration_guide.html)
-
----
-
-## FAQ
-
-**Q: Will this ever be fixed in Node.js?**  
-A: No. The cryptography was removed for security reasons and won't be re-added. The fix must come from Eufy firmware updates.
-
-**Q: Can I use this with Scrypted?**  
-A: Yes! See the `@caplaz/eufy-security-scrypted` package which uses this client.
-
-**Q: Is the WebSocket server secure?**  
-A: Run it on localhost or secure your WebSocket connection with TLS/authentication.
-
-**Q: What about performance?**  
-A: The WebSocket overhead is minimal (~50ms latency increase), acceptable for security camera applications.
-
-**Q: Do I need to keep the old Node.js version?**  
-A: Only for the `eufy-security-ws` server. Your application can use any modern Node.js version.
-
----
-
-_Last updated: October 2, 2025_
+Stream startup and resource usage vary by device, network, server configuration, and consumer. This repository does not provide reproducible benchmarks supporting a fixed latency or memory overhead. Measure the deployment that matters to your application, especially for sleeping battery cameras and cameras sharing a HomeBase.

@@ -24,15 +24,16 @@ Eufy Cloud/Devices ← eufy-security-ws (Docker) ← eufy-security-client (WebSo
                                           eufy-security-scrypted (Scrypted plugin)
 ```
 
-Modern Node.js (≥18.19.1) cannot talk directly to Eufy devices due to deprecated crypto. The `eufy-security-ws` Docker container bridges the gap.
+The companion `eufy-security-ws` server owns Eufy cloud authentication, decryption, and direct device/P2P communication. This repository uses its WebSocket API; do not assume compatibility with every firmware or runtime from that separation alone.
 
 ### Key Dependency Constraint
 
-`eufy-security-client` depends on `eufy-security-ws` npm package for type definitions, but at runtime it connects to a *running* `eufy-security-ws` Docker container via WebSocket.
+`@caplaz/eufy-security-client` is distinct from upstream `bropat/eufy-security-client`. At runtime it connects to a running `eufy-security-ws` server via WebSocket. The repository targets server 3.1.0 and schema 21; check the current manifest and schema negotiation before changing compatibility.
 
 ### eufy-security-client
 
 Main export is `EufyWebSocketClient` (alias for `ApiManager`). The client wraps:
+
 - `WebSocketClient` — raw WebSocket protocol
 - `ClientStateManager` — connection lifecycle state machine
 - `AuthenticationManager` — captcha/2FA flows
@@ -47,6 +48,7 @@ Entry point: `packages/eufy-security-scrypted/src/main.ts` exports `EufySecurity
 `EufySecurityProvider` (DeviceProvider) → creates `EufyStation` instances per station → each station creates `EufyDevice` instances per camera/sensor.
 
 `EufyDevice` delegates all behavior to focused services:
+
 - `DeviceSettingsService` — Scrypted settings UI
 - `DeviceStateService` — converts Eufy properties → Scrypted state
 - `RefreshService` — periodic API polling
@@ -60,7 +62,7 @@ Entry point: `packages/eufy-security-scrypted/src/main.ts` exports `EufySecurity
 
 ### eufy-stream-server
 
-Pure TCP server. `StreamServer` → `ConnectionManager` (tracks clients) + `H264Parser` (NAL unit detection/keyframe extraction for both H.264 and H.265/HEVC). Receives video data events from `EufyWebSocketClient` and forwards raw buffers to TCP clients. Caches SPS/PPS (H.264) or VPS/SPS/PPS (H.265) parameter sets and prepends them to new TCP connections so FFmpeg can initialize the decoder immediately.
+TCP stream server with raw-video and local fMP4 endpoints. `StreamServer` → `ConnectionManager` (tracks clients) + `H264Parser` (NAL unit detection/keyframe extraction for both H.264 and H.265/HEVC). Receives filtered video/audio events from `EufyWebSocketClient`, forwards raw video to TCP clients, and uses JMuxer for fMP4 with usable AAC audio. Caches SPS/PPS (H.264) or VPS/SPS/PPS (H.265) parameter sets and prepends them to new TCP connections so downstream consumers can initialize without waiting for repeated parameter sets. New muxers are also primed from that cache. The optional H.264 compatibility relay uses FFmpeg; raw/native muxing does not transcode.
 
 ## Commands
 
@@ -75,22 +77,17 @@ npm run format       # format JS/TS/JSON files with prettier
 npm run format:check # check formatting (also runs in pre-commit hook)
 ```
 
-### Per-package (cd into package directory first)
+### Per-package commands
 
-```bash
-npm run build        # TypeScript compile (tsc --build)
-npm run build:watch  # watch mode
-npm run typecheck    # type-check without emitting
-npm run lint         # eslint with zero warnings
-npm run lint:fix     # auto-fix lint issues
-npm run test         # jest
-npm run test:unit    # jest --testPathPattern=unit
-npm run test:integration  # jest --testPathPattern=integration
-npm run test:coverage     # jest --coverage
-npm run clean        # remove dist/, coverage/, .tsbuildinfo
-```
+Use `npm run <script> --workspace=@caplaz/<package>` from the root, or change into the package directory. Scripts differ by package; inspect its `package.json` rather than assuming they are shared.
 
-For `eufy-security-scrypted`, build uses `scrypted-webpack` instead of `tsc` directly.
+- All packages expose `build`, `test`, `test:watch`, `lint`, and `lint:fix`.
+- Client, plugin, and CLI expose `build:watch`, `typecheck`, `test:coverage`, and `clean`.
+- Stream-server uses `dev` for TypeScript watch and `build` for type checking; it has no `typecheck` or `clean` script.
+- Only the client exposes `test:unit` and `test:integration`.
+- Root `clean` is `lerna clean` and removes package dependency directories; it does not run package build-output cleanup scripts.
+
+The plugin build uses `scrypted-webpack`: development output is `out/`, and `NODE_ENV=production` writes `dist/plugin.zip`. Verify that ZIP is included with `npm pack --dry-run --ignore-scripts --workspace=@caplaz/eufy-security-scrypted` before publishing.
 
 ### Run a single test file
 
@@ -110,8 +107,12 @@ EUFY_EMAIL=... EUFY_PASSWORD=... docker compose up
 ## Code Conventions
 
 - All packages use TypeScript strict mode with `ts-jest` for tests.
-- ESLint config is shared at repo root (`.eslintrc.js`); run with `--max-warnings 0`.
+- ESLint config is shared at repo root (`eslint.config.js`); run with `--max-warnings 0`.
 - `tslog` is used throughout for structured logging. In Scrypted, logs are routed via `attachTransport` to route to the device's Scrypted console window rather than the plugin console.
-- Event types in `eufy-security-client` are defined in `src/types/events.ts` and `src/device/events.ts` etc. When adding new event types, follow the pattern of adding to the union type `EventType` and providing a payload mapping.
+- Event types in `eufy-security-client` are defined in `src/types/events.ts` and `src/device/events.ts`, and source-specific event modules. When adding new event types, follow the pattern of adding to the union type `EventType` and providing a payload mapping.
 - Device and station properties use string-keyed maps defined in `src/device/properties.ts` and `src/station/properties.ts`. The `DeviceProperties` and `StationProperties` types are central to state management.
 - Schema compatibility (`src/types/schema.ts`) tracks `eufy-security-ws` server schema versions for backward compatibility.
+
+## Documentation and releases
+
+Keep the root README, package READMEs, architecture guide, Docker guide, and provider `getReadmeMarkdown()` consistent with source. Use [the root release guide](README.md#release-preparation-and-publishing) for coordinated versions, lockfile metadata, contributor credits, and package-content checks. Pushing a `v*` tag triggers npm publication; a preparation PR does not.

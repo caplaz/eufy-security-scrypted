@@ -1,390 +1,70 @@
 # Eufy Security Scrypted Plugin
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/caplaz/eufy-security-scrypted/main/packages/eufy-security-scrypted/public/banner.png" alt="Eufy Security Scrypted Plugin" width="600"/>
-</p>
+![Eufy Security Plugin](https://raw.githubusercontent.com/caplaz/eufy-security-scrypted/main/packages/eufy-security-scrypted/public/banner.png)
 
-<p align="center">
-  <strong>Complete Eufy Security integration for Scrypted</strong>
-</p>
-
-<p align="center">
-  <a href="https://github.com/caplaz/eufy-security-scrypted/actions/workflows/release.yml">
-    <img src="https://github.com/caplaz/eufy-security-scrypted/actions/workflows/release.yml/badge.svg" alt="Release Status"/>
-  </a>
-  <a href="https://www.npmjs.com/package/@caplaz/eufy-security-scrypted">
-    <img src="https://img.shields.io/npm/v/@caplaz/eufy-security-scrypted.svg" alt="npm version"/>
-  </a>
-  <a href="https://github.com/caplaz/eufy-security-scrypted/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/caplaz/eufy-security-scrypted.svg" alt="License"/>
-  </a>
-</p>
-
-> **⚠️ EARLY DEVELOPMENT WARNING**
->
-> **This plugin is in early development and should be considered experimental.**
->
-> - Many Eufy device models have not been tested
-> - Bugs and compatibility issues are expected
-> - Features may change without notice
-> - Use at your own risk in production environments
-> - Please report issues to help improve stability
-
-## Overview
-
-The Eufy Security Scrypted Plugin provides comprehensive integration between Eufy Security devices and the Scrypted home automation platform. This plugin enables seamless control and monitoring of Eufy cameras, doorbells, and security systems through Scrypted's unified interface.
-
-### Key Features
-
-- **Complete Device Support**: Cameras, doorbells, sensors, and hubs
-- **Real-time Streaming**: H.264 video streaming with audio support
-- **Motion Detection**: Live motion alerts and event notifications
-- **Device Control**: Pan/tilt, lighting, and security system control
-- **HomeKit Secure Video**: Compatible with HomeKit Secure Video
-- **User-friendly Setup**: CAPTCHA and 2FA authentication handling
+Connect supported Eufy devices to Scrypted through `eufy-security-ws`. The plugin provides video, snapshots, motion and doorbell events, station security controls, and device controls where supported by the upstream API. Device and firmware compatibility varies; check live playback in Scrypted before configuring other consumers.
 
 ## Installation
 
-### Prerequisites
+1. Start the companion WebSocket server using the [Docker guide](../../docker/README.md). This repository targets `bropat/eufy-security-ws:3.1.0` (API schema 21).
+2. Install **@caplaz/eufy-security-scrypted** in Scrypted's plugin installer.
+3. Enter a **WebSocket URL** reachable from Scrypted; the default is `ws://localhost:3000`.
+4. Use **Connect to Eufy Cloud** in plugin settings and follow any CAPTCHA or 2FA prompts. Credentials are configured on the companion server.
 
-1. **Scrypted Server**: Ensure Scrypted is installed and running on your system
-2. **Eufy Security WebSocket Server**: Set up the companion WebSocket server (see Configuration section below)
+If Scrypted is containerized, `localhost` is that container. On a shared Docker network, use the companion service name, for example `ws://eufy-security-ws:3000`; otherwise use a reachable host address.
 
-### Plugin Installation
-
-1. Open the Scrypted web interface
-2. Navigate to **Plugins** in the sidebar
-3. Click **Install** or search for plugins
-4. Search for **Eufy Security** or **@caplaz/eufy-security-scrypted**
-5. Click **Install** and follow the setup prompts
-6. Configure the plugin settings (see Configuration section)
-
-## Configuration
-
-### WebSocket Server Setup
-
-The plugin requires a companion WebSocket server (`eufy-security-ws`) to communicate with Eufy cloud services. This server handles the low-level Eufy API interactions.
-
-#### Option 1: Docker (Recommended)
-
-1. Create a `docker-compose.yml` file with the following content:
+### Companion server example
 
 ```yaml
 services:
   eufy-security-ws:
-    image: bropat/eufy-security-ws:latest
-    container_name: eufy-security-ws
+    image: bropat/eufy-security-ws:3.1.0
     ports:
       - "3000:3000"
+    volumes:
+      - ./data:/data
     environment:
-      - USERNAME=your_eufy_email@example.com
-      - PASSWORD=your_eufy_password
-      - COUNTRY=US # Change to your country code if needed
+      USERNAME: ${EUFY_EMAIL}
+      PASSWORD: ${EUFY_PASSWORD}
+      PORT: "3000"
+      LOG_LEVEL: info
     restart: unless-stopped
 ```
 
-2. Start the container:
+Set `EUFY_EMAIL` and `EUFY_PASSWORD` in your environment or a local `.env` file, then run `docker compose up -d`. Keep credentials out of source control. Preserve the data volume across container recreation.
 
-```bash
-docker-compose up -d
-```
+## Settings
 
-#### Option 2: NPM Installation
+| Location           | Setting                                 | Behavior                                                                                        |
+| ------------------ | --------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Plugin             | WebSocket URL                           | Address of the companion server                                                                 |
+| Plugin             | Debug Logging                           | Detailed connection, command, and stream diagnostics                                            |
+| Plugin             | Current Memory Usage                    | Read-only process RSS; there is no configurable memory threshold or threshold-triggered cleanup |
+| Plugin             | Maximum Compatibility Encoders          | Shared H.265-to-H.264 encoder capacity; default 1                                               |
+| Plugin             | Encoder Critical / Recovery Temperature | Defaults 85 °C / 75 °C; gate new compatibility encoders                                         |
+| Camera → Streaming | H.264 Compatibility Mode                | `Auto` (default), `Force`, or `Native`; see routing below                                       |
+| Camera → Streaming | Background Thumbnail Refresh            | `Off`, 30 minutes, 1 hour, 2 hours (default), or 4 hours                                        |
 
-If you prefer not to use Docker:
+Other device settings are generated from the properties and metadata exposed by the server. Available controls differ by model.
 
-```bash
-# Install globally
-npm install -g eufy-security-ws
+## Video, audio, and snapshots
 
-# Create a config.json file in your working directory
-{
-  "username": "your_eufy_email@example.com",
-  "password": "your_eufy_password",
-  "country": "US"
-}
+The plugin receives decrypted livestream data over WebSocket and exposes local TCP inputs to Scrypted/FFmpeg. The normal muxed path produces fragmented MP4 with native H.264 or H.265 video and usable ADTS AAC audio. Cameras without usable audio can use video-only output. Audio channels, resolution, frame rate, and startup time depend on the device and upstream session.
 
-# Run the server (it will automatically find config.json in the current directory)
-eufy-security-ws
-```
+Several viewers can share a camera's stream. A shared HomeBase is coordinated as a single camera-stream slot: a live request may preempt another camera after its warm-up guard, while background thumbnail work never interrupts a holder. Opening many battery cameras at once can therefore cause contention. When consumers leave, the upstream session can linger briefly rather than stopping on every Rebroadcast reconnect.
 
-### Plugin Configuration
+Snapshots use the last cached keyframe, converted to JPEG. They do not wake the camera on demand; before any cached frame exists, the plugin returns a placeholder. A stale snapshot does not prove that a live stream is currently working. Background Thumbnail Refresh can wake an idle camera when its HomeBase slot is free, trading battery use for fresher tiles. Choose `Off` or a longer interval for battery/LTE cameras.
 
-After installation, configure the plugin with:
+### 0.4.1 reliability fixes
 
-- **WebSocket URL**: URL of your eufy-security-ws server (default: `ws://localhost:3000`)
-- **Debug Logging**: Enable verbose logging for troubleshooting
-- **H.265 Compatibility Mode**: Choose `Auto` (the default), `Force`, or
-  `Native` for the optional H.265-to-H.264 compatibility stream. See
-  [Native and compatibility streams](#native-and-compatibility-streams).
+- New muxers receive cached parameter sets immediately, so attaching between keyframes no longer waits for another keyframe just to initialize the muxer.
+- Cameras reporting zero FPS use the intended 15fps fallback; reported nonzero frame rates are retained.
+- An already-running upstream stream is accepted after a stale status check, while no-data monitoring remains active.
+- An idle camera can recover after another camera revokes its HomeBase slot. Teardown completes before a new viewer acquires a replacement lease.
 
-## Device Support
+See the [release notes and contributor credits](../../CHANGELOG.md#041---2026-10-28).
 
-### Cameras
-
-- Live video streaming (H.264)
-- Audio recording and playback
-- Motion detection alerts
-- Pan/tilt control (where supported)
-- Night vision settings
-
-### Door Bells
-
-- Video calling with audio
-- Motion-triggered recording
-- Doorbell press notifications
-
-### Sensors
-
-- Motion sensors
-- Contact sensors
-- Temperature sensors
-
-### Hubs/Stations
-
-- Security system arming/disarming
-- Device management
-- Push notification handling
-
-## Authentication
-
-The plugin handles Eufy cloud authentication including:
-
-- **CAPTCHA Challenges**: Automatic handling with user-friendly UI
-- **2FA/MFA**: Support for email and SMS verification codes
-- **Session Management**: Automatic token refresh and reconnection
-
-## Troubleshooting
-
-### Common Issues
-
-**Connection Problems**
-
-- Verify eufy-security-ws server is running
-- Check WebSocket URL configuration
-- Ensure network connectivity to Eufy cloud
-
-**Authentication Issues**
-
-- Verify Eufy account credentials
-- Check for CAPTCHA or 2FA requirements
-- Review server logs for authentication errors
-
-**Performance Issues**
-
-- Adjust memory threshold settings
-- Enable debug logging for diagnostics
-- Check system resources
-
-### Debug Logging
-
-Enable debug logging in plugin settings to get detailed information for troubleshooting.
-
-## Contributing
-
-Contributions are welcome! Please see the main repository for contribution guidelines.
-
-## License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/caplaz/eufy-security-scrypted/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/caplaz/eufy-security-scrypted/discussions)
-- **Scrypted Community**: [Scrypted Forums](https://forums.scrypted.app)
-
-1. Start the `eufy-security-ws` container with your Eufy credentials
-2. In Scrypted, go to the Eufy Security plugin settings
-3. Configure the WebSocket URL (default: `ws://localhost:3000`)
-4. Click **Connect Account**
-5. Complete authentication (CAPTCHA/2FA if required)
-6. Your devices will automatically appear!
-
----
-
-## 📹 Supported Devices
-
-### Cameras
-
-- **Indoor Cameras** - 2K, Pan & Tilt models
-- **Outdoor Cameras** - Solo, SoloCam series (battery & wired)
-- **Floodlight Cameras** - With integrated lighting control
-- **PTZ Cameras** - Pan, tilt, zoom capable models
-- **Doorbell Cameras** - Video Doorbell series
-
-### Base Stations
-
-- **HomeBase 1/2/3** - Full security system integration
-- **Smart Lock integration** (via HomeBase)
-
-### Other Devices
-
-- Motion sensors, entry sensors (via HomeBase)
-- Keypads and security panels
-
----
-
-## ✨ Supported Features
-
-### 🎥 Video Streaming
-
-| Feature              | Status           | Notes                      |
-| -------------------- | ---------------- | -------------------------- |
-| **Live Video**       | ✅ Full Support  | 1080p/2K H.264 streaming   |
-| **Audio**            | ✅ Two-way Audio | AAC codec support          |
-| **Low Latency**      | ✅ Optimized     | TCP-based streaming        |
-| **Multiple Streams** | ✅ Concurrent    | Multiple viewers supported |
-| **Video Clips**      | ✅ Cloud & Local | Access recorded events     |
-
-### 📸 Camera Controls
-
-| Feature              | Status               | Compatible Devices      |
-| -------------------- | -------------------- | ----------------------- |
-| **Snapshots**        | ✅ Full Support      | All cameras             |
-| **Pan/Tilt**         | ✅ Full Support      | PTZ models only         |
-| **Motion Detection** | ✅ Real-time         | All cameras             |
-| **Night Vision**     | ✅ Auto/Manual       | All cameras with IR     |
-| **Floodlight**       | ✅ On/Off/Brightness | Floodlight cameras only |
-
-### 🔋 Power & Battery
-
-| Feature                | Status          | Notes                    |
-| ---------------------- | --------------- | ------------------------ |
-| **Battery Level**      | ✅ Real-time    | Battery-powered devices  |
-| **Charging Status**    | ✅ Live Updates | Shows when charging      |
-| **Low Battery Alerts** | ✅ Automatic    | Via Scrypted automations |
-
-### 🏠 Security System
-
-| Feature            | Status              | Notes                   |
-| ------------------ | ------------------- | ----------------------- |
-| **Arm/Disarm**     | ✅ Full Support     | Via HomeBase stations   |
-| **Guard Modes**    | ✅ Home/Away/Disarm | Full control            |
-| **Alarm Status**   | ✅ Real-time        | Triggered alerts        |
-| **Alarm Triggers** | ⚠️ Read-only        | Cannot trigger manually |
-
-### 📡 Connectivity
-
-| Feature                | Status         | Notes                       |
-| ---------------------- | -------------- | --------------------------- |
-| **Wi-Fi Signal**       | ✅ RSSI Sensor | Network strength monitoring |
-| **Online Status**      | ✅ Real-time   | Device availability         |
-| **Connection Quality** | ✅ Automatic   | Health monitoring           |
-
----
-
-## 🔐 Authentication
-
-### Initial Setup
-
-The plugin handles Eufy's complex authentication automatically:
-
-1. Click **Connect Account** in plugin settings
-2. If prompted, solve the **CAPTCHA challenge** (image displayed in settings)
-3. If 2FA is enabled, enter your **verification code**
-4. Connection established! ✅
-
-### CAPTCHA Challenge
-
-When Eufy requires CAPTCHA verification:
-
-```
-Settings → Eufy Cloud Account
-┌─────────────────────────────────┐
-│  🔐 CAPTCHA Challenge           │
-│  [Image showing CAPTCHA code]   │
-│                                 │
-│  CAPTCHA Code: [ _____ ]        │
-│  [Submit CAPTCHA Code]          │
-└─────────────────────────────────┘
-```
-
-### Two-Factor Authentication (2FA)
-
-When 2FA is enabled on your account:
-
-```
-Settings → Eufy Cloud Account
-┌─────────────────────────────────┐
-│  🔐 2FA Verification Code       │
-│                                 │
-│  Check your email/SMS for code  │
-│  Verification Code: [ _____ ]   │
-│  [Submit Code] [Request New]    │
-└─────────────────────────────────┘
-```
-
-### Reconnection
-
-Lost connection? Just click:
-
-- **Disconnect Account** (clears session)
-- **Connect Account** (re-authenticate)
-
----
-
-## ⚙️ Settings & Configuration
-
-### WebSocket Server
-
-```
-WebSocket URL: ws://localhost:3000
-```
-
-Point to your `eufy-security-ws` container. Common configurations:
-
-- **Local**: `ws://localhost:3000`
-- **Docker**: `ws://eufy-security-ws:3000`
-- **Remote**: `ws://192.168.1.100:3000`
-
-### Memory Management
-
-```
-Current Memory Usage: 85MB ✅
-Memory Threshold: 120MB
-```
-
-- **Automatic cleanup** when threshold exceeded
-- **Optimized buffers** for video streaming
-- **Prevents crashes** from memory exhaustion
-
-### Debug Logging
-
-```
-Debug Logging: [Toggle]
-```
-
-Enable for troubleshooting:
-
-- Detailed connection logs
-- API call tracing
-- Stream session debugging
-- Event monitoring
-
----
-
-## 🎬 Streaming Architecture
-
-### How It Works
-
-```
-Eufy Camera → eufy-security-ws → WebSocket → Scrypted Plugin → TCP Server → FFmpeg
-                                                                              ↓
-                                                                    Scrypted Consumers
-                                                                    (Home Assistant,
-                                                                     HomeKit, etc.)
-```
-
-### Performance Features
-
-✅ **Lazy Session Creation** - Streams only start when needed  
-✅ **Session Reuse** - Multiple viewers share one stream  
-✅ **Smart Buffering** - Memory-conscious video buffering  
-✅ **Keyframe Detection** - Fast stream initialization  
-✅ **Auto Cleanup** - Resources freed when not streaming
-
-### Native and Compatibility Streams
+## Native and compatibility streams
 
 The plugin exposes two stable P2P stream contracts:
 
@@ -404,7 +84,7 @@ never silently falls back to `p2p`.
 | `Force`  | Uses compatibility H.264 for a verified H.265 source. A verified native H.264 source remains native. Missing codec verification or unavailable encoder capacity returns an error instead of guessing or relabelling the stream.                                                                          |
 | `Native` | Always uses `p2p`; no compatibility encoder is requested.                                                                                                                                                                                                                                                |
 
-#### Capacity, prebuffer, and thermal admission
+### Capacity, prebuffer, and thermal admission
 
 Each active compatibility transcode consumes one encoder slot and CPU capacity.
 Plan capacity for the sum of continuously running compatibility prebuffers and
@@ -424,291 +104,64 @@ encoder that is already running. When the host does not expose a usable
 temperature reading, or reading it fails, the gate is inert, so it is a safety
 limit rather than a guarantee that every platform will prevent overheating.
 
-### Stream Quality
+## Device capabilities and limitations
 
-- **Resolution**: Up to 2K (device dependent)
-- **Codec**: Native H.264 or H.265; the optional `p2p-h264` compatibility
-  stream is H.264
-- **Audio**: AAC stereo
-- **Latency**: ~1-3 seconds (typical)
-- **Bandwidth**: 2-5 Mbps (variable)
+- Cameras expose video, snapshots, and motion state. Pan/tilt, floodlight brightness, battery state, and intercom appear only when the corresponding capability or upstream command is available.
+- Doorbell rings and entry sensors use `BinarySensor`; motion sensors use `MotionSensor`. Non-camera devices are not automatically exposed as cameras.
+- Locks can expose settings and refresh, but the Scrypted `Lock` interface is not currently advertised. Temperature sensor names in upstream detection do not guarantee a Scrypted temperature interface.
+- Clip retrieval has station-database/P2P and cloud paths; actual availability depends on the device, storage, and server support.
+- HomeKit integration uses Scrypted's HomeKit plugin. HomeKit needs H.264 video; an explicitly selected native H.265 stream remains H.265 even in `Force` mode. Select `p2p-h264` explicitly where available when a consumer needs that contract.
+- Direct RTSP URL selection and the broader cold-start/codec changes proposed in PRs #41 and #45 are not part of 0.4.1.
+- Upstream decryption failures occur inside the companion server before this plugin receives video; muxer or compatibility settings cannot repair missing decrypted frames.
 
-### Verification and CI
+## Troubleshooting
 
-The automated tests cover stream selection (`Auto`, `Force`, `Native`, explicit
-stream IDs, recorder routing, and unverified codecs), thermal hysteresis and
-concurrent admission checks, and the FFmpeg input configuration handed to
-Scrypted. A real-FFmpeg HEVC-to-H.264 integration test also verifies that an
-H.265 input can be decoded and emitted as decodable H.264. It self-skips on a
-developer machine when FFmpeg or the required encoders are unavailable.
+### No connection or devices
 
-The dedicated FFmpeg CI job requires FFmpeg with the x264 and x265 encoders, so
-the integration test is exercised in CI instead of being hidden by the local
-skip. It validates the conversion pipeline, not a physical camera; still test
-`p2p-h264` with a live verified H.265 camera before relying on it in production.
+Check the WebSocket URL from Scrypted's network, the companion container logs, and the plugin's **Account Connection Status** and **Connection State**. A WebSocket connection alone does not establish that cloud authentication succeeded. Use **Connect to Eufy Cloud** and complete any authentication challenge.
 
-GitHub Actions installs dependencies and the Scrypted SDK, then runs the root
-build and test suites on Node.js 18, 20, and 22. Its quality job additionally
-type-checks, lints, and formats the client package. Run `npm run build`,
-`npm run test`, `npm run lint`, and `npm run format:check` locally before
-submitting changes.
+### Black live view, repeated restarts, or stale tiles
 
----
+1. Confirm the camera can stream in the Eufy app and close other active viewers while isolating the issue.
+2. Enable plugin **Debug Logging**. Capture one fresh live-view attempt with matching companion-server timestamps.
+3. Look for slot grants/revokes, start/stop acknowledgments, first video metadata/data, muxer output/fallback, and station-recycle lines. Cached snapshots and codec hints alone do not establish that new frames arrived.
+4. For an H.265 camera, compare native playback with the compatibility stream. Compatibility conversion consumes host CPU and is subject to capacity and temperature admission.
+5. For a shared HomeBase failure, include the camera-switch sequence and logs from both cameras.
 
-## 🔧 Device-Specific Features
+Report the device and HomeBase models, firmware, plugin/Scrypted/eufy-security-ws versions, compatibility mode, and reproduction steps in a [GitHub issue](https://github.com/caplaz/eufy-security-scrypted/issues). Redact credentials and private media; replace serial numbers consistently so the handoff remains traceable.
 
-### Indoor Cameras
+## Security and deployment
 
-- ✅ Live streaming
-- ✅ Motion detection
-- ✅ Two-way audio
-- ✅ Privacy mode
-- ✅ Pet detection (model dependent)
+Eufy cloud authentication and device communication run in the companion server. This is not a cloud-free integration. The default `ws://` connection and local TCP media inputs are unencrypted; use a trusted network or provide appropriate transport protection. The plugin itself does not automatically add TLS.
 
-### Outdoor Cameras (Battery)
+## Development and verification
 
-- ✅ Live streaming
-- ✅ Motion detection
-- ✅ Battery monitoring
-- ✅ Solar panel charging status
-- ✅ Weather resistance info
+From the repository root:
 
-### Floodlight Cameras
+```bash
+npm ci
+npm run build
+npm run test
+npm run lint
+npm run format:check
 
-- ✅ Live streaming
-- ✅ Motion detection
-- ✅ **Floodlight control** (On/Off)
-- ✅ **Brightness adjustment**
-- ✅ Motion-activated lighting
+# Target the plugin
+npm test --workspace=@caplaz/eufy-security-scrypted
+npm run typecheck --workspace=@caplaz/eufy-security-scrypted
 
-### PTZ Cameras
-
-- ✅ Live streaming
-- ✅ **Pan control** (left/right)
-- ✅ **Tilt control** (up/down)
-- ✅ **Zoom control** (in/out)
-- ✅ Motion detection
-- ✅ Auto-tracking (if supported)
-
-### Video Doorbells
-
-- ✅ Live streaming
-- ✅ Motion detection
-- ✅ **Doorbell press events**
-- ✅ Two-way audio
-- ✅ Visitor detection
-
-### Base Stations (HomeBase)
-
-- ✅ **Security system control**
-  - Home mode
-  - Away mode
-  - Disarm mode
-- ✅ Alarm status monitoring
-- ✅ Child device management
-- ✅ System reboot
-
----
-
-## 🔍 Troubleshooting
-
-### Connection Issues
-
-**Problem**: Plugin shows "Not connected"
-
-**Solutions**:
-
-1. ✅ Verify `eufy-security-ws` container is running
-2. ✅ Check WebSocket URL in settings
-3. ✅ Test connection: `docker logs eufy-security-ws`
-4. ✅ Check firewall/network settings
-5. ✅ Try reconnecting in plugin settings
-
-### Authentication Problems
-
-**Problem**: CAPTCHA or 2FA required but not appearing
-
-**Solutions**:
-
-1. ✅ Refresh the plugin settings page
-2. ✅ Check plugin logs for authentication events
-3. ✅ Disconnect and reconnect account
-4. ✅ Verify Eufy credentials in `eufy-security-ws` config
-
-### Streaming Issues
-
-**Problem**: Video not loading or buffering
-
-**Solutions**:
-
-1. ✅ Check memory usage (increase threshold if needed)
-2. ✅ Enable debug logging to see stream events
-3. ✅ Verify camera is online in Eufy app
-4. ✅ Restart the plugin
-5. ✅ Check network bandwidth
-
-### Device Not Showing
-
-**Problem**: Camera/device not appearing in Scrypted
-
-**Solutions**:
-
-1. ✅ Ensure device is online in Eufy app
-2. ✅ Click "Connect Account" to refresh devices
-3. ✅ Check `eufy-security-ws` logs for device list
-4. ✅ Verify HomeBase is connected (for linked devices)
-
----
-
-## 📊 Status Monitoring
-
-### Connection State
-
-```
-🟢 Ready          - Fully connected and operational
-🟠 Connected      - WebSocket connected, waiting for auth
-🟡 Connecting     - Establishing connection
-🔄 Negotiating    - API schema setup in progress
-🔴 Disconnected   - Not connected
-❌ Error          - Connection error
+# Build the publishable plugin archive and inspect its package
+NODE_ENV=production npm run build --workspace=@caplaz/eufy-security-scrypted
+npm pack --dry-run --ignore-scripts --workspace=@caplaz/eufy-security-scrypted
 ```
 
-### Device Status
+The npm package must contain `dist/plugin.zip`; ordinary development builds write to `out/`. See the [root release guide](../../README.md#release-preparation-and-publishing) before tagging a release. Pushing a version tag publishes packages through GitHub Actions.
 
-Each device shows:
+CI tests Node.js 18, 20, and 22. The dedicated FFmpeg job requires x264/x265 and verifies real H.265-to-H.264 conversion; the integration test self-skips locally when the required tools are unavailable. A real-JMuxer test verifies parameter-set priming and retained audio. Automated pipeline tests do not establish compatibility with every physical camera.
 
-- **Online Status**: Real-time availability
-- **Battery Level**: For battery-powered devices
-- **Signal Strength**: Wi-Fi RSSI
-- **Charging Status**: For devices with charging support
+See the [architecture guide](ARCHITECTURE.md) for code ownership and the [client](../eufy-security-client/README.md) and [stream-server](../eufy-stream-server/README.md) docs for APIs. Contributions should include a PR description and relevant verification.
 
----
+## Credits and license
 
-## 🚀 Integration Examples
+Built on [eufy-security-ws](https://github.com/bropat/eufy-security-ws) by [@bropat](https://github.com/bropat) and [Scrypted](https://www.scrypted.app/). Thanks to [@realAbitbol](https://github.com/realAbitbol), [@engim4-git](https://github.com/engim4-git), and [@jeepster5](https://github.com/jeepster5) for the fixes and diagnostics included in 0.4.1; see the [changelog](../../CHANGELOG.md) for earlier contributors.
 
-### Home Assistant
-
-```yaml
-# Example automation: Motion-activated recording
-automation:
-  - alias: "Record on motion"
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.front_camera_motion
-        to: "on"
-    action:
-      - service: camera.record
-        target:
-          entity_id: camera.front_camera
-        data:
-          duration: 60
-```
-
-### HomeKit
-
-Your Eufy cameras appear as native HomeKit cameras with:
-
-- Live video streaming
-- Motion notifications
-- Rich notifications with snapshots
-- HomeKit Secure Video (if enabled)
-
-### Google Home / Alexa
-
-Stream your cameras:
-
-- "Hey Google, show front door camera"
-- "Alexa, show backyard camera on TV"
-
----
-
-## 🔒 Privacy & Security
-
-- ✅ **Local Processing** - Video streams processed locally
-- ✅ **No Cloud Required** - Works without Eufy cloud (if configured)
-- ✅ **Encrypted Connections** - WebSocket and video streams secured
-- ✅ **No Data Collection** - Plugin doesn't collect telemetry
-- ✅ **Open Source** - Full transparency
-
----
-
-## 🐛 Known Limitations
-
-- ⚠️ **Video Clips**: Cloud clips accessible, local SD card clips not yet supported
-- ⚠️ **Two-way Audio**: Requires manual configuration in some setups
-- ⚠️ **Alarm Triggers**: Cannot manually trigger station alarms (read-only)
-- ⚠️ **Some Models**: Newer models may have limited support until tested
-
----
-
-## 📚 Advanced Configuration
-
-### Custom Memory Threshold
-
-Adjust based on your system:
-
-- **Low Memory Systems** (≤4GB RAM): 80-100MB
-- **Normal Systems** (8GB RAM): 120-150MB (default)
-- **High Memory Systems** (≥16GB RAM): 200-300MB
-
-### Network Optimization
-
-For best performance:
-
-- Use **wired connection** for Scrypted server
-- Ensure **good Wi-Fi** for battery cameras
-- Enable **Quality of Service (QoS)** for video traffic
-- Use **5GHz Wi-Fi** when possible
-
----
-
-## 🤝 Support & Community
-
-### Getting Help
-
-1. **Documentation**: Check this README first
-2. **Logs**: Enable debug logging for detailed info
-3. **Issues**: Report bugs on [GitHub](https://github.com/caplaz/eufy-security-scrypted)
-4. **Scrypted Discord**: Join the community
-
-### Reporting Issues
-
-Please include:
-
-- Scrypted version
-- Plugin version
-- Device model(s)
-- Error logs (with debug enabled)
-- Steps to reproduce
-
----
-
-## 📄 License
-
-MIT License - See [LICENSE](../../LICENSE) file for details
-
----
-
-## 🙏 Credits
-
-Built on top of:
-
-- [eufy-security-ws](https://github.com/bropat/eufy-security-ws) by @bropat
-- [Scrypted](https://scrypted.app) by @koush
-
----
-
-## 🎉 Contributing
-
-Contributions welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes with tests
-4. Submit a pull request
-
-See [CONTRIBUTING](../../CONTRIBUTING.md) for guidelines.
-
----
-
-**Made with ❤️ for the Scrypted and Eufy communities**
+[MIT License](LICENSE).

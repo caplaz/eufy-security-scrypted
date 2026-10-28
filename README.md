@@ -1,369 +1,115 @@
-  <a href="https://github.com/caplaz/eufy-security-scrypted/actions/workflows/release.yml">
-    <img src="https://github.com/caplaz/eufy-security-scrypted/actions/workflows/release.yml/badge.svg" alt="Release Status"/>
-  </a>
-  <a href="https://github.com/caplaz/eufy-security-scrypted/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/caplaz/eufy-security-scrypted.svg" alt="License"/>
-  </a>
+# Eufy Security for Scrypted
 
-## Overview
+[![Release](https://github.com/caplaz/eufy-security-scrypted/actions/workflows/release.yml/badge.svg)](https://github.com/caplaz/eufy-security-scrypted/actions/workflows/release.yml)
 
-This monorepo contains the complete Eufy Security integration for Scrypted, consisting of multiple packages that work together to provide comprehensive home security automation.
+Integrate supported Eufy cameras, doorbells, stations, and sensors with Scrypted through a companion `eufy-security-ws` server. Device support depends on the model, firmware, and upstream server; see the [plugin setup and limitations](packages/eufy-security-scrypted/README.md).
 
-The monorepo includes four specialized packages: the main Scrypted plugin for device integration, a WebSocket client library for communication, a streaming server for video delivery, and a command-line interface for testing and automation.
+## Getting started
 
-## 🤔 Why This Plugin?
+1. Run the companion server using the [Docker setup](docker/README.md). This repository targets `bropat/eufy-security-ws:3.1.0` and API schema 21.
+2. In Scrypted, install **@caplaz/eufy-security-scrypted** from the plugin installer.
+3. Set **WebSocket URL** to an address reachable from Scrypted, then use **Connect to Eufy Cloud** and complete CAPTCHA or 2FA if prompted. Eufy account credentials belong in the companion server configuration.
+4. Open a camera in Scrypted before configuring HomeKit or other consumers. For H.265 sources, read about [native and compatibility streams](packages/eufy-security-scrypted/README.md#native-and-compatibility-streams).
 
-### The Technical Challenge
+When Scrypted runs in Docker, `localhost` refers to its container. Use the companion container's service name on a shared network or a reachable host address.
 
-**Eufy Security uses legacy encryption that modern Node.js cannot handle.** Eufy cameras and devices were designed years ago with older security protocols that are incompatible with current Node.js versions. This creates a fundamental compatibility barrier for modern home automation platforms.
+## 0.4.1 changes
 
-_For a detailed technical explanation of why this architecture was chosen, see [WHY_THIS_PACKAGE](packages/eufy-security-client/WHY_THIS_PACKAGE.md)._
+This patch release covers muxer initialization between keyframes, the 15fps fallback for cameras reporting zero FPS, already-running livestream status mismatches, and recovery after an idle camera loses its HomeBase slot. It also ensures the production plugin ZIP is included in npm packages. See the [changelog and contributor credits](CHANGELOG.md#041---2026-10-28).
 
-### Why We Need a Separate Server
+## Packages
 
-Modern Node.js runtimes (18+) have removed support for the deprecated OpenSSL encryption methods that Eufy's older firmware relies on. This means:
+| Package                                                                     | Purpose                                                                               |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| [@caplaz/eufy-security-scrypted](packages/eufy-security-scrypted/README.md) | Scrypted plugin: discovery, events, controls, video, snapshots, and clips             |
+| [@caplaz/eufy-security-client](packages/eufy-security-client/README.md)     | Typed WebSocket commands and events for the companion server                          |
+| [@caplaz/eufy-stream-server](packages/eufy-stream-server/README.md)         | Raw H.264/H.265 TCP output, fMP4 muxing with AAC audio, and optional H.264 conversion |
+| [@caplaz/eufy-security-cli](packages/eufy-security-cli/README.md)           | Private workspace CLI for local development and diagnostics; not published to npm     |
 
-- ❌ **Direct integration impossible** - Can't connect to Eufy devices from modern Node.js applications
-- ❌ **Security risks** - Using older Node.js versions introduces vulnerabilities
-- ❌ **Maintenance burden** - Would require maintaining outdated, insecure runtimes
+All four packages share a version through Lerna. The plugin and CLI use both the client and stream server; the stream server also depends on the client.
 
-### The Solution: Separate Container Architecture
+## Architecture
 
-This plugin uses a **two-tier architecture** with a dedicated `eufy-security-ws` server that handles the legacy protocol communication:
-
+```text
+Eufy cloud / devices
+        ↕
+eufy-security-ws (companion server)
+        ↕ WebSocket commands and events
+@caplaz/eufy-security-client
+        ├── Scrypted provider → station → camera / sensor
+        └── @caplaz/eufy-stream-server
+                ├── Raw H.264/H.265 TCP → FFmpeg / CLI consumers
+                └── fMP4 TCP with usable AAC audio → Scrypted consumers
+                        └── Optional shared H.265 → H.264 relay
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Scrypted      │    │  Eufy Security   │    │  Eufy Devices   │
-│   (Modern)      │◄──►│  WS Server       │◄──►│  (Legacy)       │
-│                 │    │  (Legacy Node)   │    │                 │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-```
 
-**The `eufy-security-ws` server:**
+The companion server owns Eufy cloud authentication and direct device/P2P protocol handling. This repository's client consumes its WebSocket API; it is a separate package from upstream `bropat/eufy-security-client`. See [why the client exists](packages/eufy-security-client/WHY_THIS_PACKAGE.md) and the [plugin architecture](packages/eufy-security-scrypted/ARCHITECTURE.md).
 
-- Runs on Node.js with legacy OpenSSL support
-- Handles all direct communication with Eufy devices
-- Provides a modern WebSocket API for secure integration
-- Isolated in a container for security and compatibility
+The default `ws://` connection and local TCP outputs are unencrypted. Use a trusted network; this integration does not imply that Eufy cloud access is unnecessary.
 
-**This Scrypted plugin:**
+## Development
 
-- Runs on your modern Scrypted server
-- Communicates with the WS server via secure WebSocket
-- Provides the Scrypted integration layer
-- Enables full home automation features
-
-### Key Benefits of This Approach
-
-- ✅ **Security First** - Modern, secure Node.js for the main application
-- ✅ **Compatibility** - Works with all Eufy device generations
-- ✅ **Performance** - Optimized streaming and event handling
-- ✅ **Maintainable** - Clear separation of concerns
-- ✅ **Future-Proof** - Can adapt as Eufy updates their protocols
-
-### Documentation Links
-
-- 📖 **[Scrypted Documentation](https://docs.scrypted.app/)** - Learn about Scrypted's automation platform
-- 🔧 **[Eufy Security WS](https://github.com/bropat/eufy-security-ws)** - The foundation this plugin builds upon
-- 🏠 **[Home Assistant Integration](https://www.home-assistant.io/integrations/scrypted/)** - Use with Home Assistant
-- 📚 **[API Reference](packages/eufy-security-client/)** - Technical API documentation
-
-## 📝 Changelog
-
-All notable changes to this project are documented in the **[CHANGELOG](CHANGELOG.md)** file. This includes:
-
-- Version history for all packages in the monorepo
-- Feature additions and bug fixes
-- Breaking changes and migration guides
-- Release notes and upgrade instructions
-
----
-
-## 🎯 Quick Start
-
-### For Users
+Clone the repository and run commands from its root:
 
 ```bash
-# Install via Scrypted's plugin system
-# Search for "Eufy Security" in Scrypted plugins
-```
-
-### For Developers
-
-#### Prerequisites
-
-- **Scrypted Server** - Home automation platform ([get started](https://docs.scrypted.app/))
-- **Eufy Account** - Active Eufy Security subscription
-
-#### Installation
-
-```bash
-# Clone the monorepo
 git clone https://github.com/caplaz/eufy-security-scrypted.git
 cd eufy-security-scrypted
-
-# Install all dependencies
-npm install
-
-# Build all packages
+npm ci
 npm run build
-```
-
-#### Deploy to Scrypted
-
-```bash
-# Open the Scrypted package in VS Code
-code packages/eufy-security-scrypted
-
-# Configure your Scrypted server IP in .vscode/settings.json
-# Press the Launch button (green arrow) in Run and Debug
-```
-
----
-
-## 📦 Packages Overview
-
-This monorepo contains four specialized packages that work together to provide complete Eufy Security integration:
-
-### [@scrypted/eufy-security-scrypted](packages/eufy-security-scrypted/)
-
-> **Scrypted Plugin** - The main integration point
-
-Core Scrypted plugin that discovers and controls your Eufy devices. Handles authentication, device management, and integrates with Scrypted's automation ecosystem.
-
-**Key Features:**
-
-- 🔍 Automatic device discovery
-- 🎥 Live video streaming
-- 🔔 Motion and doorbell events
-- ⚙️ Device control and configuration
-- 🤖 Scrypted automation integration
-
-### [@scrypted/eufy-security-client](packages/eufy-security-client/)
-
-> **WebSocket Client Library** - Communication foundation
-
-Type-safe TypeScript library for communicating with Eufy Security systems via WebSocket. Provides the low-level API interactions that other packages build upon.
-
-**Key Features:**
-
-- 🔌 WebSocket-based communication
-- 📝 Type-safe API calls
-- 🎯 Event-driven architecture
-- 🧪 Comprehensive test coverage (184 tests)
-- 🔄 Schema negotiation and compatibility
-
-### [@scrypted/eufy-security-cli](packages/eufy-security-cli/)
-
-> **Command-Line Interface** - Development and testing tool
-
-Terminal-based tool for interacting with your Eufy devices. Perfect for testing, debugging, and automation scripts.
-
-**Key Features:**
-
-- 📺 Direct video streaming to media players
-- 📋 Device status and control
-- 🔧 Configuration management
-- 📊 Streaming statistics
-- 🤖 Scriptable automation
-
-### [@scrypted/eufy-stream-server](packages/eufy-stream-server/)
-
-> **TCP Streaming Server** - High-performance video delivery
-
-Simplified TCP server optimized for raw H.264 video streaming. Handles the complexities of Eufy's video protocols while providing a clean streaming interface.
-
-**Key Features:**
-
-- 🎬 Raw H.264 video streaming
-- 🌐 TCP server with concurrent connections
-- 📦 NAL unit parsing and keyframe detection
-- 📈 Connection statistics and monitoring
-- ⚡ Event-driven TypeScript implementation
-
----
-
-## 🔄 How It All Works Together
-
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Scrypted UI   │◄──►│  Scrypted Plugin │◄──►│  Eufy Devices   │
-│                 │    │ (eufy-security-  │    │                 │
-│ User Interface  │    │    scrypted)     │    │ Cameras,        │
-└─────────────────┘    └──────────────────┘    │ Doorbells, etc. │
-                              │                └─────────────────┘
-                              ▼
-                       ┌──────────────────┐
-                       │ WebSocket Client │
-                       │ (eufy-security-  │
-                       │     client)      │
-                       └──────────────────┘
-                              │
-                              ▼
-                       ┌──────────────────┐    ┌─────────────────┐
-                       │   Stream Server  │◄──►│  Media Players  │
-                       │ (eufy-stream-    │    │                 │
-                       │    server)       │    │ VLC, ffplay,    │
-                       └──────────────────┘    │ etc.            │
-                              ▲                └─────────────────┘
-                              │
-                       ┌──────────────────┐
-                       │   CLI Tool       │
-                       │ (eufy-security-  │
-                       │     cli)         │
-                       └──────────────────┘
-```
-
-### Data Flow
-
-1. **Scrypted Plugin** discovers devices and handles user interactions
-2. **WebSocket Client** manages all communication with Eufy servers
-3. **Stream Server** provides optimized video delivery to media players
-4. **CLI Tool** offers direct terminal access for testing and automation
-
-### Package Dependencies
-
-- `eufy-security-scrypted` → depends on `eufy-security-client`
-- `eufy-security-cli` → depends on `eufy-security-client` and `eufy-stream-server`
-- `eufy-stream-server` → standalone streaming component
-- `eufy-security-client` → foundation library with no dependencies
-
----
-
-## ️ Development
-
-### Building
-
-```bash
-# Build all packages
-npm run build
-
-# Build individual packages
-cd packages/eufy-security-client && npm run build
-cd packages/eufy-security-scrypted && npm run build
-cd packages/eufy-stream-server && npm run build
-cd packages/eufy-security-cli && npm run build
-```
-
-### Testing
-
-```bash
-# Run complete test suite (206 tests)
 npm run test
-
-# Test individual packages
-cd packages/eufy-security-client && npm run test
-cd packages/eufy-stream-server && npm run test
-cd packages/eufy-security-cli && npm run test
-```
-
-### Code Quality
-
-```bash
-# Lint and format
 npm run lint
-npm run format
-
-# Type checking
-npm run type-check
+npm run format:check
 ```
 
-### Publishing
+CI builds and tests with Node.js 18, 20, and 22. Individual development tools can have stricter engine requirements; check npm's engine warnings for your installed dependencies.
+
+Use npm workspaces to target a package without changing directories:
 
 ```bash
-# All packages share versioning
-git tag v0.1.1
-git push origin v0.1.1
-# GitHub Actions automatically publishes to npm
+npm run build --workspace=@caplaz/eufy-security-client
+npm run typecheck --workspace=@caplaz/eufy-security-scrypted
+npm test --workspace=@caplaz/eufy-stream-server -- tests/stream-server.test.ts
+npm run test:watch --workspace=@caplaz/eufy-security-client
 ```
 
----
+| Root command           | Purpose                                                                         |
+| ---------------------- | ------------------------------------------------------------------------------- |
+| `npm run build`        | Build all packages in dependency order                                          |
+| `npm run test`         | Run all package test suites                                                     |
+| `npm run lint`         | Lint source across all four packages with zero warnings                         |
+| `npm run format`       | Format JS, TS, and JSON files                                                   |
+| `npm run format:check` | Check JS, TS, and JSON formatting                                               |
+| `npm run clean`        | Run Lerna's dependency cleanup; this removes package `node_modules` directories |
 
-## 🤝 Contributing
+There is no root `type-check` or `test:watch` script. Client, plugin, and CLI expose `typecheck`; their package READMEs describe other available scripts. To remove build output, use a package's `clean` script where available rather than the root cleanup command.
 
-We welcome contributions! This monorepo uses modern development practices:
+### Release preparation and publishing
 
-- **Lerna** for monorepo management
-- **TypeScript** for type safety
-- **Jest** for comprehensive testing
-- **ESLint + Prettier** for code quality
-- **GitHub Actions** for CI/CD
+1. Update `lerna.json`, all workspace versions, internal dependency ranges, and matching workspace records in `package-lock.json`.
+2. Add dated notes and contributor credits to [CHANGELOG.md](CHANGELOG.md). Keep an empty `Unreleased` heading for future changes.
+3. Run the build, tests, lint, and formatting checks above. Build the plugin in production mode and inspect package contents:
 
-### Development Workflow
+   ```bash
+   NODE_ENV=production npm run build --workspace=@caplaz/eufy-security-scrypted
+   npm pack --dry-run --ignore-scripts --workspace=@caplaz/eufy-security-scrypted
+   ```
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass
-6. Submit a pull request
+   The package must include `dist/plugin.zip`. Also inspect the client and stream-server packages for their compiled `dist` entry points.
 
-### Testing Your Changes
+4. Merge the release preparation PR after review and passing CI.
+5. When publishing is intended, tag the merged commit with the matching version and push that tag. For this version:
 
-```bash
-# Run full test suite
-npm run test
+   ```bash
+   git tag -a v0.4.1 -m "Release v0.4.1"
+   git push origin v0.4.1
+   ```
 
-# Run tests in watch mode during development
-npm run test:watch
-```
+Pushing a `v*` tag runs the [release workflow](.github/workflows/release.yml): install, build, test, publish the three public packages with the `latest` npm tag, and create a GitHub release using the matching changelog section. It requires a configured `NPM_TOKEN`. The private CLI is not published. Preparing or merging a version bump alone does not publish it.
 
----
+## Contributing and support
 
-## 📋 Available Scripts
+Submit changes through a PR with a description and relevant verification. For device problems, include the model, firmware, plugin/Scrypted/server versions, reproduction steps, and matching plugin and companion-server debug logs. Redact credentials and identify serial numbers consistently.
 
-| Command              | Description                  |
-| -------------------- | ---------------------------- |
-| `npm run build`      | Build all packages           |
-| `npm run test`       | Run all tests                |
-| `npm run clean`      | Clean build artifacts        |
-| `npm run lint`       | Lint all code                |
-| `npm run format`     | Format code with Prettier    |
-| `npm run type-check` | Run TypeScript type checking |
+Thanks to [@bropat](https://github.com/bropat) for [eufy-security-ws](https://github.com/bropat/eufy-security-ws), [Scrypted](https://www.scrypted.app/), and the contributors credited in the [changelog](CHANGELOG.md). Version 0.4.1 includes fixes and diagnostics from [@realAbitbol](https://github.com/realAbitbol), [@engim4-git](https://github.com/engim4-git), and [@jeepster5](https://github.com/jeepster5).
 
----
-
-## 🏗️ Architecture Deep Dive
-
-### Monorepo Structure
-
-```
-eufy-security-scrypted/
-├── packages/
-│   ├── eufy-security-client/     # 🔌 WebSocket communication
-│   ├── eufy-security-cli/        # 💻 Command-line interface
-│   ├── eufy-security-scrypted/   # 🤖 Scrypted plugin
-│   └── eufy-stream-server/       # 🎬 Video streaming server
-├── docker/                       # 🐳 Development environment
-├── .github/workflows/            # ⚙️ CI/CD pipelines
-├── lerna.json                    # 📦 Monorepo configuration
-└── tsconfig.json                 # 🔧 Shared TypeScript config
-```
-
-### Design Principles
-
-- **Modular Architecture** - Each package has a single responsibility
-- **Type Safety** - Full TypeScript coverage for reliability
-- **Test-Driven** - Comprehensive test suites ensure quality
-- **Developer Experience** - Modern tooling and clear documentation
-- **Performance** - Optimized for real-time video streaming
-
----
-
-## 📄 License
-
-**MIT License** - See [LICENSE](LICENSE) for details
-
----
-
-## 🙏 Acknowledgments
-
-### Special Thanks
-
-**[@bropat](https://github.com/bropat)** - Author of [eufy-security-ws](https://github.com/bropat/eufy-security-ws), the foundation this plugin is built upon. Without their excellent work on reverse-engineering Eufy's protocols, this integration would not be possible.
-
-### Additional Thanks
-
-- **[Scrypted](https://www.scrypted.app/)** - Powerful home automation platform that makes this integration possible
-- **Community contributors** - Bug reports, feature requests, and testing help improve the plugin
-- **Eufy Security** - For providing the devices we all love to integrate
+[MIT License](LICENSE).
