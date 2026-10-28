@@ -1390,6 +1390,27 @@ export class StreamServer extends EventEmitter {
           break;
         }
 
+        // Symmetric to the above: our pre-flight isLivestreaming() check can
+        // return a stale "false" while the server actually has the stream
+        // running (a state desync seen when switching cameras on a shared
+        // HomeBase). startLivestream then rejects with "already running".
+        // That's the stream we want — treat it as success rather than
+        // retrying, which only churns the HomeBase's single P2P slot and
+        // escalates to a spurious wedge/recycle. Mirror the "already running"
+        // status branch: anchor the session (so the mid-session wedge watchdog
+        // still fires if no data ever arrives) but do NOT force actualState
+        // true — that's driven by real video data.
+        if (msg.includes("device_livestream_already_running")) {
+          this.logger.info(
+            "Livestream already running upstream (stale status check) — treating as success",
+          );
+          if (this.livestreamSessionStartedAt === 0) {
+            this.livestreamSessionStartedAt = Date.now();
+          }
+          this.consecutiveNoDataStarts = 0;
+          break;
+        }
+
         this.logger.warn(
           `❌ Livestream command failed (attempt ${attempt}/${maxRetries}):`,
           error.message || error,
