@@ -111,6 +111,19 @@ const COMPATIBILITY_MODE_CHOICES: CompatibilityMode[] = [
   "Force",
   "Native",
 ];
+
+function stripRtspUserInfo(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = new URL(trimmed);
+    parsed.username = "";
+    parsed.password = "";
+    return parsed.toString();
+  } catch {
+    return trimmed.replace(/^(rtsps?:\/\/)[^/@]+@/i, "$1");
+  }
+}
 import { VideoClipsService } from "./services/video";
 import { PtzControlService, LightControlService } from "./services/control";
 
@@ -551,20 +564,22 @@ export class EufyDevice
 
     const currentCustomRtsp =
       (this.storage.getItem(RTSP_URL_SETTING_KEY) as string) || "";
-    const detectedRtsp =
+    const rawDetectedRtsp =
       (this.latestProperties?.rtspStreamUrl as string)?.trim() || "";
+    const detectedRtsp = stripRtspUserInfo(rawDetectedRtsp);
 
     settings.push({
       key: RTSP_URL_SETTING_KEY,
       title: "RTSP Stream URL",
       description:
-        "Direct RTSP stream URL for high-resolution, low-latency streaming with native AAC audio (e.g. rtsp://user:pass@192.168.x.x/live0). " +
+        "Direct RTSP stream URL for low-latency local streaming (e.g. rtsp://user:pass@192.168.x.x/live0). " +
         (detectedRtsp
-          ? `Auto-detected from camera NAS/RTSP settings: ${detectedRtsp.replace(/:[^:@]+@/, ":***@")}. `
+          ? `Auto-detected from camera NAS/RTSP settings: ${detectedRtsp}. `
           : "") +
         "Leave blank to use the auto-detected camera RTSP URL or standard P2P stream.",
+      type: "password",
       value: currentCustomRtsp,
-      placeholder: detectedRtsp || "rtsp://user:pass@192.168.x.x/live0",
+      placeholder: detectedRtsp || "rtsp://192.168.x.x/live0",
       group: "Streaming",
     });
 
@@ -697,7 +712,7 @@ export class EufyDevice
    * Resolve the RTSP stream URL for direct streaming.
    * Priority:
    * 1. Custom URL set in device settings (RTSP_URL_SETTING_KEY)
-   * 2. Device property `rtspStreamUrl` (auto-detected from Eufy API / NAS settings)
+   * 2. Device property `rtspStreamUrl` when NAS/RTSP (`rtspStream`) is enabled
    */
   getResolvedRtspUrl(): string | undefined {
     const customUrl = (
@@ -705,6 +720,9 @@ export class EufyDevice
     )?.trim();
     if (customUrl) {
       return customUrl;
+    }
+    if (!this.latestProperties?.rtspStream) {
+      return undefined;
     }
     const propUrl = (this.latestProperties?.rtspStreamUrl as string)?.trim();
     if (propUrl && /^rtsps?:\/\//i.test(propUrl)) {
@@ -724,14 +742,11 @@ export class EufyDevice
 
     const rtspUrl = this.getResolvedRtspUrl();
     if (rtspUrl) {
-      const { width, height } = this.streamService.getVideoDimensions(quality);
       const rtspOption: ResponseMediaStreamOptions = {
         id: "rtsp",
         name: "RTSP Stream (Direct)",
         container: this.latestProperties?.rtspStream ? "mpegts" : "rtsp",
         tool: "ffmpeg",
-        video: { codec: "h264", width, height },
-        audio: { codec: "aac" },
       };
       return [rtspOption, ...p2pOptions];
     }
@@ -741,7 +756,7 @@ export class EufyDevice
 
   /**
    * Get video stream using Direct RTSP or StreamService
-   * Direct RTSP uses the local camera feed with native AAC audio.
+   * Direct RTSP uses the local camera feed without re-encoding.
    */
   async getVideoStream(
     options?: RequestMediaStreamOptions,
@@ -750,20 +765,16 @@ export class EufyDevice
     const rtspUrl = this.getResolvedRtspUrl();
 
     if (rtspUrl && (options?.id === "rtsp" || !options?.id)) {
-      const sanitized = rtspUrl.replace(/:[^:@]+@/, ":***@");
+      const sanitized = stripRtspUserInfo(rtspUrl);
       this.logger.info(
         `[stream-request] Streaming via Direct RTSP: ${sanitized}`,
       );
 
-      const quality = this.latestProperties?.videoStreamingQuality;
-      const { width, height } = this.streamService.getVideoDimensions(quality);
       const streamOptions: ResponseMediaStreamOptions = {
         id: "rtsp",
         name: "RTSP Stream (Direct)",
         container: "rtsp",
         tool: "ffmpeg",
-        video: { codec: "h264", width, height },
-        audio: { codec: "aac" },
       };
 
       const ffmpegInput: FFmpegInput = {

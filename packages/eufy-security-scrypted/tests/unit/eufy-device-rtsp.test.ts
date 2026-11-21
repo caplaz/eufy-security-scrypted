@@ -227,7 +227,7 @@ describe("EufyDevice Direct RTSP Streaming", () => {
   }
 
   describe("Auto-detected RTSP", () => {
-    it("advertises direct RTSP stream option when rtspStreamUrl property is present", async () => {
+    it("advertises direct RTSP stream option without unverified codec/dimension metadata", async () => {
       const options = await device.getVideoStreamOptions();
       expect(options.length).toBeGreaterThanOrEqual(2);
       expect(options[0]).toEqual({
@@ -235,9 +235,9 @@ describe("EufyDevice Direct RTSP Streaming", () => {
         name: "RTSP Stream (Direct)",
         container: "mpegts",
         tool: "ffmpeg",
-        video: { codec: "h264", width: 1920, height: 1080 },
-        audio: { codec: "aac" },
       });
+      expect(options[0].video).toBeUndefined();
+      expect(options[0].audio).toBeUndefined();
     });
 
     it("streams via direct RTSP by default with TCP transport", async () => {
@@ -251,9 +251,14 @@ describe("EufyDevice Direct RTSP Streaming", () => {
         "-i",
         callArg.url,
       ]);
-      expect(callArg.mediaStreamOptions.id).toBe("rtsp");
-      expect(callArg.mediaStreamOptions.container).toBe("mpegts");
-      expect(callArg.mediaStreamOptions.audio.codec).toBe("aac");
+      expect(callArg.mediaStreamOptions).toEqual({
+        id: "rtsp",
+        name: "RTSP Stream (Direct)",
+        container: "mpegts",
+        tool: "ffmpeg",
+      });
+      expect(callArg.mediaStreamOptions.video).toBeUndefined();
+      expect(callArg.mediaStreamOptions.audio).toBeUndefined();
       expect(mockApi.startRtspLivestream).toHaveBeenCalledTimes(1);
       await consumeStream();
       expect(spawn).toHaveBeenCalledWith(
@@ -277,17 +282,22 @@ describe("EufyDevice Direct RTSP Streaming", () => {
       expect(mockApi.startRtspLivestream).not.toHaveBeenCalled();
     });
 
-    it("keeps a direct RTSP descriptor for sources without NAS activation", async () => {
+    it("ignores cached rtspStreamUrl and uses P2P when NAS rtspStream is disabled", async () => {
       await device.getVideoStreamOptions();
       (device as any).latestProperties.rtspStream = false;
-      await device.getVideoStream({ id: "rtsp" });
+      (device as any).latestProperties.rtspStreamUrl =
+        "rtsp://192.168.4.22/live0";
+
+      expect(device.getResolvedRtspUrl()).toBeUndefined();
+      const options = await device.getVideoStreamOptions();
+      expect(options.some((option) => option.id === "rtsp")).toBe(false);
+
+      await device.getVideoStream();
       const callArg = mockCreateFFmpegMediaObject.mock.calls[0][0];
-      expect(callArg.url).toBe("rtsp://192.168.4.22/live0");
-      expect(callArg.inputArguments).toEqual(
-        expect.arrayContaining(["-rtsp_transport", "tcp", callArg.url]),
-      );
-      expect(callArg.mediaStreamOptions.container).toBe("rtsp");
+      expect(callArg.url).toBeUndefined();
+      expect(callArg.inputArguments).toContain("tcp://127.0.0.1:8080");
       expect(mockApi.isRtspLivestreaming).not.toHaveBeenCalled();
+      expect(mockApi.startRtspLivestream).not.toHaveBeenCalled();
       expect(spawn).not.toHaveBeenCalled();
     });
 
@@ -333,6 +343,44 @@ describe("EufyDevice Direct RTSP Streaming", () => {
       );
     });
 
+    it("keeps custom RTSP URL working with a direct descriptor when NAS rtspStream is disabled", async () => {
+      await device.getVideoStreamOptions();
+      (device as any).latestProperties.rtspStream = false;
+      (device as any).latestProperties.rtspStreamUrl =
+        "rtsp://192.168.4.22/live0";
+      await device.putSetting(
+        "customRtspUrl",
+        "rtsp://admin:secret123@192.168.4.99/live0",
+      );
+
+      expect(device.getResolvedRtspUrl()).toBe(
+        "rtsp://admin:secret123@192.168.4.99/live0",
+      );
+      const options = await device.getVideoStreamOptions();
+      expect(options[0]).toEqual({
+        id: "rtsp",
+        name: "RTSP Stream (Direct)",
+        container: "rtsp",
+        tool: "ffmpeg",
+      });
+
+      await device.getVideoStream();
+      const callArg = mockCreateFFmpegMediaObject.mock.calls[0][0];
+      expect(callArg.url).toBe("rtsp://admin:secret123@192.168.4.99/live0");
+      expect(callArg.inputArguments).toEqual(
+        expect.arrayContaining(["-rtsp_transport", "tcp", callArg.url]),
+      );
+      expect(callArg.mediaStreamOptions).toEqual({
+        id: "rtsp",
+        name: "RTSP Stream (Direct)",
+        container: "rtsp",
+        tool: "ffmpeg",
+      });
+      expect(mockApi.isRtspLivestreaming).not.toHaveBeenCalled();
+      expect(mockApi.startRtspLivestream).not.toHaveBeenCalled();
+      expect(spawn).not.toHaveBeenCalled();
+    });
+
     it("clearing custom RTSP URL restores fallback to auto-detected URL", async () => {
       await device.putSetting("customRtspUrl", "rtsp://custom/stream");
       expect(device.getResolvedRtspUrl()).toBe("rtsp://custom/stream");
@@ -341,13 +389,25 @@ describe("EufyDevice Direct RTSP Streaming", () => {
       expect(device.getResolvedRtspUrl()).toBe("rtsp://192.168.4.22/live0");
     });
 
-    it("includes RTSP Stream URL in getSettings", async () => {
+    it("includes RTSP Stream URL as a password setting and strips user info from detected placeholder", async () => {
+      await device.getVideoStreamOptions();
+      (device as any).latestProperties.rtspStreamUrl =
+        "rtsp://admin:secret123@192.168.4.22:554/live0";
+
       const settings = await device.getSettings();
       const rtspSetting = settings.find((s) => s.key === "customRtspUrl");
       expect(rtspSetting).toBeDefined();
       expect(rtspSetting?.title).toBe("RTSP Stream URL");
       expect(rtspSetting?.group).toBe("Streaming");
-      expect(rtspSetting?.placeholder).toContain("rtsp://192.168.4.22/live0");
+      expect(rtspSetting?.type).toBe("password");
+      expect(rtspSetting?.placeholder).toBe("rtsp://192.168.4.22:554/live0");
+      expect(rtspSetting?.placeholder).not.toContain("admin");
+      expect(rtspSetting?.placeholder).not.toContain("secret123");
+      expect(rtspSetting?.description).toContain(
+        "rtsp://192.168.4.22:554/live0",
+      );
+      expect(rtspSetting?.description).not.toContain("admin");
+      expect(rtspSetting?.description).not.toContain("secret123");
     });
   });
 
