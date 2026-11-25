@@ -44,6 +44,7 @@ Set `EUFY_EMAIL` and `EUFY_PASSWORD` in your environment or a local `.env` file,
 | Plugin             | Encoder Critical / Recovery Temperature | Defaults 85 °C / 75 °C; gate new compatibility encoders                                         |
 | Camera → Streaming | H.264 Compatibility Mode                | `Auto` (default), `Force`, or `Native`; see routing below                                       |
 | Camera → Streaming | Background Thumbnail Refresh            | `Off`, 30 minutes, 1 hour, 2 hours (default), or 4 hours                                        |
+| Camera → Streaming | RTSP Stream URL                         | Optional authenticated RTSP URL; overrides the camera's detected NAS/RTSP URL                   |
 
 Other device settings are generated from the properties and metadata exposed by the server. Available controls differ by model.
 
@@ -53,7 +54,15 @@ The plugin receives decrypted livestream data over WebSocket and exposes local T
 
 Several viewers can share a camera's stream. A shared HomeBase is coordinated as a single camera-stream slot: a live request may preempt another camera after its warm-up guard, while background thumbnail work never interrupts a holder. Opening many battery cameras at once can therefore cause contention. When consumers leave, the upstream session can linger briefly rather than stopping on every Rebroadcast reconnect.
 
-Snapshots use the last cached keyframe, converted to JPEG. They do not wake the camera on demand; before any cached frame exists, the plugin returns a placeholder. A stale snapshot does not prove that a live stream is currently working. Background Thumbnail Refresh can wake an idle camera when its HomeBase slot is free, trading battery use for fresher tiles. Choose `Off` or a longer interval for battery/LTE cameras.
+P2P snapshots use the last cached keyframe, converted to JPEG. They do not wake the camera on demand; before any cached frame exists, the plugin returns a placeholder. A stale snapshot does not prove that a live stream is currently working. Background Thumbnail Refresh can wake an idle camera when its HomeBase slot is free, trading battery use for fresher tiles. Choose `Off` or a longer interval for battery/LTE cameras.
+
+### Direct RTSP streaming
+
+For cameras that support NAS/RTSP, enable it in the Eufy Security app. The plugin uses the reported RTSP URL by default. If the reported URL lacks credentials, set **Camera → Streaming → RTSP Stream URL**, for example `rtsp://user:password@192.168.x.x/live0`. Selecting the `p2p` stream still uses the existing P2P path. Motion events and intercom continue through the companion server.
+
+When NAS activation is enabled, live viewers and snapshot captures share one activation. The plugin stops only sessions it started, after the last consumer leaves or the device is disposed. Activated live streams use a local MPEG-TS connection with FFmpeg copying the camera's video and optional audio streams without encoding. Closing that connection releases the consumer; unused stream descriptors expire after 30 seconds. Sources without NAS activation retain the direct RTSP descriptor.
+
+If no recent keyframe is cached, an RTSP snapshot activates the stream as needed and captures a real JPEG. Capture is bounded to 15 seconds or the requested timeout, whichever is shorter. A failed capture falls back to the existing cached-image/placeholder service, and capture resources are released. Camera and firmware support still determine the available video and audio.
 
 ### 0.4.1 reliability fixes
 
