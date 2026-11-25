@@ -120,7 +120,7 @@ limit rather than a guarantee that every platform will prevent overheating.
 - Locks can expose settings and refresh, but the Scrypted `Lock` interface is not currently advertised. Temperature sensor names in upstream detection do not guarantee a Scrypted temperature interface.
 - Clip retrieval has station-database/P2P and cloud paths; actual availability depends on the device, storage, and server support.
 - HomeKit integration uses Scrypted's HomeKit plugin. HomeKit needs H.264 video; an explicitly selected native H.265 stream remains H.265 even in `Force` mode. Select `p2p-h264` explicitly where available when a consumer needs that contract.
-- Direct RTSP URL selection and the broader cold-start/codec changes proposed in PRs #41 and #45 are not part of 0.4.1.
+- When a camera reports NAS/RTSP as enabled or a custom RTSP URL is set, the plugin advertises and prefers a direct RTSP stream. That path bypasses HomeBase slot coordination and the H.264 compatibility routing, and an RTSP snapshot capture can wake the camera.
 - Upstream decryption failures occur inside the companion server before this plugin receives video; muxer or compatibility settings cannot repair missing decrypted frames.
 
 ## Troubleshooting

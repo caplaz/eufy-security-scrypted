@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Direct RTSP streaming** ([#41](https://github.com/caplaz/eufy-security-scrypted/pull/41)): Cameras with NAS/RTSP enabled, or with a custom RTSP URL, can stream locally instead of through the shared HomeBase P2P slot. Live viewers and snapshot captures share one NAS activation, streams are copied without re-encoding, and the existing `p2p` and `p2p-h264` streams remain available.
+
+### Contributors
+
+Thanks to [@resonaura](https://github.com/resonaura) for adding direct RTSP streaming, including the activation lifecycle and its tests.
+
 ## [0.4.1] - 2026-10-28
 
 ### Fixed
