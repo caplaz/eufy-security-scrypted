@@ -91,4 +91,16 @@ export interface IStreamServer {
    * Returns undefined if not started.
    */
   getMuxedPort(): number | undefined;
+
+  /**
+   * Resolve the session codec once it has settled (see StreamServer), or
+   * undefined on timeout.
+   */
+  waitForSettledCodec?(timeoutMs: number): Promise<"H264" | "H265" | undefined>;
+
+  /** Open a cold-start timing timeline (`⏱️ [timing]` log lines). */
+  beginTiming?(label: string): void;
+
+  /** Log a stage of the open timing timeline. */
+  markTiming?(stage: string, detail?: string, repeat?: boolean): void;
 }

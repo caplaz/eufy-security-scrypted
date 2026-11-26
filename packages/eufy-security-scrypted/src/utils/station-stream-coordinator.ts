@@ -59,7 +59,9 @@ export interface StationSlotLease {
 interface Holder {
   deviceSN: string;
   priority: StreamPriority;
-  onRevoke: () => void;
+  onRevoke: (byDeviceSN: string) => void;
+  /** The camera recently failed to deliver video (see `failing`). */
+  failing: boolean;
   /** Callbacks fired when THIS holder's lease is released. */
   onReleased: Array<() => void>;
   /** When this holder acquired the slot (for the warm-up grace). */
@@ -102,16 +104,31 @@ export function acquireStationSlot(
   stationSN: string,
   deviceSN: string,
   priority: StreamPriority,
-  onRevoke: () => void,
+  onRevoke: (byDeviceSN: string) => void,
   nowMs: number = Date.now(),
+  options: {
+    /**
+     * The requesting camera's recent starts delivered no video (offline,
+     * unpowered, unsupported). Such a camera may use a free slot but never
+     * takes it from a working camera, and its own warm-up is not protected:
+     * otherwise a dead camera that something keeps re-requesting (e.g. a
+     * Rebroadcast prebuffer) kicks live viewers off the HomeBase every few
+     * seconds.
+     */
+    failing?: boolean;
+  } = {},
 ): StationSlotLease | null {
   const current = holders.get(stationSN);
+  const failing = options.failing === true;
 
   let whenReady: Promise<void> = Promise.resolve();
 
   if (current && current.deviceSN !== deviceSN) {
     if (priority === "background") {
       // Background never interrupts a holder.
+      return null;
+    }
+    if (failing && !current.failing) {
       return null;
     }
     // "live" always beats a background holder (a thumbnail refresh). Against
@@ -122,7 +139,7 @@ export function acquireStationSlot(
     // another camera, so it preempts and takes over — newest tap wins — even
     // from a delivering holder. Switches are therefore spaced at least one
     // warm-up apart, which keeps the takeover from churning the HomeBase.
-    if (current.priority === "live") {
+    if (current.priority === "live" && !current.failing) {
       const withinWarmup = nowMs - current.acquiredAt < PREEMPT_MIN_HOLD_MS;
       if (withinWarmup) {
         return null;
@@ -141,7 +158,7 @@ export function acquireStationSlot(
       setTimeout(finish, PREEMPT_HANDOFF_TIMEOUT_MS);
     });
     try {
-      current.onRevoke();
+      current.onRevoke(deviceSN);
     } catch {
       // A misbehaving revoke handler must not block the new grant.
     }
@@ -151,6 +168,7 @@ export function acquireStationSlot(
     deviceSN,
     priority,
     onRevoke,
+    failing,
     onReleased: [],
     acquiredAt: nowMs,
     isDelivering: false,
