@@ -2050,6 +2050,9 @@ export class StreamServer extends EventEmitter {
     // sendCachedHeaders(); the cache holds individual NALs, never a stale
     // keyframe, so priming cannot put an old picture ahead of the live stream.
     const primeMuxer = (muxer: JMuxer): void => {
+      // Codec-switching cameras (S330/S340) can leave the cache holding the
+      // other codec's parameter sets; never feed those to this muxer.
+      if (this.cachedParamCodec && this.cachedParamCodec !== videoCodec) return;
       // H.265: VPS → SPS → PPS (order matters for decoder initialisation).
       const parameterSets =
         videoCodec === "H265"
@@ -2086,7 +2089,6 @@ export class StreamServer extends EventEmitter {
         clearBuffer: false,
         debug: false,
       });
-      primeMuxer(muxer);
       const duplex: Duplex = muxer.createStream();
       duplex.on("data", (chunk: Buffer) => {
         if (!emittedFirstChunk) {
@@ -2125,7 +2127,9 @@ export class StreamServer extends EventEmitter {
         restoreAudio: useMode === "video" ? restoreAudio : undefined,
         onCodecChange,
       });
-      this.replayCurrentGop(socket, videoCodec);
+      // A recent GOP already carries the parameter sets plus a keyframe; only
+      // fall back to priming with bare parameter sets when there is none.
+      if (!this.replayCurrentGop(socket, videoCodec)) primeMuxer(muxer);
     };
 
     const replaceMuxer = (useMode: "both" | "video"): void => {
@@ -3037,12 +3041,15 @@ export class StreamServer extends EventEmitter {
    * emit from that keyframe instead of waiting for the next one. Older GOPs
    * are skipped: replaying them would add their age as live latency.
    */
-  private replayCurrentGop(socket: net.Socket, codec: "H264" | "H265"): void {
+  private replayCurrentGop(
+    socket: net.Socket,
+    codec: "H264" | "H265",
+  ): boolean {
     const gop = this.currentGop;
     const entry = this.muxerStreams.get(socket);
-    if (!gop || !entry || gop.codec !== codec) return;
+    if (!gop || !entry || gop.codec !== codec) return false;
     const ageMs = Date.now() - gop.startedAt;
-    if (ageMs > this.GOP_REPLAY_MAX_AGE_MS) return;
+    if (ageMs > this.GOP_REPLAY_MAX_AGE_MS) return false;
     // Not counted in stats and no onVideoFed: the both→video fallback clock
     // still starts at the first live frame of this muxer.
     for (const frame of gop.frames) {
@@ -3050,7 +3057,7 @@ export class StreamServer extends EventEmitter {
         entry.muxer.feed({ video: frame });
       } catch (e) {
         this.logger.warn(`Muxer GOP replay error: ${e}`);
-        return;
+        return false;
       }
     }
     this.timeline.mark(
@@ -3058,6 +3065,7 @@ export class StreamServer extends EventEmitter {
       `${gop.frames.length} frame(s), keyframe ${ageMs}ms old`,
       { repeat: true },
     );
+    return true;
   }
 
   /**

@@ -2543,6 +2543,12 @@ describe("StreamServer", () => {
       return socket;
     };
 
+    // GOP replay (fork) supersedes priming when the keyframe is recent; these
+    // tests cover the fallback path, so disable replay.
+    beforeEach(() => {
+      (server as any).GOP_REPLAY_MAX_AGE_MS = -1;
+    });
+
     const lastMuxer = () => {
       const JMuxerMock = require("jmuxer").default;
       return JMuxerMock.mock.results[JMuxerMock.mock.results.length - 1].value;
@@ -2590,13 +2596,19 @@ describe("StreamServer", () => {
     });
 
     it("does not prime a muxer when no parameter sets are cached", async () => {
+      const JMuxerMock = require("jmuxer").default;
+      const before = JMuxerMock.mock.results.length;
       const socket = await attachMuxer();
 
       // IDR-only event: no SPS/PPS to cache, so there is nothing to prime with.
       fireVideo(Buffer.concat([START, IDR_NAL]));
       await wait(50);
 
-      expect(lastMuxer().feed).not.toHaveBeenCalled();
+      // Only muxers built by this test count (the fork may defer building one
+      // until parameter sets arrive).
+      for (const r of JMuxerMock.mock.results.slice(before)) {
+        expect(r.value.feed).not.toHaveBeenCalled();
+      }
 
       socket.destroy();
     });
@@ -3211,9 +3223,10 @@ describe("StreamServer", () => {
         (server as any).GOP_REPLAY_MAX_AGE_MS = -1;
         const socket = await connectMuxed(server);
         await wait(30);
-        expect(newestMuxer().feed).not.toHaveBeenCalledWith(
-          expect.objectContaining({ video: expect.anything() }),
-        );
+        // Only bare parameter sets may be primed, never the old keyframe.
+        expect(newestMuxer().feed).not.toHaveBeenCalledWith({
+          video: keyframeAccessUnit("H264"),
+        });
         socket.destroy();
         opener.destroy();
       });
