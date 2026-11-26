@@ -11,13 +11,33 @@ const select = (input: Partial<StreamSelectionInput> = {}) =>
   });
 
 describe("selectStream", () => {
-  it("keeps an explicitly requested native stream native", () => {
+  it("keeps an explicitly requested native stream native outside Force mode", () => {
+    for (const compatibilityMode of ["Auto", "Native"] as const) {
+      expect(
+        select({
+          streamId: "p2p",
+          compatibilityMode,
+          source: { codec: "H265", verified: true },
+          destination: "local",
+        }),
+      ).toEqual({ kind: "stream", streamId: "p2p" });
+    }
+  });
+
+  it("routes an explicit p2p request through the relay in Force mode for H265", () => {
+    // Rebroadcast (and so HomeKit) always asks for `p2p` by id.
+    expect(select({ streamId: "p2p", compatibilityMode: "Force" })).toEqual({
+      kind: "stream",
+      streamId: "p2p-h264",
+    });
+  });
+
+  it("passes an explicit p2p request through in Force mode for H264", () => {
     expect(
       select({
         streamId: "p2p",
         compatibilityMode: "Force",
-        source: { codec: undefined, verified: false },
-        availabilityError: "encoder capacity is exhausted",
+        source: { codec: "H264", verified: true },
       }),
     ).toEqual({ kind: "stream", streamId: "p2p" });
   });

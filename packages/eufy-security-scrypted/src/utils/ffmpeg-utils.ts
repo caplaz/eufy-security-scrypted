@@ -48,6 +48,7 @@ export class FFmpegUtils {
    * @param videoData - Buffer containing encoded video data (H.264 or H.265 keyframe)
    * @param quality - JPEG quality setting (1-31, lower is better quality, default: 2)
    * @param videoCodec - Eufy codec string ("H264" or "H265", default: "H264")
+   * @param maxWidth - Downscale wider frames to this width (aspect kept)
    * @returns Promise resolving to Buffer containing JPEG image data
    * @throws Error if FFmpeg fails or returns invalid output
    */
@@ -55,6 +56,7 @@ export class FFmpegUtils {
     videoData: Buffer,
     quality: number = 2,
     videoCodec: string = "H264",
+    maxWidth?: number,
   ): Promise<Buffer> {
     const child_process = await import("child_process");
 
@@ -80,6 +82,9 @@ export class FFmpegUtils {
         "pipe:0", // Read from stdin
         "-frames:v",
         "1", // Extract only the first frame
+        ...(maxWidth
+          ? ["-vf", `scale='min(${maxWidth},iw)':-2`] // Downscale only
+          : []),
         "-f",
         "image2", // Output format
         "-c:v",
