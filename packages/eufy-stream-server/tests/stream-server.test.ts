@@ -2990,7 +2990,7 @@ describe("StreamServer", () => {
     });
 
     describe("after a plugin restart and with a busy HomeBase", () => {
-      it("rebuilds a muxer built from the persisted codec hint once the session's codec is known", async () => {
+      it("closes a client muxed from the persisted codec hint once the session turns out to be the other codec", async () => {
         const s = new StreamServer({
           port: testPort + 3,
           host: "127.0.0.1",
@@ -3004,15 +3004,81 @@ describe("StreamServer", () => {
         await s.start();
         const callsBefore = jmuxer().mock.calls.length;
         const socket = await connectMuxed(s);
+        const socketClosed = closed(socket);
         await wait(150); // metadata wait times out → hinted H265, video-only
         expect(jmuxer().mock.calls.length).toBe(callsBefore + 1);
         expect(lastCall().videoCodec).toBe("H265");
 
-        fireVideo("H264"); // the session turns out to be H.264
-        expect(jmuxer().mock.calls.length).toBe(callsBefore + 2);
-        expect(lastCall().videoCodec).toBe("H264");
-        expect(socket.destroyed).toBe(false);
-        socket.destroy();
+        // The session turns out to be H.264. The client was advertised H.265
+        // (the hint), so it is dropped to re-request rather than rebuilt.
+        fireVideo("H264");
+        await socketClosed;
+        expect(jmuxer().mock.calls.length).toBe(callsBefore + 1);
+      });
+
+      describe("request served from a codec hint (end to end)", () => {
+        const hintedServer = async (port: number) => {
+          const s = new StreamServer({
+            port,
+            host: "127.0.0.1",
+            wsClient: mockWsClient,
+            serialNumber: "TEST_DEVICE_123",
+            initialVideoCodec: "H264",
+          });
+          gated = s;
+          tune(s);
+          await s.start();
+          // What the stream service advertises for a cold `p2p` request:
+          // the session is unverified, so the codec comes from the hint.
+          expect(s.isMetadataVerifiedForCurrentSession()).toBe(false);
+          expect(s.getVideoMetadata()?.videoCodec).toBe("H264");
+          return s;
+        };
+
+        it("drops a client advertised H.264 when the camera wakes in H.265, and serves the re-request as H.265", async () => {
+          const s = await hintedServer(testPort + 5);
+          const callsBefore = jmuxer().mock.calls.length;
+
+          // The consumer connects while the camera is still waking.
+          const socket = await connectMuxed(s);
+          const socketClosed = closed(socket);
+          await wait(20);
+          expect((s as any).pendingMuxerSockets.size).toBe(1);
+
+          // First frame of the session: H.265.
+          fireVideo("H265");
+          await socketClosed;
+          // No muxer was built for the mismatched client: it never received
+          // H.265 bytes through an input labelled H.264.
+          expect(jmuxer().mock.calls.length).toBe(callsBefore);
+
+          // The re-request now sees a verified H.265 session…
+          expect(s.isMetadataVerifiedForCurrentSession()).toBe(true);
+          expect(s.getVideoMetadata()?.videoCodec).toBe("H265");
+          // …and its socket is muxed as H.265.
+          const retry = await connectMuxed(s);
+          fireAudio();
+          await wait(150);
+          expect(jmuxer().mock.calls.length).toBe(callsBefore + 1);
+          expect(lastCall().videoCodec).toBe("H265");
+          expect(retry.destroyed).toBe(false);
+          retry.destroy();
+        });
+
+        it("keeps a client advertised H.264 when the camera wakes in H.264", async () => {
+          const s = await hintedServer(testPort + 6);
+          const callsBefore = jmuxer().mock.calls.length;
+          const socket = await connectMuxed(s);
+          await wait(20);
+
+          fireVideo("H264");
+          fireAudio();
+          await wait(150);
+          expect(jmuxer().mock.calls.length).toBe(callsBefore + 1);
+          expect(lastCall().videoCodec).toBe("H264");
+          expect(socket.destroyed).toBe(false);
+          socket.destroy();
+        });
       });
 
       it("retries a denied live slot while a consumer waits", async () => {

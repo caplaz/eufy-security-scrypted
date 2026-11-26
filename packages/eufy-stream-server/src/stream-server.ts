@@ -1854,6 +1854,22 @@ export class StreamServer extends EventEmitter {
    * matches what the Eufy cameras actually deliver byte-for-byte.
    */
   private async handleMuxedClient(socket: net.Socket): Promise<void> {
+    // A client that connects before this session's codec is verified was
+    // served from `getVideoMetadata()` — the previous session's codec or the
+    // persisted hint — and advertised that codec downstream (Rebroadcast and
+    // HomeKit pick codec copy from it). If the camera wakes with the other
+    // codec, muxing it anyway would deliver H.265 through an input labelled
+    // H.264 (or vice versa); close the socket instead so the client
+    // re-requests and is advertised the session's real codec. A client that
+    // attaches to a verified session (e.g. the compatibility relay) has no
+    // such promise and keeps the in-place rebuild below.
+    const advertised = this.isMetadataVerifiedForCurrentSession()
+      ? undefined
+      : this.getVideoMetadata()?.videoCodec;
+    const promisedCodec = advertised
+      ? StreamServer.toMuxerCodec(advertised)
+      : undefined;
+
     // Mark this socket as a pending consumer immediately so the upstream
     // livestream starts even though we don't yet have a JMuxer to feed.
     // `updateLivestreamStateForMuxerClients` counts both pending and active
@@ -1949,6 +1965,15 @@ export class StreamServer extends EventEmitter {
     // Socket may have given up while we waited.
     if (socket.destroyed || !this.pendingMuxerSockets.has(socket)) {
       this.pendingMuxerSockets.delete(socket);
+      return;
+    }
+
+    if (promisedCodec && videoCodec !== promisedCodec) {
+      this.logger.info(
+        `Muxed client was advertised ${promisedCodec} but the session is ${videoCodec} — closing so it re-requests for ${this.options.serialNumber}`,
+      );
+      this.pendingMuxerSockets.delete(socket);
+      socket.destroy();
       return;
     }
 
@@ -2157,7 +2182,9 @@ export class StreamServer extends EventEmitter {
     // The session came back with a different codec (see handleCodecChange).
     const onCodecChange = (): void => {
       if (socket.destroyed) return;
-      if (!emittedFirstChunk) {
+      // A client served from a codec hint must not get the other codec,
+      // even before its first byte (see `promisedCodec`).
+      if (!emittedFirstChunk && !promisedCodec) {
         replaceMuxer(this.muxerStreams.get(socket)?.mode ?? "video");
         return;
       }
