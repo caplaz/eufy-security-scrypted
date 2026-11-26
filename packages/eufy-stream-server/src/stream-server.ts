@@ -291,6 +291,16 @@ export class StreamServer extends EventEmitter {
   private readonly COLD_START_STALE_THRESHOLD_MS = 18000;
 
   /**
+   * When the last `startLivestream` command was sent (0 = none pending).
+   * `ensureLivestreamState` is re-entered concurrently (consumer attach,
+   * muxer rebuild, warm-lease promotion). Without this, a second call that
+   * lands while the camera is still waking saw `consecutiveNoDataStarts=1`
+   * and declared the upstream wedged within milliseconds, recycling the
+   * whole HomeBase P2P session for nothing.
+   */
+  private lastStartLivestreamSentAt = 0;
+
+  /**
    * Timestamp of when the current livestream "session" was established —
    * either when we issued `startLivestream` or when `ensureLivestreamState`
    * observed bropat reporting `isLivestreaming=true` while we have intent.
@@ -1059,6 +1069,7 @@ export class StreamServer extends EventEmitter {
         if (!this.livestreamActualState) {
           this.setLivestreamActual(true);
           this.consecutiveNoDataStarts = 0;
+          this.lastStartLivestreamSentAt = 0;
           this.logger.info(
             "📹 Livestream confirmed active - receiving video data",
           );
@@ -1344,6 +1355,7 @@ export class StreamServer extends EventEmitter {
 
     this.livestreamIntendedState = false;
     this.consecutiveNoDataStarts = 0;
+    this.lastStartLivestreamSentAt = 0;
     this.lastVideoDataAt = 0;
     this.livestreamSessionStartedAt = 0;
     this.cancelPostSnapshotLinger("upstream wedged");
@@ -1482,6 +1494,22 @@ export class StreamServer extends EventEmitter {
     });
   }
 
+  /** (Re)arm the "no data after startLivestream" escalation timer. */
+  private armColdStartEscalation(delayMs: number): void {
+    if (this.startStopTimeout) clearTimeout(this.startStopTimeout);
+    this.startStopTimeout = setTimeout(() => {
+      this.startStopTimeout = undefined;
+      if (this.livestreamIntendedState && !this.livestreamActualState) {
+        this.logger.warn(
+          `⚠️ No video data ${this.COLD_START_STALE_THRESHOLD_MS / 1000}s after startLivestream — escalating to wedge/recycle`,
+        );
+        void this.ensureLivestreamState().catch((e) =>
+          this.logger.warn(`Cold-start escalation failed: ${e}`),
+        );
+      }
+    }, delayMs);
+  }
+
   /**
    * Ensure the livestream is in the correct state with retry logic
    */
@@ -1589,6 +1617,22 @@ export class StreamServer extends EventEmitter {
           // consecutive startLivestream commands without ever receiving
           // video data, give up and signal an upstream wedge.
           if (this.consecutiveNoDataStarts >= this.MAX_NO_DATA_STARTS) {
+            // A start is still inside its cold-start window — this is a
+            // concurrent re-entry, not evidence of a wedge. Wait it out,
+            // re-arming the escalation timer that the entry of this call
+            // cleared.
+            const sinceStart = Date.now() - this.lastStartLivestreamSentAt;
+            if (
+              this.lastStartLivestreamSentAt > 0 &&
+              sinceStart < this.COLD_START_STALE_THRESHOLD_MS
+            ) {
+              const remaining = this.COLD_START_STALE_THRESHOLD_MS - sinceStart;
+              this.logger.info(
+                `⏳ startLivestream sent ${Math.round(sinceStart / 1000)}s ago — waiting ${Math.round(remaining / 1000)}s more before judging upstream`,
+              );
+              this.armColdStartEscalation(remaining);
+              break;
+            }
             this.markUpstreamWedged("cold-start-counter-maxed", {
               attempts: this.consecutiveNoDataStarts,
             });
@@ -1607,6 +1651,7 @@ export class StreamServer extends EventEmitter {
           // Need to start livestream
           this.consecutiveNoDataStarts++;
           this.livestreamSessionStartedAt = Date.now();
+          this.lastStartLivestreamSentAt = Date.now();
           this.logger.info(
             `🎥 Starting livestream (attempt ${attempt}/${maxRetries}, consecutive-no-data=${this.consecutiveNoDataStarts}/${this.MAX_NO_DATA_STARTS})`,
           );
@@ -1628,14 +1673,7 @@ export class StreamServer extends EventEmitter {
           // premature re-send/recycle. With MAX_NO_DATA_STARTS=1 this
           // re-entry will conclude the upstream is wedged (no data after a
           // full window) and hand off to the station P2P recycle.
-          this.startStopTimeout = setTimeout(() => {
-            if (this.livestreamIntendedState && !this.livestreamActualState) {
-              this.logger.warn(
-                `⚠️ No video data ${this.COLD_START_STALE_THRESHOLD_MS / 1000}s after startLivestream — escalating to wedge/recycle`,
-              );
-              this.ensureLivestreamState();
-            }
-          }, this.COLD_START_STALE_THRESHOLD_MS);
+          this.armColdStartEscalation(this.COLD_START_STALE_THRESHOLD_MS);
         } else if (this.livestreamIntendedState && actualStreamingStatus) {
           // Stream is already running and we want it running - all good.
           // Set the session anchor if it's not already set so the
