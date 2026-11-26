@@ -84,6 +84,15 @@ export class ApiManager {
   private readonly CLIENT_MIN_SCHEMA = 13;
   private readonly CLIENT_PREFERRED_SCHEMA = 21;
 
+  /**
+   * Set once `startListening()` succeeds. eufy-security-ws only sends events
+   * to a connection that sent `start_listening`; after an automatic
+   * reconnect (e.g. the server container restarted) the new connection must
+   * send it again, or the client silently stops receiving every event —
+   * property changes, motion, and livestream data.
+   */
+  private listening = false;
+
   // Event listeners
   private eventListeners: Map<string, EventListener<any, any>> = new Map();
   private listenerIdCounter = 0;
@@ -498,6 +507,7 @@ export class ApiManager {
       );
     }
     this.stateManager.setDriverConnected(driverConnected);
+    this.listening = true;
 
     return result;
   }
@@ -621,6 +631,19 @@ export class ApiManager {
     } catch (error) {
       this.stateManager.setError(error as Error);
       throw error;
+    }
+
+    // A reconnect of a client that was listening: subscribe the new
+    // connection to events again (see `listening`).
+    if (this.listening) {
+      try {
+        await this.startListening();
+        this.logger?.info("Re-subscribed to server events after reconnect");
+      } catch (error) {
+        this.logger?.warn(
+          `Failed to re-subscribe to server events after reconnect: ${error}`,
+        );
+      }
     }
   }
 
