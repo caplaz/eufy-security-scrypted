@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Solar battery cameras behind a HomeBase flapped Rebroadcast's prebuffer**: Rebroadcast keeps a continuous prebuffer for battery cameras that report Charging with at least 20% battery, and stops it when charging stops. A solar camera's charge state flaps at dawn and dusk, so the prebuffer started and stopped repeatedly. While it ran, it held the HomeBase's single P2P stream slot, and the station's other cameras got `slot busy`. Battery cameras behind a HomeBase no longer expose the Charger interface, so Rebroadcast serves them on demand. Standalone battery cameras keep Charger. Scrypted and HomeKit no longer show a charging indicator for these cameras, but the battery level remains.
+
 ### Added
 
 - **Direct RTSP streaming** ([#41](https://github.com/caplaz/eufy-security-scrypted/pull/41)): Cameras with NAS/RTSP enabled, or with a custom RTSP URL, can stream locally instead of through the shared HomeBase P2P slot. Live viewers and snapshot captures share one NAS activation, streams are copied without re-encoding, and the existing `p2p` and `p2p-h264` streams remain available.
