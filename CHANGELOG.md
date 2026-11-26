@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Events stop after an eufy-security-ws restart**: After an automatic reconnect the client re-sends `start_listening` once the schema is set, so the new connection keeps receiving property changes, motion events, event pictures and livestream data. Before, nothing arrived until the plugin was restarted.
+
 ### Added
 
 - **Direct RTSP streaming** ([#41](https://github.com/caplaz/eufy-security-scrypted/pull/41)): Cameras with NAS/RTSP enabled, or with a custom RTSP URL, can stream locally instead of through the shared HomeBase P2P slot. Live viewers and snapshot captures share one NAS activation, streams are copied without re-encoding, and the existing `p2p` and `p2p-h264` streams remain available.

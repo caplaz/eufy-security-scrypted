@@ -162,6 +162,50 @@ describe("ApiManager", () => {
       );
     });
 
+    describe("event subscription across reconnects", () => {
+      const versionMessage = {
+        type: MESSAGE_TYPES.VERSION,
+        driverVersion: "4.1.0",
+        serverVersion: "3.1.0",
+        minSchemaVersion: 0,
+        maxSchemaVersion: 21,
+      };
+      const listenResult = {
+        state: { devices: [], stations: [], driver: { connected: true } },
+      };
+      const versionHandler = () =>
+        (mockWebSocketClient.onVersionMessage as jest.Mock).mock.calls[0][0];
+      const startListeningCalls = () =>
+        mockWebSocketClient.sendMessage.mock.calls.filter(
+          ([message]: any[]) => message.command === "start_listening",
+        ).length;
+
+      test("re-sends start_listening after a reconnect of a listening client", async () => {
+        mockWebSocketClient.sendMessage.mockResolvedValue(listenResult);
+        const state = (apiManager as any).stateManager;
+        state.setWebSocketConnected(true);
+        await versionHandler()(versionMessage);
+        await apiManager.startListening();
+        expect(startListeningCalls()).toBe(1);
+
+        // eufy-security-ws restarts: the socket drops and reconnects.
+        state.setWebSocketConnected(false);
+        state.setWebSocketConnected(true);
+        await versionHandler()(versionMessage);
+
+        // Without this the new connection receives no events at all.
+        expect(startListeningCalls()).toBe(2);
+        expect(state.getState().driverConnected).toBe(true);
+      });
+
+      test("does not start listening on its own before the app asked to", async () => {
+        mockWebSocketClient.sendMessage.mockResolvedValue(listenResult);
+        (apiManager as any).stateManager.setWebSocketConnected(true);
+        await versionHandler()(versionMessage);
+        expect(startListeningCalls()).toBe(0);
+      });
+    });
+
     test("should handle incompatible schema versions", async () => {
       const versionMessage = {
         type: MESSAGE_TYPES.VERSION,
