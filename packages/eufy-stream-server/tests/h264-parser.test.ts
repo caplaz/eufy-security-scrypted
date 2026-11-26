@@ -3,6 +3,7 @@
  */
 
 import { H264Parser } from "../src/h264-parser";
+import { S330_HEVC } from "./fixtures/s330-hevc-nal-units";
 import {
   createTestLogger,
   createTestH264Data,
@@ -123,11 +124,17 @@ describe("H264Parser", () => {
       expect(nalUnits[3].type).toBe(19); // IDR_W_RADL
     });
 
-    it("marks VPS, SPS, PPS and IDR NAL units as keyframe components", () => {
+    it("marks only the IDR slice as a keyframe, not the parameter sets", () => {
       const hevcData = createTestHevcData();
       const nalUnits = parser.extractNALUnitsHevc(hevcData);
 
-      nalUnits.forEach((nal) => expect(nal.isKeyFrame).toBe(true));
+      expect(nalUnits.map((nal) => [nal.type, nal.isKeyFrame])).toEqual([
+        [32, false],
+        [33, false],
+        [34, false],
+        [19, true],
+      ]);
+      expect(parser.isKeyFrameHevc(hevcData)).toBe(true);
     });
 
     it("correctly extracts IDR_N_LP (type 20)", () => {
@@ -235,7 +242,105 @@ describe("H264Parser", () => {
 
       const nalUnits265 = parser.extractNALUnitsHevc(createTestHevcVpsData());
       expect(nalUnits265[0].type).toBe(32); // correct
-      expect(nalUnits265[0].isKeyFrame).toBe(true);
+      expect(nalUnits265[0].isKeyFrame).toBe(false); // a parameter set, not a picture
+    });
+  });
+
+  describe("real S330 H.265 NAL units (fixture)", () => {
+    const sc = Buffer.from([0x00, 0x00, 0x00, 0x01]);
+    const au = (...nals: Buffer[]) =>
+      Buffer.concat(nals.flatMap((nal) => [sc, nal]));
+
+    it("parses the keyframe access unit and flags only the IDR slice", () => {
+      const nalUnits = parser.extractNALUnitsHevc(
+        au(S330_HEVC.vps, S330_HEVC.sps, S330_HEVC.pps, S330_HEVC.idrSlice),
+      );
+      expect(
+        nalUnits.map((n) => [parser.getNALTypeNameHevc(n.type), n.isKeyFrame]),
+      ).toEqual([
+        ["VPS_NUT", false],
+        ["SPS_NUT", false],
+        ["PPS_NUT", false],
+        ["IDR_W_RADL", true],
+      ]);
+    });
+
+    it("parses a P-frame as TRAIL_R, not a keyframe (3- and 4-byte start codes)", () => {
+      for (const start of [sc, Buffer.from([0x00, 0x00, 0x01])]) {
+        const [nal] = parser.extractNALUnitsHevc(
+          Buffer.concat([start, S330_HEVC.trailSlice]),
+        );
+        expect(parser.getNALTypeNameHevc(nal.type)).toBe("TRAIL_R");
+        expect(nal.isKeyFrame).toBe(false);
+        expect(nal.data.equals(S330_HEVC.trailSlice)).toBe(true);
+      }
+    });
+
+    it("explains the field symptom: H.264 bytes read as H.265 look like BLA/IDR", () => {
+      // H.264 SPS 0x27, PPS 0x28, IDR 0x25, P-slice 0x21 under HEVC rules.
+      const h264 = au(
+        Buffer.from([0x27, 0x4d, 0x00, 0x2a]),
+        Buffer.from([0x28, 0xee, 0x3c, 0x80]),
+        Buffer.from([0x25, 0x88, 0x80, 0x10]),
+        Buffer.from([0x21, 0x9a, 0x02, 0x04]),
+      );
+      expect(
+        parser
+          .extractNALUnitsHevc(h264)
+          .map((n) => parser.getNALTypeNameHevc(n.type)),
+      ).toEqual(["IDR_W_RADL", "IDR_N_LP", "BLA_N_LP", "BLA_W_LP"]);
+      expect(parser.detectParameterSetCodec(h264)).toBe("H264");
+    });
+  });
+
+  describe("detectParameterSetCodec", () => {
+    const sc = Buffer.from([0x00, 0x00, 0x00, 0x01]);
+
+    it("identifies H.265 from the real S330 parameter sets", () => {
+      expect(
+        parser.detectParameterSetCodec(
+          Buffer.concat([sc, S330_HEVC.vps, sc, S330_HEVC.sps]),
+        ),
+      ).toBe("H265");
+      expect(
+        parser.detectParameterSetCodec(Buffer.concat([sc, S330_HEVC.pps])),
+      ).toBe("H265");
+    });
+
+    it("identifies H.264 from an SPS with a known profile_idc", () => {
+      for (const sps of [
+        [0x67, 0x64, 0x00, 0x33], // High
+        [0x67, 0x42, 0x00, 0x1e], // Baseline
+        [0x27, 0x4d, 0x00, 0x2a], // Main, nal_ref_idc=1
+      ]) {
+        expect(
+          parser.detectParameterSetCodec(Buffer.concat([sc, Buffer.from(sps)])),
+        ).toBe("H264");
+      }
+    });
+
+    it("returns undefined for slices without parameter sets", () => {
+      expect(
+        parser.detectParameterSetCodec(
+          Buffer.concat([sc, S330_HEVC.trailSlice]),
+        ),
+      ).toBeUndefined();
+      expect(
+        parser.detectParameterSetCodec(
+          Buffer.concat([sc, Buffer.from([0x21, 0x9a, 0x02, 0x04])]),
+        ),
+      ).toBeUndefined();
+      // nal_ref_idc = 0 or an unknown profile_idc is not trusted as an SPS.
+      expect(
+        parser.detectParameterSetCodec(
+          Buffer.concat([sc, Buffer.from([0x07, 0x64, 0x00, 0x33])]),
+        ),
+      ).toBeUndefined();
+      expect(
+        parser.detectParameterSetCodec(
+          Buffer.concat([sc, Buffer.from([0x67, 0x05, 0x00, 0x33])]),
+        ),
+      ).toBeUndefined();
     });
   });
 });

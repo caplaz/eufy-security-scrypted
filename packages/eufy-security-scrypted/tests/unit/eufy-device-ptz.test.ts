@@ -145,26 +145,57 @@ describe("EufyDevice PTZ Functionality", () => {
   });
 
   describe("PTZ Capabilities Detection", () => {
-    test("persists a changed live codec hint and reannounces stream options", () => {
-      const onDeviceEvent = jest.fn();
-      (device as any).onDeviceEvent = onDeviceEvent;
+    const streamServerListener = (event: string) => {
       const streamServer = (
         require("@caplaz/eufy-stream-server").StreamServer as jest.Mock
       ).mock.results.at(-1)?.value;
-      const metadataListener = streamServer.on.mock.calls.find(
-        ([event]: [string]) => event === "metadataReceived",
+      return streamServer.on.mock.calls.find(
+        ([name]: [string]) => name === event,
       )?.[1];
+    };
 
+    test("persists a changed live codec at once but reannounces only between sessions", () => {
+      const onDeviceEvent = jest.fn();
+      (device as any).onDeviceEvent = onDeviceEvent;
+      const metadataListener = streamServerListener("metadataReceived");
+      const inactiveListener = streamServerListener("livestreamInactive");
+
+      // The S330 opens a session labelled H265, then the bitstream settles
+      // on H264 within a second — all while a viewer is attached.
       metadataListener({ videoCodec: "H265" });
-
-      expect(onDeviceEvent).toHaveBeenCalledWith("VideoCamera", undefined);
       expect((device as any).storage.getItem("lastDetectedVideoCodec")).toBe(
         "H265",
       );
-
-      onDeviceEvent.mockClear();
+      metadataListener({ videoCodec: "H264" });
       metadataListener({ videoCodec: "HEVC" });
+      expect(onDeviceEvent).not.toHaveBeenCalled();
 
+      // Rebroadcast refetches options once the stream has stopped.
+      inactiveListener();
+      expect(onDeviceEvent).toHaveBeenCalledTimes(1);
+      expect(onDeviceEvent).toHaveBeenCalledWith("VideoCamera", undefined);
+
+      // Nothing changed since the last announcement: no further refetch.
+      onDeviceEvent.mockClear();
+      metadataListener({ videoCodec: "H265" });
+      inactiveListener();
+      expect(onDeviceEvent).not.toHaveBeenCalled();
+    });
+
+    test("does not reannounce when sessions end on the codec options were built with", () => {
+      const onDeviceEvent = jest.fn();
+      (device as any).onDeviceEvent = onDeviceEvent;
+      const metadataListener = streamServerListener("metadataReceived");
+      const inactiveListener = streamServerListener("livestreamInactive");
+
+      metadataListener({ videoCodec: "H265" });
+      inactiveListener();
+      onDeviceEvent.mockClear();
+
+      // A transient relabel inside a session that ends where it started.
+      metadataListener({ videoCodec: "H264" });
+      metadataListener({ videoCodec: "H265" });
+      inactiveListener();
       expect(onDeviceEvent).not.toHaveBeenCalled();
     });
 
