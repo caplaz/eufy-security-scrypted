@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Direct RTSP streaming** ([#41](https://github.com/caplaz/eufy-security-scrypted/pull/41)): Cameras with NAS/RTSP enabled, or with a custom RTSP URL, can stream locally instead of through the shared HomeBase P2P slot. Live viewers and snapshot captures share one NAS activation, streams are copied without re-encoding, and the existing `p2p` and `p2p-h264` streams remain available.
 
+### Fixed
+
+- **HomeBase cold start retried once before a station recycle** ([#49](https://github.com/caplaz/eufy-security-scrypted/issues/49)): A camera behind a HomeBase can take longer than the 5 s upstream no-data limit to wake, so the first start often delivers no frames. The plugin now sends one bounded retry (with a shorter second window) before declaring the upstream wedged, instead of recycling the station on the first empty start.
+- **H.264 compatibility stream no longer disappears after an empty start** ([#49](https://github.com/caplaz/eufy-security-scrypted/issues/49)): Session verification resets on a new P2P session, which removed `p2p-h264` from the advertised stream list and made Scrypted drop the compatibility rebroadcast, leaving HomeKit to re-request raw H.265. In `Force` mode the option now remains while the last known codec is H.265, without advertising a stale codec on the native stream.
+
 ### Contributors
 
 Thanks to [@resonaura](https://github.com/resonaura) for adding direct RTSP streaming, including the activation lifecycle and its tests.

@@ -2835,4 +2835,73 @@ describe("StreamServer", () => {
       jest.useRealTimers();
     });
   });
+
+  describe("cold-start retry before recycle", () => {
+    const makeNoDataServer = () => {
+      const startLivestream = jest.fn().mockResolvedValue({});
+      const deviceApi = {
+        startLivestream,
+        stopLivestream: jest.fn().mockResolvedValue({}),
+        // bropat accepts the start but never reports it running.
+        isLivestreaming: jest.fn().mockResolvedValue({ livestreaming: false }),
+      };
+      const wsClient = {
+        addEventListener: jest.fn().mockReturnValue(() => {}),
+        commands: { device: jest.fn().mockReturnValue(deviceApi) },
+      };
+      const s = new StreamServer({
+        port: testPort,
+        host: "127.0.0.1",
+        wsClient: wsClient as any,
+        serialNumber: "TEST123",
+      });
+      const wedges: Array<{ reason: string; attempts?: number }> = [];
+      s.on("upstreamWedged", (e: any) => wedges.push(e));
+      return { s, startLivestream, wedges };
+    };
+
+    it("retries one no-data cold start before declaring the upstream wedged", async () => {
+      jest.useFakeTimers();
+      const { s, startLivestream, wedges } = makeNoDataServer();
+
+      (s as any).livestreamIntendedState = true;
+      const p = (s as any).ensureLivestreamState();
+      await jest.advanceTimersByTimeAsync(0);
+      await p;
+      expect(startLivestream).toHaveBeenCalledTimes(1);
+
+      // First cold-start window expires with no video: retry, don't recycle.
+      await jest.advanceTimersByTimeAsync(18000);
+      expect(startLivestream).toHaveBeenCalledTimes(2);
+      expect(wedges).toHaveLength(0);
+
+      // The retry gets a shorter window; after it, give up and recycle.
+      await jest.advanceTimersByTimeAsync(10000);
+      expect(wedges).toHaveLength(1);
+      expect(wedges[0].reason).toBe("cold-start-counter-maxed");
+      expect(wedges[0].attempts).toBe(2);
+
+      await s.stop();
+      jest.useRealTimers();
+    });
+
+    it("does not retry after video has confirmed the session", async () => {
+      jest.useFakeTimers();
+      const { s, startLivestream, wedges } = makeNoDataServer();
+
+      (s as any).livestreamIntendedState = true;
+      await (s as any).ensureLivestreamState();
+      expect(startLivestream).toHaveBeenCalledTimes(1);
+
+      // First frame arrives inside the cold-start window.
+      (s as any).setLivestreamActual(true);
+
+      await jest.advanceTimersByTimeAsync(40000);
+      expect(startLivestream).toHaveBeenCalledTimes(1);
+      expect(wedges).toHaveLength(0);
+
+      await s.stop();
+      jest.useRealTimers();
+    });
+  });
 });
