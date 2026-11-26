@@ -33,6 +33,28 @@ const interfacesFor = (
   } as any);
 
 describe("buildScryptedDeviceInterfaces", () => {
+  test("omits Charger for a battery camera behind a HomeBase", () => {
+    const interfaces = interfacesFor(DeviceType.CAMERA_S4, {
+      battery: 80,
+      chargingStatus: 1,
+      serialNumber: "T8170T102346191E",
+      stationSerialNumber: "T8030P23232030C0",
+    });
+    expect(interfaces).toContain(ScryptedInterface.Battery);
+    expect(interfaces).not.toContain(ScryptedInterface.Charger);
+  });
+
+  test("keeps Charger for a battery camera that is its own station", () => {
+    expect(
+      interfacesFor(DeviceType.CAMERA_S4, {
+        battery: 80,
+        chargingStatus: 1,
+        serialNumber: "T8170T102346191E",
+        stationSerialNumber: "T8170T102346191E",
+      }),
+    ).toContain(ScryptedInterface.Charger);
+  });
+
   test("exposes a battery PTZ camera", () => {
     expect(interfacesFor(DeviceType.CAMERA_S4, { battery: 80 })).toEqual(
       expect.arrayContaining([

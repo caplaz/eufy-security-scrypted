@@ -14,7 +14,21 @@ type DeviceInterfaceProperties = Pick<
   | "light"
   | "lightSettingsBrightnessManual"
   | "wifiRssi"
+  | "serialNumber"
+  | "stationSerialNumber"
 >;
+
+/**
+ * True when the device streams through a separate HomeBase rather than being
+ * its own station (SoloCam, standalone doorbell).
+ */
+function isBehindHomeBase(properties: DeviceInterfaceProperties): boolean {
+  return (
+    !!properties.stationSerialNumber &&
+    !!properties.serialNumber &&
+    properties.stationSerialNumber !== properties.serialNumber
+  );
+}
 
 export function buildScryptedDeviceInterfaces(
   capabilities: ReturnType<typeof getDeviceCapabilities>,
@@ -46,7 +60,16 @@ export function buildScryptedDeviceInterfaces(
     interfaces.push(ScryptedInterface.Battery);
   }
 
-  if (capabilities.battery && properties.chargingStatus !== undefined) {
+  // Rebroadcast runs a continuous prebuffer for any battery camera that
+  // reports Charging. For a solar camera on a HomeBase that means the stream
+  // starts and dies every time the sun comes and goes, and while it runs it
+  // holds the HomeBase's single stream slot, starving sibling cameras.
+  // Without Charger, Rebroadcast keeps such cameras on demand only.
+  if (
+    capabilities.battery &&
+    properties.chargingStatus !== undefined &&
+    !(capabilities.camera && isBehindHomeBase(properties))
+  ) {
     interfaces.push(ScryptedInterface.Charger);
   }
 
