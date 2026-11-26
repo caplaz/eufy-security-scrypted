@@ -25,11 +25,15 @@ const DEFAULT_VAAPI_DEVICE = "/dev/dri/renderD128";
 const VAAPI_PROBE_TIMEOUT_MS = 5_000;
 
 /**
- * Output size of the compatibility stream. HomeKit asks for at most 1280x720
- * and the S330 alternates between 4K and 640x360 mid-session; a fixed size
- * keeps the encoder (and the fMP4 init segment) valid across those changes.
+ * Scale for the compatibility stream, evaluated once on the first decoded
+ * frame: the source width clamped to 1280..1920, height following the source
+ * aspect ratio. The S340 (1280x1440, two stacked lens views) stays 1280x1440
+ * instead of being squashed into 16:9; S330 4K becomes 1920x1080 and its
+ * 640x360 mode 1280x720. With `-reinit_filter 0` the size then stays fixed for
+ * the session, keeping the encoder (and the fMP4 init segment) valid when the
+ * camera changes resolution mid-stream; later frames are scaled to it.
  */
-const RELAY_OUTPUT_SIZE = "1280:720";
+const RELAY_SCALE = "scale=w=min(max(iw\\,1280)\\,1920):h=-2";
 
 export type RelayVideoEncoder = "vaapi" | "libx264";
 
@@ -57,13 +61,15 @@ export function buildRelayFfmpegArgs(
     encoder === "vaapi"
       ? [
           "-vf",
-          `scale=${RELAY_OUTPUT_SIZE},format=nv12,hwupload`,
+          `${RELAY_SCALE},format=nv12,hwupload`,
           "-c:v",
           "h264_vaapi",
+          // Sized for up to 1920x1080 / 1280x1440 (measured ~3 Mbit/s on
+          // the NAS); 1.5 Mbit/s was visibly soft once output exceeded 720p.
           "-b:v",
-          "1500k",
+          "3M",
           "-maxrate",
-          "2M",
+          "4M",
           "-bf",
           "0",
           "-g",
@@ -71,7 +77,7 @@ export function buildRelayFfmpegArgs(
         ]
       : [
           "-vf",
-          `scale=${RELAY_OUTPUT_SIZE}`,
+          RELAY_SCALE,
           "-c:v",
           "libx264",
           "-preset",

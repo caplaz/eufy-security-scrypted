@@ -217,7 +217,7 @@ describe("H264CompatibilityRelay", () => {
         "-reinit_filter",
         "0",
         "-vf",
-        "scale=1280:720",
+        "scale=w=min(max(iw\\,1280)\\,1920):h=-2",
         "-preset",
         "ultrafast",
         "-tune",
@@ -232,7 +232,7 @@ describe("H264CompatibilityRelay", () => {
     await new Promise<void>((resolve) => source.server.close(() => resolve()));
   });
 
-  it("encodes through VAAPI with a fixed-size, resolution-change-safe graph", () => {
+  it("encodes through VAAPI with a source-sized, resolution-change-safe graph", () => {
     const args = buildRelayFfmpegArgs("vaapi", "/dev/dri/renderD128");
     const at = (flag: string) => args.indexOf(flag);
     // Hardware device and -reinit_filter are input options: before -i.
@@ -245,7 +245,9 @@ describe("H264CompatibilityRelay", () => {
     // Software decode + scale, then upload: a VAAPI decode drops every frame
     // after the camera's first resolution change.
     expect(args).not.toContain("-hwaccel");
-    expect(args[at("-vf") + 1]).toBe("scale=1280:720,format=nv12,hwupload");
+    expect(args[at("-vf") + 1]).toBe(
+      "scale=w=min(max(iw\\,1280)\\,1920):h=-2,format=nv12,hwupload",
+    );
     expect(args[at("-c:v") + 1]).toBe("h264_vaapi");
     expect(args).not.toContain("libx264");
   });
@@ -254,7 +256,9 @@ describe("H264CompatibilityRelay", () => {
     const args = buildRelayFfmpegArgs("libx264");
     expect(args).not.toContain("-init_hw_device");
     expect(args[args.indexOf("-c:v") + 1]).toBe("libx264");
-    expect(args[args.indexOf("-vf") + 1]).toBe("scale=1280:720");
+    expect(args[args.indexOf("-vf") + 1]).toBe(
+      "scale=w=min(max(iw\\,1280)\\,1920):h=-2",
+    );
   });
 
   it("does not probe for VAAPI when a child process factory is injected", async () => {
