@@ -268,7 +268,12 @@ export class StreamService {
       ...(audio && { audio }),
     };
 
-    if (source.codec !== "H265") return [native];
+    if (
+      source.codec !== "H265" &&
+      !this.shouldOfferCompatibilityOptions(source)
+    ) {
+      return [native];
+    }
 
     return [
       native,
@@ -476,6 +481,29 @@ export class StreamService {
     };
 
     return await sdk.mediaManager.createFFmpegMediaObject(ffmpegInput);
+  }
+
+  /**
+   * Whether the H.264 compatibility stream stays in the advertised option
+   * list even though this session has not verified its source codec.
+   *
+   * Session verification resets on every new P2P session, including one that
+   * delivers no video. Dropping `p2p-h264` then makes Scrypted see a changed
+   * stream list, tear down the compatibility rebroadcast and re-request raw
+   * H.265 from a HomeKit consumer that requires H.264 (#49). The relay always
+   * outputs H.264, so in Force mode the option remains while the persisted
+   * codec hint still says H.265. Auto and Native keep listing only what this
+   * session verified.
+   */
+  private shouldOfferCompatibilityOptions(source: {
+    codec?: SourceCodec;
+  }): boolean {
+    if (source.codec !== undefined) return false;
+    if (this.compatibilityMode() !== "Force") return false;
+    return (
+      this.toSourceCodec(this.streamServer.getVideoMetadata()?.videoCodec) ===
+      "H265"
+    );
   }
 
   private currentVerifiedSource(): { codec?: SourceCodec; verified: boolean } {

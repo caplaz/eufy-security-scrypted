@@ -220,14 +220,17 @@ export class StreamServer extends EventEmitter {
   private consecutiveNoDataStarts = 0;
   /**
    * How many `startLivestream` commands with no resulting video data we
-   * tolerate before declaring the upstream wedged. Set to 1: re-sending
-   * `startLivestream` to a deeply-idle T86P2 doesn't help (each fresh start
-   * tends to reset the half-open P2P negotiation), whereas a station P2P
-   * recycle reliably does. So we send once, wait the full cold-start window
-   * (`startStopTimeout` below uses `COLD_START_STALE_THRESHOLD_MS`), then go
-   * straight to the recycle instead of hammering 3× and burning ~90s first.
+   * tolerate before declaring the upstream wedged. Two means one retry: a
+   * camera behind a HomeBase commonly needs 5–11s to wake and deliver its
+   * first frame, and eufy-security-client stops a start after 5s without
+   * data. The first attempt times out while the camera is still waking;
+   * a second start a few seconds later succeeds because the camera is awake
+   * (field data on the S4/T8172 behind a HomeBase 3). A deeply wedged P2P
+   * session still gets one attempt and then the station recycle, without
+   * hammering a stuck HomeBase with a 3× retry loop. The retry uses the
+   * shorter `COLD_START_RETRY_WINDOW_MS`, since the camera is already awake.
    */
-  private readonly MAX_NO_DATA_STARTS = 1;
+  private readonly MAX_NO_DATA_STARTS = 2;
 
   /**
    * Timestamp of the most recent `LIVESTREAM_VIDEO_DATA` event for this
@@ -273,6 +276,15 @@ export class StreamServer extends EventEmitter {
    * this — recycle suppression (no-signal / chronic-failure) stops them.
    */
   private readonly COLD_START_STALE_THRESHOLD_MS = 18000;
+
+  /**
+   * Window applied after a retry start (`consecutiveNoDataStarts >= 2`).
+   * The first attempt is what wakes a battery camera, so the retry does not
+   * need the full cold-start window. Keeping it short bounds the time before
+   * a genuine wedge escalates to a station recycle (18s + 10s ≈ 28s, still
+   * near HomeKit's ~30s live-view window).
+   */
+  private readonly COLD_START_RETRY_WINDOW_MS = 10000;
 
   /**
    * Timestamp of when the current livestream "session" was established —
@@ -1058,7 +1070,7 @@ export class StreamServer extends EventEmitter {
   /**
    * Signal that the upstream P2P session is wedged. Two callers:
    *  - cold-start: `consecutiveNoDataStarts` reached `MAX_NO_DATA_STARTS`
-   *    (3 fresh `startLivestream` attempts produced zero video bytes).
+   *    (two fresh `startLivestream` attempts produced zero video bytes).
    *  - mid-session: data was flowing, then stopped for more than
    *    `STALE_DATA_THRESHOLD_MS` while consumers still want a stream.
    *
@@ -1325,20 +1337,28 @@ export class StreamServer extends EventEmitter {
             .startLivestream();
           this.logger.info("✅ Livestream start command sent successfully");
 
-          // Wait the full cold-start window before re-evaluating. A
-          // deeply-idle battery camera can legitimately take 30–45s to wake
-          // and deliver its first frame, so checking sooner just provokes a
-          // premature re-send/recycle. With MAX_NO_DATA_STARTS=1 this
-          // re-entry will conclude the upstream is wedged (no data after a
-          // full window) and hand off to the station P2P recycle.
+          // Wait for the first frame before re-evaluating. A deeply-idle
+          // battery camera can legitimately take 30–45s to wake and deliver
+          // its first frame, so checking sooner provokes a premature
+          // re-send/recycle. The first attempt gets the full cold-start
+          // window; the retry gets the shorter retry window because the
+          // first start is what woke the camera.
+          const waitMs =
+            this.consecutiveNoDataStarts < this.MAX_NO_DATA_STARTS
+              ? this.COLD_START_STALE_THRESHOLD_MS
+              : this.COLD_START_RETRY_WINDOW_MS;
           this.startStopTimeout = setTimeout(() => {
             if (this.livestreamIntendedState && !this.livestreamActualState) {
               this.logger.warn(
-                `⚠️ No video data ${this.COLD_START_STALE_THRESHOLD_MS / 1000}s after startLivestream — escalating to wedge/recycle`,
+                `⚠️ No video data ${waitMs / 1000}s after startLivestream (consecutive-no-data=${this.consecutiveNoDataStarts}/${this.MAX_NO_DATA_STARTS}) — ${
+                  this.consecutiveNoDataStarts < this.MAX_NO_DATA_STARTS
+                    ? "retrying"
+                    : "escalating to wedge/recycle"
+                }`,
               );
               this.ensureLivestreamState();
             }
-          }, this.COLD_START_STALE_THRESHOLD_MS);
+          }, waitMs);
         } else if (this.livestreamIntendedState && actualStreamingStatus) {
           // Stream is already running and we want it running - all good.
           // Set the session anchor if it's not already set so the

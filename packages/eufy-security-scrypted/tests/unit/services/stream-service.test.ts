@@ -202,6 +202,53 @@ describe("StreamService", () => {
       expect(native.audio).toBeUndefined();
     });
 
+    it("keeps the compatibility option across a no-data session when Force is set", async () => {
+      // A no-data start resets per-session verification, but the relay still
+      // outputs H.264. Dropping the option makes Scrypted tear down the
+      // p2p-h264 rebroadcast and retry with raw H.265 (#49).
+      const forced = new StreamService(
+        serialNumber,
+        mockStreamServer,
+        mockLogger,
+        { compatibilityMode: () => "Force" as CompatibilityMode },
+      );
+      mockStreamServer.getVideoMetadata.mockReturnValue(liveH265Metadata);
+      mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
+        false,
+      );
+      mockStreamServer.getAudioStatus.mockReturnValue("none");
+
+      const options = forced.getVideoStreamOptions(VideoQuality.HIGH);
+
+      expect(options.map((option) => option.id)).toEqual(["p2p", "p2p-h264"]);
+      // The unverified native entry must not claim the stale codec.
+      expect(options[0].video).toEqual({ width: 1920, height: 1080 });
+      await forced.dispose();
+    });
+
+    it("does not offer compatibility for an unverified last-known H.264 source", async () => {
+      const forced = new StreamService(
+        serialNumber,
+        mockStreamServer,
+        mockLogger,
+        { compatibilityMode: () => "Force" as CompatibilityMode },
+      );
+      mockStreamServer.getVideoMetadata.mockReturnValue({
+        videoCodec: "H264",
+        videoWidth: 1920,
+        videoHeight: 1080,
+        videoFPS: 15,
+      });
+      mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
+        false,
+      );
+
+      expect(
+        forced.getVideoStreamOptions(VideoQuality.HIGH).map((o) => o.id),
+      ).toEqual(["p2p"]);
+      await forced.dispose();
+    });
+
     it("advertises verified native fMP4 codec and observed audio truthfully", () => {
       mockStreamServer.getVideoMetadata.mockReturnValue(liveH265Metadata);
       mockStreamServer.isMetadataVerifiedForCurrentSession.mockReturnValue(
